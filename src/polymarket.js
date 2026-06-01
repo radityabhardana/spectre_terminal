@@ -32,7 +32,7 @@ function safeJsonParse(value, fallback) {
   }
 }
 
-export const SEARCH_ENGINE_VERSION = "public-search-v2";
+export const SEARCH_ENGINE_VERSION = "public-search-v2-event-wide-analysis-v3-buttons-best-all";
 
 function normalizeMarket(raw, event = null, eventSearchRank = 999) {
   const outcomes = safeJsonParse(raw.outcomes, raw.outcomes || []);
@@ -50,6 +50,8 @@ function normalizeMarket(raw, event = null, eventSearchRank = 999) {
     eventSlug,
     eventSearchRank,
     groupItemTitle: raw.groupItemTitle || "",
+    selectionNote: raw.selectionNote || "",
+    eventOpenMarketCount: raw.eventOpenMarketCount || null,
     url: eventSlug
       ? `https://polymarket.com/event/${eventSlug}`
       : marketSlug
@@ -67,6 +69,28 @@ function normalizeMarket(raw, event = null, eventSearchRank = 999) {
     outcomePrices: outcomePrices.map(Number),
     clobTokenIds: clobTokenIds.map(String),
     raw,
+  };
+}
+
+function openTradableMarket(market) {
+  return market.active && !market.closed && market.clobTokenIds.length > 0;
+}
+
+function sortEventMarkets(markets) {
+  return [...markets].sort((a, b) => {
+    const aOrders = a.acceptingOrders ? 1 : 0;
+    const bOrders = b.acceptingOrders ? 1 : 0;
+    if (aOrders !== bOrders) return bOrders - aOrders;
+
+    return b.liquidity + b.volume - (a.liquidity + a.volume);
+  });
+}
+
+function withSelectionNote(market, note, openCount) {
+  return {
+    ...market,
+    selectionNote: note,
+    eventOpenMarketCount: openCount,
   };
 }
 
@@ -181,6 +205,140 @@ export async function getMarketById(marketId) {
   const url = new URL(`/markets/${marketId}`, config.gammaUrl);
   const data = await fetchJson(url.toString());
   return normalizeMarket(data);
+}
+
+export async function getMarketBySlug(slug) {
+  const url = new URL(`/markets/slug/${slug}`, config.gammaUrl);
+  const data = await fetchJson(url.toString());
+  return normalizeMarket(data);
+}
+
+export async function getEventBySlug(slug) {
+  const url = new URL(`/events/slug/${slug}`, config.gammaUrl);
+  return fetchJson(url.toString());
+}
+
+function normalizeEvent(raw) {
+  return {
+    id: String(raw?.id || ""),
+    title: raw?.title || raw?.ticker || raw?.slug || "Untitled event",
+    slug: raw?.slug || "",
+    description: raw?.description || "",
+    endDate: raw?.endDate || "",
+    url: raw?.slug ? `https://polymarket.com/event/${raw.slug}` : "",
+    raw,
+  };
+}
+
+export function parsePolymarketLink(value) {
+  const input = String(value || "").trim();
+  if (!/^https?:\/\//i.test(input)) return null;
+
+  let url;
+  try {
+    url = new URL(input);
+  } catch {
+    return null;
+  }
+
+  const host = url.hostname.toLowerCase().replace(/^www\./, "");
+  if (host !== "polymarket.com") return null;
+
+  const parts = url.pathname.split("/").filter(Boolean);
+  const eventIndex = parts.indexOf("event");
+  const marketIndex = parts.indexOf("market");
+
+  if (eventIndex >= 0 && parts[eventIndex + 1]) {
+    return { type: "event", slug: parts[eventIndex + 1], url: input };
+  }
+  if (marketIndex >= 0 && parts[marketIndex + 1]) {
+    return { type: "market", slug: parts[marketIndex + 1], url: input };
+  }
+
+  return null;
+}
+
+export async function getMarketFromPolymarketLink(value) {
+  const parsed = parsePolymarketLink(value);
+  if (!parsed) return null;
+
+  const tryMarketSlug = async () => {
+    try {
+      return await getMarketBySlug(parsed.slug);
+    } catch {
+      return null;
+    }
+  };
+
+  const tryEventSlug = async () => {
+    try {
+      const event = await getEventBySlug(parsed.slug);
+      const markets = Array.isArray(event.markets)
+        ? event.markets.map((market) => normalizeMarket(market, event))
+        : [];
+      const openMarkets = sortEventMarkets(markets.filter(openTradableMarket));
+      if (!openMarkets.length) return null;
+
+      const selected = openMarkets[0];
+      const note =
+        openMarkets.length > 1
+          ? `Auto-selected 1 dari ${openMarkets.length} market aktif di event link berdasarkan acceptingOrders dan liquidity/volume. Pakai /search ${parsed.slug} kalau mau pilih market lain.`
+          : "Auto-selected satu-satunya market aktif dari event link.";
+
+      return withSelectionNote(selected, note, openMarkets.length);
+    } catch {
+      return null;
+    }
+  };
+
+  if (parsed.type === "event") {
+    return (await tryEventSlug()) || (await tryMarketSlug());
+  }
+
+  return (await tryMarketSlug()) || (await tryEventSlug());
+}
+
+export async function getMarketsFromPolymarketLink(value) {
+  const parsed = parsePolymarketLink(value);
+  if (!parsed) return null;
+
+  const tryMarketSlug = async () => {
+    try {
+      const market = await getMarketBySlug(parsed.slug);
+      return {
+        kind: "market",
+        event: null,
+        markets: market ? [market] : [],
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const tryEventSlug = async () => {
+    try {
+      const eventRaw = await getEventBySlug(parsed.slug);
+      const event = normalizeEvent(eventRaw);
+      const markets = Array.isArray(eventRaw.markets)
+        ? eventRaw.markets.map((market) => normalizeMarket(market, eventRaw))
+        : [];
+      const openMarkets = sortEventMarkets(markets.filter(openTradableMarket));
+
+      return {
+        kind: openMarkets.length > 1 ? "event" : "market",
+        event,
+        markets: openMarkets,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  if (parsed.type === "event") {
+    return (await tryEventSlug()) || (await tryMarketSlug());
+  }
+
+  return (await tryMarketSlug()) || (await tryEventSlug());
 }
 
 export async function getOrderBook(tokenId) {

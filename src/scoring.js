@@ -31,13 +31,14 @@ function riskFromScore(score) {
 
 export function scoreMarket({ market, yesBook }) {
   const { bestBid, bestAsk } = bestBidAsk(yesBook);
+  const hasTwoSidedBook = bestBid != null && bestAsk != null;
   const midpoint =
-    bestBid != null && bestAsk != null
+    hasTwoSidedBook
       ? (bestBid + bestAsk) / 2
       : numberOrNull(market.outcomePrices[0]);
 
   const marketProbability = midpoint != null ? midpoint * 100 : null;
-  const spread = bestBid != null && bestAsk != null ? bestAsk - bestBid : null;
+  const spread = hasTwoSidedBook ? bestAsk - bestBid : null;
   const spreadPercent = spread != null ? spread * 100 : null;
 
   const liquidityScore = clamp(Math.log10(Math.max(market.liquidity, 1)) * 20, 0, 100);
@@ -93,17 +94,49 @@ export function scoreMarket({ market, yesBook }) {
     ).toFixed(1)
   );
 
+  const blockers = [];
+  if (market.closed) blockers.push("Market closed");
+  if (!market.acceptingOrders) blockers.push("Orders not clearly open");
+  if (!hasTwoSidedBook) blockers.push("Orderbook is not two-sided");
+  if (spreadRisk === "High") blockers.push("Spread risk high");
+  if (resolutionRisk === "High") blockers.push("Resolution risk high");
+  if (edgeScore == null || edgeScore <= 0) blockers.push("No measured positive edge");
+
   let verdict = "SKIP";
-  if (confidenceScore >= 70 && spreadRisk !== "High" && resolutionRisk !== "High") {
+  if (
+    market.active &&
+    !market.closed &&
+    confidenceScore >= 65 &&
+    spreadRisk !== "High" &&
+    resolutionRisk !== "High"
+  ) {
     verdict = "WATCHLIST";
   }
-  if (marketProbability != null && marketProbability <= 25 && confidenceScore >= 55) {
+  if (
+    edgeScore != null &&
+    edgeScore >= 8 &&
+    confidenceScore >= 70 &&
+    spreadRisk !== "High" &&
+    resolutionRisk !== "High"
+  ) {
+    verdict = "VALUE CANDIDATE";
+  }
+  if (
+    edgeScore != null &&
+    edgeScore > 0 &&
+    marketProbability != null &&
+    marketProbability <= 25 &&
+    confidenceScore >= 55 &&
+    spreadRisk !== "High"
+  ) {
     verdict = "HIGH RISK UNDERDOG";
   }
+  if (market.closed || !market.acceptingOrders) verdict = "SKIP";
 
   return {
     bestBid,
     bestAsk,
+    hasTwoSidedBook,
     spread,
     spreadPercent,
     marketProbability,
@@ -114,6 +147,7 @@ export function scoreMarket({ market, yesBook }) {
     liquidityRisk,
     spreadRisk,
     resolutionRisk,
+    blockers,
     verdict,
   };
 }

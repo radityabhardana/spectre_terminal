@@ -27,6 +27,13 @@ function loadDotEnv(filePath) {
 
 loadDotEnv(path.resolve(process.cwd(), ".env"));
 
+function positiveInt(value, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  const rounded = Math.floor(num);
+  return rounded > 0 ? rounded : fallback;
+}
+
 export const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || "",
   qwenApiKey: process.env.QWEN_API_KEY || "",
@@ -37,8 +44,9 @@ export const config = {
   gammaUrl:
     process.env.POLYMARKET_GAMMA_URL || "https://gamma-api.polymarket.com",
   clobUrl: process.env.POLYMARKET_CLOB_URL || "https://clob.polymarket.com",
-  maxQwenInputChars: Number(process.env.MAX_QWEN_INPUT_CHARS || 7000),
-  cacheTtlSeconds: Number(process.env.CACHE_TTL_SECONDS || 60),
+  maxQwenInputChars: positiveInt(process.env.MAX_QWEN_INPUT_CHARS, 7000),
+  qwenMaxTokens: positiveInt(process.env.QWEN_MAX_TOKENS, 10000),
+  cacheTtlSeconds: positiveInt(process.env.CACHE_TTL_SECONDS, 60),
 };
 
 export function assertConfig() {

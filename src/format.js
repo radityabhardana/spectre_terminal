@@ -94,6 +94,46 @@ function usageLine(qwenResult) {
   return `Qwen usage: ${JSON.stringify(usage)}`;
 }
 
+function modelLine(qwenResult) {
+  if (qwenResult?.models) {
+    return `Qwen pipeline: fast ${qwenResult.models.fast} -> analyst ${qwenResult.models.analyst} -> final ${qwenResult.models.final}`;
+  }
+  return `Qwen model: ${qwenResult?.model || "n/a"}`;
+}
+
+function researchLines(qwenResult) {
+  const research = qwenResult?.researchContext;
+  if (!research || research.status === "skipped") return [];
+
+  if (research.status === "error" && research.type !== "crypto") {
+    return [
+      "RESEARCH CONTEXT",
+      `Provider: ${research.provider || "n/a"} (error)`,
+      `Detected: ${(research.detectedAssets || []).map((asset) => asset.symbol).join(", ") || "n/a"}`,
+      `Error: ${research.error || "n/a"}`,
+      "",
+    ];
+  }
+
+  if (research.type === "crypto") {
+    return [
+      "RESEARCH CONTEXT",
+      `Provider: ${research.provider || "n/a"}`,
+      `Status: ${research.status || "n/a"}`,
+      `Detected: ${(research.detectedAssets || []).map((asset) => asset.symbol).join(", ") || "n/a"}`,
+      `Market data: ${research.summary || "n/a"}`,
+      research.sentimentSummary ? `Sentiment: ${research.sentimentSummary}` : null,
+      research.fundamentalSummary ? `Fundamental: ${research.fundamentalSummary}` : null,
+      research.newsSummary ? `News/Catalyst: ${research.newsSummary}` : null,
+      research.errors?.length ? `Partial errors: ${research.errors.join("; ")}` : null,
+      research.fetchedAt ? `Fetched: ${research.fetchedAt}` : null,
+      "",
+    ].filter((line) => line != null && line !== false);
+  }
+
+  return [];
+}
+
 function finalVerdict(score, qwenAnalysis) {
   const qwenVerdict = qwenAnalysis?.verdict || score.verdict;
   const hardBlockers = (score.blockers || []).filter(
@@ -109,6 +149,19 @@ function finalVerdict(score, qwenAnalysis) {
     return "WATCHLIST";
   }
   return qwenVerdict;
+}
+
+function entryVerdictMeaning(verdict) {
+  if (verdict === "VALUE CANDIDATE") {
+    return "ENTRY CANDIDATE - masih wajib cek manual sebelum action.";
+  }
+  if (verdict === "HIGH RISK UNDERDOG") {
+    return "SPECULATIVE WATCH - peluang kecil/underdog, risiko tinggi.";
+  }
+  if (verdict === "WATCHLIST") {
+    return "WATCHLIST - layak dipantau, belum jadi entry bersih.";
+  }
+  return "SKIP ENTRY - arah boleh dibaca, tapi kondisi entry ditolak.";
 }
 
 function directionSignal(score) {
@@ -135,6 +188,21 @@ function directionSignal(score) {
   return { side: "NETRAL", yesConfidence, noConfidence, dominanceGap };
 }
 
+function directionStrength(direction) {
+  if (!Number.isFinite(direction.dominanceGap)) return "n/a";
+  if (direction.dominanceGap >= 35) return "Strong";
+  if (direction.dominanceGap >= 15) return "Medium";
+  if (direction.dominanceGap >= 5) return "Weak";
+  return "Flat";
+}
+
+function confidenceText(value) {
+  if (value == null || value === "") return "n/a";
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "n/a";
+  return `${Math.round(num)}/100`;
+}
+
 function oneLine(list) {
   if (!Array.isArray(list) || !list.length) return "n/a";
   return String(list[0] || "n/a");
@@ -143,16 +211,19 @@ function oneLine(list) {
 export function formatHelp() {
   return [
     "Polymarket Analyzer Bot",
-    "Version: public-search-v2-event-wide-analysis-v3-buttons-best-all",
+    "Version: public-search-v2-event-wide-analysis-v11-free-research-apis",
     "",
     "Command:",
     "/search <keyword> - cari market aktif",
     "/analyze <keyword, marketId, atau link Polymarket> - analisis manual dengan Qwen",
+    "/quickscan <link/slug event> - scan cepat event tanpa Qwen",
+    "/top3 <link/slug event> - tampilkan 3 pilihan teratas tanpa Qwen",
     "/analyzebest <link/slug event> - pilih kandidat paling worth it dari event",
     "/analyzeall <link event Polymarket> - jelaskan semua pilihan aktif satu per satu",
     "/book <tokenId, marketId, atau link Polymarket> - cek orderbook token CLOB",
     "/example - contoh alur pakai bot",
     "",
+    "Qwen pipeline: fast scout -> analyst reviewer -> final judge.",
     "Tombol menu akan muncul di bawah chat setelah /start.",
     "Kamu juga bisa kirim link Polymarket atau Market ID langsung untuk dianalisis.",
     "Bot ini hanya analisis, bukan auto-entry.",
@@ -166,34 +237,29 @@ function verdictIcon(verdict) {
   return "SKIP";
 }
 
-export function formatEventChoicePrompt({ event, markets, sourceInput }) {
-  const source = String(sourceInput || "").trim();
+export function formatEventHubPrompt({ event, markets }) {
   const top = [...markets]
     .sort((a, b) => b.liquidity + b.volume - (a.liquidity + a.volume))
-    .slice(0, 12);
-
-  const options = top.map((market, index) =>
-    [
-      `${index + 1}. ${market.groupItemTitle || market.question}`,
-      `Market ID: ${market.id}`,
-      `Analyze: /analyze ${market.id}`,
-    ].join("\n")
-  );
+    .slice(0, 8);
 
   return [
-    "EVENT DITEMUKAN - PILIH MODE",
+    "EVENT HUB",
     `Event: ${event?.title || "n/a"}`,
     `Pilihan aktif: ${markets.length}`,
     event?.url ? `URL: ${event.url}` : null,
     "",
-    "Pilih satu market:",
-    ...options,
+    "Mode paling ringan:",
+    "Quick Scan - ranking cepat tanpa Qwen.",
+    "Top 3 - tampilkan 3 pilihan terbaik versi data market.",
     "",
-    "Atau pilih kandidat paling worth it dari event:",
-    `/analyzebest ${source}`,
+    "Mode deep:",
+    "AI Best - Qwen pilih 1 kandidat lalu deep analyze.",
+    "Analyze All - kirim 1 bubble per pilihan, pakai kalau memang mau cek semua.",
     "",
-    "Atau jelaskan semua pilihan aktif:",
-    `/analyzeall ${source}`,
+    "Pilihan cepat:",
+    ...top.map((market, index) =>
+      `${index + 1}. ${market.groupItemTitle || market.question} | ID ${market.id}`
+    ),
   ]
     .filter((line) => line != null && line !== false)
     .join("\n");
@@ -320,6 +386,7 @@ export function formatAnalysis({ market, score, qwenResult }) {
   const verdict = finalVerdict(score, qwen);
   const blockers = score.blockers?.length ? score.blockers.join("; ") : "Tidak ada hard blocker";
   const direction = directionSignal(score);
+  const strength = directionStrength(direction);
 
   return [
     "MARKET SUMMARY",
@@ -334,7 +401,12 @@ export function formatAnalysis({ market, score, qwenResult }) {
     `API close/resolution: ${formatDateWib(market.endDate)} WIB`,
     market.url ? `URL: ${market.url}` : null,
     "",
-    "KEPUTUSAN ARAH",
+    "KESIMPULAN CEPAT",
+    `Arah market: ${direction.side} (${strength})`,
+    `Entry status: ${entryVerdictMeaning(verdict)}`,
+    `Catatan: Arah market = bacaan probabilitas/sentimen. Entry status = layak masuk atau tidak.`,
+    "",
+    "ARAH MARKET - SCOUTING",
     `Dominan: ${direction.side}`,
     `Confidence YES: ${pct(direction.yesConfidence)} | Confidence NO: ${pct(
       direction.noConfidence
@@ -350,8 +422,9 @@ export function formatAnalysis({ market, score, qwenResult }) {
       score.spreadPercent
     )}`,
     "",
+    ...researchLines(qwenResult),
     "CONFIDENCE & RISK",
-    `Data confidence: ${score.confidenceScore}/100 | Qwen confidence: ${qwen.confidence ?? "n/a"}/100`,
+    `Data confidence: ${confidenceText(score.confidenceScore)} | Qwen confidence: ${confidenceText(qwen.confidence)}`,
     `Risks: liquidity ${score.liquidityRisk}, spread ${score.spreadRisk}, resolution ${score.resolutionRisk}`,
     `Guardrail: ${blockers}`,
     "",
@@ -361,10 +434,10 @@ export function formatAnalysis({ market, score, qwenResult }) {
     `Bear point: ${oneLine(qwen.bearishCase)}`,
     qwen.finalReason ? `Final reason: ${qwen.finalReason}` : null,
     "",
-    "FINAL VERDICT",
-    verdict,
+    "ENTRY VERDICT",
+    entryVerdictMeaning(verdict),
     `Mechanical: ${score.verdict} | Qwen: ${qwen.verdict || "n/a"}`,
-    `Qwen model: ${qwenResult?.model || "n/a"}`,
+    modelLine(qwenResult),
     usageLine(qwenResult),
     "",
     "Disclaimer: Analisis ini bukan financial advice dan tidak menjamin hasil.",
@@ -375,12 +448,13 @@ export function formatAnalysis({ market, score, qwenResult }) {
 
 export function formatMarketBubble({ market, score, index, total }) {
   const direction = directionSignal(score);
+  const strength = directionStrength(direction);
 
   return [
     `PILIHAN ${index}/${total}`,
     `Market: ${market.groupItemTitle || market.question}`,
     `Market ID: ${market.id}`,
-    `Dominan: ${direction.side}`,
+    `Arah market: ${direction.side} (${strength})`,
     `Confidence YES: ${pct(direction.yesConfidence)} | NO: ${pct(direction.noConfidence)}`,
     `Gap dominansi: ${points(direction.dominanceGap)}`,
     `Data confidence: ${score.confidenceScore}/100`,
@@ -389,9 +463,40 @@ export function formatMarketBubble({ market, score, index, total }) {
       score.spreadPercent
     )}`,
     `Risk: liquidity ${score.liquidityRisk}, spread ${score.spreadRisk}, resolution ${score.resolutionRisk}`,
-    `Verdict: ${verdictIcon(score.verdict)} | ${score.verdict}`,
+    `Entry: ${verdictIcon(score.verdict)} | ${entryVerdictMeaning(score.verdict)}`,
     `Analyze detail: /analyze ${market.id}`,
   ].join("\n");
+}
+
+export function formatEventQuickScan({ event, analyzedMarkets, limit = 8 }) {
+  const sorted = sortAnalyzedMarkets(analyzedMarkets, null).slice(0, limit);
+  const rows = sorted.flatMap((item, index) => {
+    const direction = directionSignal(item.score);
+    const strength = directionStrength(direction);
+    const label = item.market.groupItemTitle || item.market.question;
+
+    return [
+      `${index + 1}. ${label}`,
+      `Market ID: ${item.market.id}`,
+      `Arah: ${direction.side} (${strength}) | YES ${pct(direction.yesConfidence)} / NO ${pct(direction.noConfidence)}`,
+      `Entry: ${entryVerdictMeaning(item.score.verdict)}`,
+      `Data: confidence ${confidenceText(item.score.confidenceScore)}, underdog ${item.score.underdogScore}/10, spread ${pct(item.score.spreadPercent)}`,
+      `Analyze detail: /analyze ${item.market.id}`,
+      "",
+    ];
+  });
+
+  return [
+    "QUICK EVENT SCAN",
+    `Event: ${event?.title || "n/a"}`,
+    `Market dicek: ${analyzedMarkets.length}`,
+    `Ditampilkan: top ${sorted.length}`,
+    "",
+    ...rows,
+    "Catatan: Quick Scan tidak memakai Qwen. Ini ranking cepat dari orderbook, spread, liquidity, dan implied probability.",
+  ]
+    .filter((line) => line != null && line !== false)
+    .join("\n");
 }
 
 export function formatAnalyzeAllSummary({ event, analyzedMarkets }) {
@@ -474,6 +579,7 @@ export function formatEventAnalysis({ event, analyzedMarkets, qwenResult }) {
       ? `Guardrail: Qwen top pick diganti karena ${hardBlockers(qwenBestBlocked.score).join("; ")}.`
       : null,
     "",
+    ...researchLines(qwenResult),
     "FULL EVENT RANKING",
     ...rankingLines,
     "AVOID / BE CAREFUL",
@@ -484,7 +590,7 @@ export function formatEventAnalysis({ event, analyzedMarkets, qwenResult }) {
     "",
     "FINAL NOTE",
     qwenResult?.analysis?.finalNote || "Ranking ini berbasis market data, bukan jaminan edge.",
-    `Qwen model: ${qwenResult?.model || "n/a"}`,
+    modelLine(qwenResult),
     eventUsageLine(qwenResult),
     "",
     "Disclaimer: Ini bukan financial advice. Untuk event multi-market, ranking berarti watchlist priority, bukan sinyal auto-entry.",

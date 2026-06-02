@@ -1,6 +1,6 @@
 # Polymarket Telegram Analyzer
 
-Bot Telegram lokal untuk analisis manual market Polymarket. Versi ini tidak melakukan auto-entry, tidak menyimpan private key wallet, dan hanya memanggil Qwen saat command `/analyze`.
+Bot Telegram lokal untuk analisis manual market Polymarket. Versi ini tidak melakukan auto-entry, tidak menyimpan private key wallet, dan memakai Qwen multi-role saat command analisis.
 
 ## Cara Ambil Telegram Bot Token
 
@@ -22,6 +22,20 @@ Edit `.env`, lalu isi:
 ```text
 TELEGRAM_BOT_TOKEN=token_dari_botfather
 QWEN_API_KEY=api_key_qwen_kamu
+QWEN_FAST_MODEL=qwen-flash
+QWEN_ANALYST_MODEL=qwen-plus
+QWEN_FINAL_MODEL=qwen-max
+QWEN_MAX_TOKENS=10000
+BINANCE_BASE_URL=https://data-api.binance.vision
+BINANCE_FUTURES_BASE_URL=https://fapi.binance.com
+DEFILLAMA_BASE_URL=https://api.llama.fi
+DEFILLAMA_STABLECOINS_URL=https://stablecoins.llama.fi
+FEAR_GREED_URL=https://api.alternative.me/fng/
+GDELT_DOC_URL=https://api.gdeltproject.org/api/v2/doc/doc
+CRYPTO_CACHE_TTL_SECONDS=10
+FUNDAMENTAL_CACHE_TTL_SECONDS=900
+NEWS_CACHE_TTL_SECONDS=900
+RESEARCH_FETCH_TIMEOUT_MS=8000
 ```
 
 Jalankan:
@@ -44,6 +58,8 @@ npm.cmd start
 - `/search <keyword>` - cari market aktif.
 - `/book <tokenId, marketId, atau link Polymarket>` - cek orderbook token CLOB dari hasil `/search`.
 - `/analyze <keyword, marketId, atau link Polymarket>` - cari market paling relevan, analisis market ID pilihan, atau analisis langsung dari link Polymarket.
+- `/quickscan <link/slug event>` - scan cepat event multi-pilihan tanpa Qwen.
+- `/top3 <link/slug event>` - tampilkan 3 pilihan teratas tanpa Qwen.
 - `/analyzebest <link/slug event>` - pilih kandidat paling worth it dari event multi-pilihan.
 - `/analyzeall <link event Polymarket>` - jelaskan semua pilihan aktif di event (1 pilihan = 1 bubble chat).
 
@@ -51,12 +67,42 @@ Saat `/start`, Telegram akan menampilkan keyboard menu dengan tombol:
 
 ```text
 Search Market | Analyze Link / ID
-Orderbook Check | Example Flow
-Bot Version | Help
+Quick Scan Event | Orderbook Check
+Example Flow | Bot Version
+Help
 ```
 
 Saat `/analyze`, bot mengirim pesan progress dengan estimasi sisa waktu, lalu mengirim hasil final setelah Qwen selesai.
 Kamu juga bisa mengirim link Polymarket atau Market ID langsung tanpa `/analyze`; bot akan otomatis menganalisisnya.
+
+Pipeline Qwen:
+
+```text
+QWEN_FAST_MODEL    -> fast scout, klasifikasi event/market dan risiko awal
+QWEN_ANALYST_MODEL -> analyst reviewer, bedah rules, bull/bear, missing data
+QWEN_FINAL_MODEL   -> final judge, tentukan verdict dan alasan final
+QWEN_MAX_TOKENS    -> budget output dibagi per role: 10% fast, 30% analyst, 60% final
+```
+
+Crypto research layer:
+
+```text
+BINANCE_BASE_URL -> Binance spot public market-data API untuk last price, 24h change, volume, high/low, best bid/ask, dan candle harian 7/30 hari.
+BINANCE_FUTURES_BASE_URL -> Binance USD-M Futures public API untuk funding rate dan open interest.
+DEFILLAMA_BASE_URL -> DeFiLlama API untuk chain/protocol TVL.
+DEFILLAMA_STABLECOINS_URL -> DeFiLlama stablecoin supply/peg context.
+FEAR_GREED_URL -> Alternative.me Crypto Fear & Greed sentiment.
+GDELT_DOC_URL -> GDELT news/catalyst headline search.
+CRYPTO_CACHE_TTL_SECONDS -> cache pendek khusus data crypto agar hasil lebih dekat realtime.
+FUNDAMENTAL_CACHE_TTL_SECONDS -> cache DeFi/sentiment agar tidak spam provider.
+NEWS_CACHE_TTL_SECONDS -> cache news/catalyst agar hemat request dan token.
+RESEARCH_FETCH_TIMEOUT_MS -> batas tunggu request research supaya bot tidak menggantung kalau provider lambat.
+```
+
+Kalau market/event menyebut coin seperti BTC, ETH, SOL, XRP, DOGE, ADA, BNB, AVAX, dan beberapa major coins lain, bot akan otomatis mengambil market data Binance lalu memasukkannya ke Qwen sebagai `EXTERNAL RESEARCH CONTEXT`.
+Untuk stablecoin seperti USDC/USDT, bot memakai proxy `USDCUSDT` dan menandainya sebagai data relatif antar stablecoin, bukan harga USD resmi.
+Endpoint research ini tidak butuh API key untuk market data dasar, tapi tetap punya fair-use/rate limit berbasis provider/IP.
+Kalau satu pair error, pair lain tetap dipakai sebagai konteks agar analisis tidak gagal total.
 
 Alur manual yang disarankan:
 
@@ -64,18 +110,25 @@ Alur manual yang disarankan:
 /search Colombia Presidential Election
 /analyze 569356
 /analyze https://polymarket.com/event/microstrategy-sell-any-bitcoin-in-2025
+/quickscan colombia-presidential-election
+/top3 colombia-presidential-election
 /analyzebest colombia-presidential-election
 /analyzeall https://polymarket.com/event/colombia-presidential-election
 ```
 
-`/search` memakai Polymarket Gamma `/public-search`, jadi Qwen belum dipakai. Qwen baru dipakai saat `/analyze`.
-Output `/analyze` akan menampilkan `Qwen model` dan `Qwen usage` jika API mengembalikan data token usage.
+`/search` memakai Polymarket Gamma `/public-search`, jadi Qwen belum dipakai. Qwen dipakai saat `/analyze` dan `/analyzebest`.
+Output analisis akan menampilkan `Qwen pipeline` dan `Qwen usage` jika API mengembalikan data token usage.
+Untuk market crypto, output juga menampilkan `RESEARCH CONTEXT` dari Binance jika coin berhasil terdeteksi.
 
 Kalau link event berisi banyak market aktif:
 
-- `/analyze <link event>` masuk mode **pilih**: bot menampilkan daftar pilihan + keyboard button untuk `analyze`, `analyzebest`, atau `analyzeall`.
+- `/analyze <link event>` masuk **Event Hub**: bot menampilkan ringkasan pilihan + tombol inline.
+- `Quick Scan` memberi ranking cepat tanpa Qwen, cocok buat scouting hemat token.
+- `Top 3` hanya menampilkan 3 pilihan terbaik versi data market.
+- Tombol angka `1`, `2`, `3`, dst langsung deep analyze market itu saja.
+- `AI Best` menjalankan Qwen untuk pilih satu kandidat lalu deep analyze.
 - `/analyzebest <link/slug event>` pilih satu kandidat paling worth it dari semua pilihan aktif lalu deep dive hasil lengkapnya.
-- `/analyzeall <link event>` masuk mode **jelaskan semua**: bot kirim 1 bubble per pilihan berisi arah YES/NO, confidence, underdog, risk, dan verdict mekanis.
+- `/analyzeall <link event>` masuk mode **jelaskan semua**: bot kirim 1 bubble per pilihan berisi arah YES/NO, confidence, underdog, risk, dan entry status mekanis.
 - Untuk deep dive Qwen per pilihan, pakai `/analyze <Market ID>`.
 
 Untuk tes search tanpa Telegram:

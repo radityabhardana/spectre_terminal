@@ -22,13 +22,13 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
-export function getCache(key) {
+export function getCache(key, ttlSeconds = config.cacheTtlSeconds) {
   const cache = readJson(cachePath, {});
   const hit = cache[key];
   if (!hit) return null;
 
   const ageSeconds = (Date.now() - hit.savedAt) / 1000;
-  if (ageSeconds > config.cacheTtlSeconds) return null;
+  if (ageSeconds > ttlSeconds) return null;
   return hit.value;
 }
 

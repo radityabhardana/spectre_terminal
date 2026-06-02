@@ -3,8 +3,8 @@ import {
   formatAnalysis,
   formatAnalyzeAllSummary,
   formatBook,
-  formatEventChoicePrompt,
-  formatEventAnalysis,
+  formatEventHubPrompt,
+  formatEventQuickScan,
   formatHelp,
   formatMarketBubble,
   formatSearchResults,
@@ -20,6 +20,7 @@ import {
   searchMarkets,
 } from "./polymarket.js";
 import { askQwen, askQwenEvent } from "./qwen.js";
+import { buildResearchContext } from "./research.js";
 import { scoreMarket } from "./scoring.js";
 import { appendAnalysisLog } from "./storage.js";
 import { TelegramBot } from "./telegram.js";
@@ -27,6 +28,7 @@ import { TelegramBot } from "./telegram.js";
 const MENU_BUTTONS = {
   SEARCH: "Search Market",
   ANALYZE: "Analyze Link / ID",
+  QUICK_SCAN: "Quick Scan Event",
   BOOK: "Orderbook Check",
   VERSION: "Bot Version",
   HELP: "Help",
@@ -38,8 +40,9 @@ function menuKeyboard() {
     reply_markup: {
       keyboard: [
         [{ text: MENU_BUTTONS.SEARCH }, { text: MENU_BUTTONS.ANALYZE }],
-        [{ text: MENU_BUTTONS.BOOK }, { text: MENU_BUTTONS.EXAMPLE }],
-        [{ text: MENU_BUTTONS.VERSION }, { text: MENU_BUTTONS.HELP }],
+        [{ text: MENU_BUTTONS.QUICK_SCAN }, { text: MENU_BUTTONS.BOOK }],
+        [{ text: MENU_BUTTONS.EXAMPLE }, { text: MENU_BUTTONS.VERSION }],
+        [{ text: MENU_BUTTONS.HELP }],
       ],
       resize_keyboard: true,
       one_time_keyboard: false,
@@ -48,45 +51,64 @@ function menuKeyboard() {
   };
 }
 
-function commandValueFromSource(sourceInput, fallbackSlug = "") {
-  const input = String(sourceInput || "").trim();
-  if (slugLike(input)) return input;
+const eventSessions = new Map();
+const EVENT_SESSION_TTL_MS = 30 * 60 * 1000;
 
-  const parsed = parsePolymarketLink(input);
-  if (parsed?.slug) return parsed.slug;
-
-  return fallbackSlug || input;
+function createEventSession({ event, markets, sourceInput }) {
+  cleanupEventSessions();
+  const id = Math.random().toString(36).slice(2, 8);
+  eventSessions.set(id, {
+    id,
+    event,
+    markets,
+    sourceInput,
+    createdAt: Date.now(),
+  });
+  return id;
 }
 
-function eventChoiceKeyboard({ event, markets, sourceInput }) {
-  const commandValue = commandValueFromSource(sourceInput, event?.slug || "");
+function cleanupEventSessions() {
+  const cutoff = Date.now() - EVENT_SESSION_TTL_MS;
+  for (const [id, session] of eventSessions.entries()) {
+    if (session.createdAt < cutoff) eventSessions.delete(id);
+  }
+}
+
+function getEventSession(id) {
+  cleanupEventSessions();
+  return eventSessions.get(String(id || "").trim()) || null;
+}
+
+function eventHubKeyboard({ sessionId, markets }) {
   const top = [...markets]
     .sort((a, b) => b.liquidity + b.volume - (a.liquidity + a.volume))
     .slice(0, 8);
 
   const rows = [
     [
-      { text: `/analyzebest ${commandValue}` },
-      { text: `/analyzeall ${commandValue}` },
+      { text: "Quick Scan", callback_data: `/eventscan ${sessionId}` },
+      { text: "AI Best", callback_data: `/eventbest ${sessionId}` },
+    ],
+    [
+      { text: "Top 3", callback_data: `/eventtop ${sessionId}` },
+      { text: "Analyze All", callback_data: `/eventall ${sessionId}` },
     ],
   ];
 
-  for (let i = 0; i < top.length; i += 2) {
-    const left = top[i];
-    const right = top[i + 1];
-    const row = [{ text: `/analyze ${left.id}` }];
-    if (right) row.push({ text: `/analyze ${right.id}` });
-    rows.push(row);
+  for (let i = 0; i < top.length; i += 4) {
+    rows.push(
+      top.slice(i, i + 4).map((market, offset) => ({
+        text: `${i + offset + 1}`,
+        callback_data: `/eventmarket ${sessionId} ${market.id}`,
+      }))
+    );
   }
 
-  rows.push([{ text: "/help" }]);
+  rows.push([{ text: "Help", callback_data: "/help" }]);
 
   return {
     reply_markup: {
-      keyboard: rows,
-      resize_keyboard: true,
-      one_time_keyboard: true,
-      is_persistent: false,
+      inline_keyboard: rows,
     },
   };
 }
@@ -103,6 +125,7 @@ function normalizeButtonText(text) {
   const trimmed = String(text || "").trim();
   if (trimmed === MENU_BUTTONS.SEARCH) return "/search";
   if (trimmed === MENU_BUTTONS.ANALYZE) return "/analyze";
+  if (trimmed === MENU_BUTTONS.QUICK_SCAN) return "/quickscan";
   if (trimmed === MENU_BUTTONS.BOOK) return "/book";
   if (trimmed === MENU_BUTTONS.VERSION) return "/version";
   if (trimmed === MENU_BUTTONS.HELP) return "/help";
@@ -266,8 +289,12 @@ async function resolveAnalyzeAllEventInput(arg) {
   return getMarketsFromPolymarketLink(raw);
 }
 
-function progressText({ query, step, elapsedSeconds, estimateSeconds }) {
+function progressText({ query, step, elapsedSeconds, estimateSeconds, mode = "deep" }) {
   const remaining = Math.max(0, estimateSeconds - elapsedSeconds);
+  const note =
+    mode === "quick"
+      ? "Bot sedang cek pilihan event dan CLOB orderbook tanpa Qwen."
+      : "Bot sedang ambil market data, cek CLOB orderbook, lalu menjalankan Qwen fast -> analyst -> final.";
   return [
     "ANALISIS SEDANG BERJALAN",
     `Input: ${query}`,
@@ -275,17 +302,18 @@ function progressText({ query, step, elapsedSeconds, estimateSeconds }) {
     `Berjalan: ${elapsedSeconds}s`,
     `Estimasi sisa: ${remaining}s`,
     "",
-    "Bot sedang ambil market data, cek CLOB orderbook, lalu minta Qwen menyusun analisis.",
+    note,
   ].join("\n");
 }
 
-async function runWithProgress(ctx, query, task) {
-  const estimateSeconds = 25;
+async function runWithProgress(ctx, query, task, options = {}) {
+  const estimateSeconds = options.estimateSeconds || 60;
+  const mode = options.mode || "deep";
   const startedAt = Date.now();
   let step = "Resolving market input";
 
   const progressMessage = await ctx.sendMessage(
-    progressText({ query, step, elapsedSeconds: 0, estimateSeconds }),
+    progressText({ query, step, elapsedSeconds: 0, estimateSeconds, mode }),
     menuKeyboard()
   );
 
@@ -293,14 +321,14 @@ async function runWithProgress(ctx, query, task) {
     const elapsedSeconds = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
     if (elapsedSeconds >= 5 && elapsedSeconds < 10) step = "Fetching Gamma market data";
     else if (elapsedSeconds >= 10 && elapsedSeconds < 15) step = "Checking CLOB orderbook";
-    else if (elapsedSeconds >= 15) step = "Waiting for Qwen reasoning";
+    else if (elapsedSeconds >= 15) step = "Running Qwen multi-role pipeline";
 
     try {
       await ctx.sendChatAction("typing");
       if (progressMessage?.message_id) {
         await ctx.editMessageText(
           progressMessage.message_id,
-          progressText({ query, step, elapsedSeconds, estimateSeconds })
+          progressText({ query, step, elapsedSeconds, estimateSeconds, mode })
         );
       }
     } catch {
@@ -349,6 +377,199 @@ async function runWithProgress(ctx, query, task) {
   }
 }
 
+function eventResultFromSession(session) {
+  if (!session) return null;
+  return {
+    kind: "event",
+    event: session.event,
+    markets: session.markets,
+  };
+}
+
+async function resolveEventInput(arg) {
+  const session = getEventSession(arg);
+  if (session) return eventResultFromSession(session);
+  return resolveAnalyzeAllEventInput(arg);
+}
+
+async function deepAnalyzeMarket({ market, query, setStep }) {
+  setStep("Fetching CLOB orderbook");
+  const scored = await scoreOneMarket(market);
+
+  setStep("Fetching crypto research context");
+  const researchContext = await buildResearchContext({ market: scored.market });
+
+  setStep("Running Qwen market pipeline");
+  const qwenResult = await askQwen({
+    market: scored.market,
+    score: scored.score,
+    orderBook: scored.yesBook,
+    researchContext,
+  });
+
+  appendAnalysisLog({
+    query,
+    marketId: scored.market.id,
+    question: scored.market.question,
+    score: scored.score,
+    qwen: {
+      model: qwenResult.model,
+      usage: qwenResult.usage,
+      researchContext,
+      analysis: qwenResult.analysis,
+    },
+  });
+
+  return formatAnalysis({ market: scored.market, score: scored.score, qwenResult });
+}
+
+async function quickScanEvent({ result, query, setStep, limit = 8 }) {
+  setStep(`Scoring ${result.markets.length} active markets`);
+  const analyzedMarkets = await scoreEventMarkets(result.markets, setStep);
+  if (!analyzedMarkets.length) {
+    return "Event ditemukan, tapi tidak ada market aktif dengan orderbook yang bisa discan.";
+  }
+
+  appendAnalysisLog({
+    query,
+    eventId: result.event?.id,
+    eventTitle: result.event?.title,
+    marketCount: analyzedMarkets.length,
+    mode: limit <= 3 ? "top3" : "quickscan",
+    eventAnalysis: analyzedMarkets.map(({ market, score }) => ({
+      marketId: market.id,
+      question: market.question,
+      score,
+    })),
+  });
+
+  return formatEventQuickScan({ event: result.event, analyzedMarkets, limit });
+}
+
+async function bestCandidateAnalysis({ result, query, setStep }) {
+  if (result.kind !== "event" || result.markets.length <= 1) {
+    const single = result.markets?.[0];
+    if (!single) return "Tidak ada market aktif untuk dianalisis.";
+    return deepAnalyzeMarket({ market: single, query, setStep });
+  }
+
+  setStep(`Scoring ${result.markets.length} active markets`);
+  const analyzedMarkets = await scoreEventMarkets(result.markets, setStep);
+  if (!analyzedMarkets.length) {
+    return "Event ditemukan, tapi tidak ada market aktif dengan orderbook yang valid.";
+  }
+
+  setStep("Fetching crypto research context");
+  const eventResearchContext = await buildResearchContext({
+    event: result.event,
+    markets: result.markets,
+  });
+
+  setStep("Running Qwen event pipeline");
+  const eventQwen = await askQwenEvent({
+    event: result.event,
+    analyzedMarkets,
+    researchContext: eventResearchContext,
+  });
+
+  const best = pickBestEventCandidate(analyzedMarkets, eventQwen);
+  if (!best) return "Tidak ada kandidat market yang layak dipilih saat ini.";
+
+  setStep("Fetching crypto research context for best market");
+  const bestResearchContext = await buildResearchContext({ market: best.market });
+
+  setStep("Running Qwen final market pipeline");
+  const bestQwen = await askQwen({
+    market: best.market,
+    score: best.score,
+    orderBook: best.yesBook,
+    researchContext: bestResearchContext,
+  });
+
+  appendAnalysisLog({
+    query,
+    mode: "analyzebest",
+    eventId: result.event?.id,
+    eventTitle: result.event?.title,
+    selectedMarketId: best.market.id,
+    selectedMarketQuestion: best.market.question,
+    selectedScore: best.score,
+    qwenEvent: {
+      model: eventQwen.model,
+      usage: eventQwen.usage,
+      researchContext: eventResearchContext,
+      analysis: eventQwen.analysis,
+    },
+    qwenBest: {
+      model: bestQwen.model,
+      usage: bestQwen.usage,
+      researchContext: bestResearchContext,
+      analysis: bestQwen.analysis,
+    },
+  });
+
+  return [
+    "AI BEST FROM EVENT",
+    `Event: ${result.event?.title || "n/a"}`,
+    `Selected Market ID: ${best.market.id}`,
+    eventQwen.analysis?.bestReason ? `Event reason: ${eventQwen.analysis.bestReason}` : null,
+    "",
+    formatAnalysis({
+      market: best.market,
+      score: best.score,
+      qwenResult: bestQwen,
+    }),
+  ]
+    .filter((line) => line != null && line !== false)
+    .join("\n");
+}
+
+async function analyzeAllEvent({ result, query, setStep, ctx }) {
+  if (result.kind !== "event" || result.markets.length <= 1) {
+    const single = result.markets?.[0];
+    if (!single) return "Tidak ada market aktif untuk dianalisis.";
+    return deepAnalyzeMarket({ market: single, query, setStep });
+  }
+
+  setStep(`Found ${result.markets.length} active markets`);
+  const analyzedMarkets = await scoreEventMarkets(result.markets, setStep);
+  if (!analyzedMarkets.length) {
+    return "Event ditemukan, tapi tidak ada market dengan orderbook YES yang bisa dianalisis.";
+  }
+
+  const sorted = sortMarketsForAllMode(analyzedMarkets);
+  for (let i = 0; i < sorted.length; i += 1) {
+    const item = sorted[i];
+    await ctx.sendMessage(
+      formatMarketBubble({
+        market: item.market,
+        score: item.score,
+        index: i + 1,
+        total: sorted.length,
+      }),
+      menuKeyboard()
+    );
+  }
+
+  appendAnalysisLog({
+    query,
+    eventId: result.event?.id,
+    eventTitle: result.event?.title,
+    marketCount: sorted.length,
+    mode: "analyzeall",
+    eventAnalysis: sorted.map(({ market, score }) => ({
+      marketId: market.id,
+      question: market.question,
+      score,
+    })),
+  });
+
+  return formatAnalyzeAllSummary({
+    event: result.event,
+    analyzedMarkets: sorted,
+  });
+}
+
 async function handleCommand(text, message, ctx) {
   const { command, arg } = parseCommand(text);
 
@@ -373,10 +594,13 @@ async function handleCommand(text, message, ctx) {
         "3. Pilih market dari event (mode pilih):",
         "/analyze https://polymarket.com/event/microstrategy-sell-any-bitcoin-in-2025",
         "",
-        "4. Cari kandidat paling worth it otomatis dari event:",
+        "4. Scan cepat event tanpa Qwen:",
+        "/quickscan colombia-presidential-election",
+        "",
+        "5. Cari kandidat paling worth it otomatis dari event:",
         "/analyzebest colombia-presidential-election",
         "",
-        "4. Atau jelaskan semua pilihan aktif (1 pilihan = 1 bubble):",
+        "6. Atau jelaskan semua pilihan aktif (1 pilihan = 1 bubble):",
         "/analyzeall https://polymarket.com/event/microstrategy-sell-any-bitcoin-in-2025",
       ].join("\n")
     );
@@ -403,6 +627,105 @@ async function handleCommand(text, message, ctx) {
     return menuAnswer(formatBook(book));
   }
 
+  if (command === "/quickscan" || command === "/top3") {
+    if (!arg) {
+      return menuAnswer(
+        `Pakai format: ${command} <link event atau slug event>\n\nContoh: ${command} colombia-presidential-election`
+      );
+    }
+
+    const limit = command === "/top3" ? 3 : 8;
+    const output = await runWithProgress(
+      ctx,
+      arg,
+      async (setStep) => {
+        setStep("Resolving event input");
+        const result = await resolveEventInput(arg);
+        if (!result || !result.markets?.length) {
+          return "Event tidak ditemukan atau tidak punya market aktif yang bisa discan.";
+        }
+        return quickScanEvent({ result, query: arg, setStep, limit });
+      },
+      { estimateSeconds: 25, mode: "quick" }
+    );
+
+    return menuAnswer(output);
+  }
+
+  if (command === "/eventscan" || command === "/eventtop") {
+    const session = getEventSession(arg);
+    if (!session) {
+      return menuAnswer("Event session sudah expired. Kirim ulang link event-nya ya.");
+    }
+
+    const limit = command === "/eventtop" ? 3 : 8;
+    const result = eventResultFromSession(session);
+    const output = await runWithProgress(
+      ctx,
+      session.sourceInput || session.event?.title || arg,
+      (setStep) =>
+        quickScanEvent({
+          result,
+          query: session.sourceInput || session.event?.title || arg,
+          setStep,
+          limit,
+        }),
+      { estimateSeconds: 25, mode: "quick" }
+    );
+
+    return menuAnswer(output);
+  }
+
+  if (command === "/eventmarket") {
+    const [sessionId, marketId] = arg.split(/\s+/);
+    const session = getEventSession(sessionId);
+    if (!session) {
+      return menuAnswer("Event session sudah expired. Kirim ulang link event-nya ya.");
+    }
+
+    const market = session.markets.find((item) => String(item.id) === String(marketId));
+    if (!market) return menuAnswer("Market tidak ditemukan di event session ini.");
+
+    const output = await runWithProgress(ctx, marketId, (setStep) =>
+      deepAnalyzeMarket({ market, query: marketId, setStep })
+    );
+
+    return menuAnswer(output);
+  }
+
+  if (command === "/eventbest") {
+    const session = getEventSession(arg);
+    if (!session) {
+      return menuAnswer("Event session sudah expired. Kirim ulang link event-nya ya.");
+    }
+
+    const result = eventResultFromSession(session);
+    const query = session.sourceInput || session.event?.title || arg;
+    const output = await runWithProgress(ctx, query, (setStep) =>
+      bestCandidateAnalysis({ result, query, setStep })
+    );
+
+    return menuAnswer(output);
+  }
+
+  if (command === "/eventall") {
+    const session = getEventSession(arg);
+    if (!session) {
+      return menuAnswer("Event session sudah expired. Kirim ulang link event-nya ya.");
+    }
+
+    const result = eventResultFromSession(session);
+    const query = session.sourceInput || session.event?.title || arg;
+    const output = await runWithProgress(
+      ctx,
+      query,
+      (setStep) => analyzeAllEvent({ result, query, setStep, ctx }),
+      { estimateSeconds: 35, mode: "quick" }
+    );
+
+    return menuAnswer(output);
+  }
+
   if (command === "/analyze") {
     if (!arg) {
       return menuAnswer(
@@ -423,16 +746,20 @@ async function handleCommand(text, message, ctx) {
       }
 
       if (result.kind === "event" && result.markets.length > 1) {
+        const sessionId = createEventSession({
+          event: result.event,
+          markets: result.markets,
+          sourceInput: arg,
+        });
+
         return {
-          text: formatEventChoicePrompt({
+          text: formatEventHubPrompt({
             event: result.event,
             markets: result.markets,
-            sourceInput: arg,
           }),
-          options: eventChoiceKeyboard({
-            event: result.event,
+          options: eventHubKeyboard({
+            sessionId,
             markets: result.markets,
-            sourceInput: arg,
           }),
         };
       }
@@ -446,61 +773,10 @@ async function handleCommand(text, message, ctx) {
       if (target.kind === "market" && !target.market) return "Market tidak ditemukan.";
 
       if (target.kind === "event") {
-        setStep(`Found ${target.markets.length} active markets in event`);
-        const analyzedMarkets = await scoreEventMarkets(target.markets, setStep);
-        if (!analyzedMarkets.length) {
-          return "Event ditemukan, tapi tidak ada market aktif dengan orderbook yang bisa dianalisis.";
-        }
-
-        setStep("Waiting for Qwen event comparison");
-        const qwenResult = await askQwenEvent({
-          event: target.event,
-          analyzedMarkets,
-        });
-
-        appendAnalysisLog({
-          query: arg,
-          eventId: target.event?.id,
-          eventTitle: target.event?.title,
-          marketCount: analyzedMarkets.length,
-          eventAnalysis: analyzedMarkets.map(({ market, score }) => ({
-            marketId: market.id,
-            question: market.question,
-            score,
-          })),
-          qwen: {
-            model: qwenResult.model,
-            usage: qwenResult.usage,
-            analysis: qwenResult.analysis,
-          },
-        });
-
-        return formatEventAnalysis({
-          event: target.event,
-          analyzedMarkets,
-          qwenResult,
-        });
+        return bestCandidateAnalysis({ result: target, query: arg, setStep });
       }
 
-      setStep("Fetching CLOB orderbook");
-      const { market, yesBook, score } = await scoreOneMarket(target.market);
-
-      setStep("Waiting for Qwen reasoning");
-      const qwenResult = await askQwen({ market, score, orderBook: yesBook });
-
-      appendAnalysisLog({
-        query: arg,
-        marketId: market.id,
-        question: market.question,
-        score,
-        qwen: {
-          model: qwenResult.model,
-          usage: qwenResult.usage,
-          analysis: qwenResult.analysis,
-        },
-      });
-
-      return formatAnalysis({ market, score, qwenResult });
+      return deepAnalyzeMarket({ market: target.market, query: arg, setStep });
     });
 
     return menuAnswer(output);
@@ -515,79 +791,12 @@ async function handleCommand(text, message, ctx) {
 
     const output = await runWithProgress(ctx, arg, async (setStep) => {
       setStep("Resolving event input");
-      const result = await resolveAnalyzeAllEventInput(arg);
+      const result = await resolveEventInput(arg);
       if (!result || !result.markets?.length) {
         return "Event tidak ditemukan atau tidak punya market aktif yang bisa dianalisis.";
       }
 
-      if (result.kind !== "event" || result.markets.length <= 1) {
-        const single = result.markets[0];
-        if (!single) return "Tidak ada market aktif untuk dianalisis.";
-
-        setStep("Fetching CLOB orderbook");
-        const { market, yesBook, score } = await scoreOneMarket(single);
-
-        setStep("Waiting for Qwen reasoning");
-        const qwenResult = await askQwen({ market, score, orderBook: yesBook });
-        return formatAnalysis({ market, score, qwenResult });
-      }
-
-      setStep(`Scoring ${result.markets.length} active markets`);
-      const analyzedMarkets = await scoreEventMarkets(result.markets, setStep);
-      if (!analyzedMarkets.length) {
-        return "Event ditemukan, tapi tidak ada market aktif dengan orderbook yang valid.";
-      }
-
-      setStep("Comparing event markets with Qwen");
-      const eventQwen = await askQwenEvent({
-        event: result.event,
-        analyzedMarkets,
-      });
-
-      const best = pickBestEventCandidate(analyzedMarkets, eventQwen);
-      if (!best) return "Tidak ada kandidat market yang layak dipilih saat ini.";
-
-      setStep("Deep dive best market with Qwen");
-      const bestQwen = await askQwen({
-        market: best.market,
-        score: best.score,
-        orderBook: best.yesBook,
-      });
-
-      appendAnalysisLog({
-        query: arg,
-        mode: "analyzebest",
-        eventId: result.event?.id,
-        eventTitle: result.event?.title,
-        selectedMarketId: best.market.id,
-        selectedMarketQuestion: best.market.question,
-        selectedScore: best.score,
-        qwenEvent: {
-          model: eventQwen.model,
-          usage: eventQwen.usage,
-          analysis: eventQwen.analysis,
-        },
-        qwenBest: {
-          model: bestQwen.model,
-          usage: bestQwen.usage,
-          analysis: bestQwen.analysis,
-        },
-      });
-
-      return [
-        "BEST CANDIDATE FROM EVENT",
-        `Event: ${result.event?.title || "n/a"}`,
-        `Selected Market ID: ${best.market.id}`,
-        eventQwen.analysis?.bestReason ? `Event reason: ${eventQwen.analysis.bestReason}` : null,
-        "",
-        formatAnalysis({
-          market: best.market,
-          score: best.score,
-          qwenResult: bestQwen,
-        }),
-      ]
-        .filter((line) => line != null && line !== false)
-        .join("\n");
+      return bestCandidateAnalysis({ result, query: arg, setStep });
     });
 
     return menuAnswer(output);
@@ -602,74 +811,13 @@ async function handleCommand(text, message, ctx) {
 
     const output = await runWithProgress(ctx, arg, async (setStep) => {
       setStep("Resolving event input");
-      const result = await resolveAnalyzeAllEventInput(arg);
+      const result = await resolveEventInput(arg);
       if (!result || !result.markets?.length) {
         return "Event tidak ditemukan atau tidak punya market aktif yang bisa dianalisis.";
       }
 
-      if (result.kind !== "event" || result.markets.length <= 1) {
-        const single = result.markets[0];
-        if (!single) return "Tidak ada market aktif untuk dianalisis.";
-
-        setStep("Fetching CLOB orderbook");
-        const { market, yesBook, score } = await scoreOneMarket(single);
-
-        setStep("Waiting for Qwen reasoning");
-        const qwenResult = await askQwen({ market, score, orderBook: yesBook });
-
-        appendAnalysisLog({
-          query: arg,
-          marketId: market.id,
-          question: market.question,
-          score,
-          qwen: {
-            model: qwenResult.model,
-            usage: qwenResult.usage,
-            analysis: qwenResult.analysis,
-          },
-        });
-
-        return formatAnalysis({ market, score, qwenResult });
-      }
-
-      setStep(`Found ${result.markets.length} active markets`);
-      const analyzedMarkets = await scoreEventMarkets(result.markets, setStep);
-      if (!analyzedMarkets.length) {
-        return "Event ditemukan, tapi tidak ada market dengan orderbook YES yang bisa dianalisis.";
-      }
-
-      const sorted = sortMarketsForAllMode(analyzedMarkets);
-      for (let i = 0; i < sorted.length; i += 1) {
-        const item = sorted[i];
-        await ctx.sendMessage(
-          formatMarketBubble({
-            market: item.market,
-            score: item.score,
-            index: i + 1,
-            total: sorted.length,
-          }),
-          menuKeyboard()
-        );
-      }
-
-      appendAnalysisLog({
-        query: arg,
-        eventId: result.event?.id,
-        eventTitle: result.event?.title,
-        marketCount: sorted.length,
-        mode: "analyzeall",
-        eventAnalysis: sorted.map(({ market, score }) => ({
-          marketId: market.id,
-          question: market.question,
-          score,
-        })),
-      });
-
-      return formatAnalyzeAllSummary({
-        event: result.event,
-        analyzedMarkets: sorted,
-      });
-    });
+      return analyzeAllEvent({ result, query: arg, setStep, ctx });
+    }, { estimateSeconds: 35, mode: "quick" });
 
     return menuAnswer(output);
   }

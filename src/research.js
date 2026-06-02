@@ -1,0 +1,727 @@
+import { config } from "./config.js";
+import { getCache, setCache } from "./storage.js";
+
+const COIN_ALIASES = [
+  { symbol: "BTC", name: "Bitcoin", pair: "BTCUSDT", aliases: ["bitcoin", "btc", "$btc"] },
+  { symbol: "ETH", name: "Ethereum", pair: "ETHUSDT", defillamaChain: "Ethereum", aliases: ["ethereum", "ether", "eth", "$eth"] },
+  { symbol: "SOL", name: "Solana", pair: "SOLUSDT", defillamaChain: "Solana", aliases: ["solana", "sol", "$sol"] },
+  { symbol: "XRP", name: "XRP", pair: "XRPUSDT", aliases: ["xrp", "ripple", "$xrp"] },
+  { symbol: "DOGE", name: "Dogecoin", pair: "DOGEUSDT", aliases: ["dogecoin", "doge", "$doge"] },
+  { symbol: "ADA", name: "Cardano", pair: "ADAUSDT", defillamaChain: "Cardano", aliases: ["cardano", "ada", "$ada"] },
+  { symbol: "BNB", name: "BNB", pair: "BNBUSDT", defillamaChain: "BSC", aliases: ["bnb", "binance coin", "$bnb"] },
+  { symbol: "AVAX", name: "Avalanche", pair: "AVAXUSDT", defillamaChain: "Avalanche", aliases: ["avalanche", "avax", "$avax"] },
+  { symbol: "LINK", name: "Chainlink", pair: "LINKUSDT", defillamaSlug: "chainlink", aliases: ["chainlink", "$link"] },
+  { symbol: "DOT", name: "Polkadot", pair: "DOTUSDT", defillamaChain: "Polkadot", aliases: ["polkadot", "$dot"] },
+  { symbol: "POL", name: "Polygon", pair: "POLUSDT", defillamaChain: "Polygon", aliases: ["polygon", "matic", "$matic", "$pol"] },
+  { symbol: "LTC", name: "Litecoin", pair: "LTCUSDT", aliases: ["litecoin", "ltc", "$ltc"] },
+  { symbol: "TRX", name: "TRON", pair: "TRXUSDT", defillamaChain: "Tron", aliases: ["tron", "trx", "$trx"] },
+  { symbol: "TON", name: "Toncoin", pair: "TONUSDT", defillamaChain: "TON", aliases: ["toncoin", "$ton"] },
+  { symbol: "SUI", name: "Sui", pair: "SUIUSDT", defillamaChain: "Sui", aliases: ["sui", "$sui"] },
+  { symbol: "APT", name: "Aptos", pair: "APTUSDT", defillamaChain: "Aptos", aliases: ["aptos", "$apt"] },
+  { symbol: "SHIB", name: "Shiba Inu", pair: "SHIBUSDT", aliases: ["shiba", "shib", "$shib"] },
+  { symbol: "PEPE", name: "Pepe", pair: "PEPEUSDT", aliases: ["pepe", "$pepe"] },
+  { symbol: "BCH", name: "Bitcoin Cash", pair: "BCHUSDT", aliases: ["bitcoin cash", "bch", "$bch"] },
+  { symbol: "UNI", name: "Uniswap", pair: "UNIUSDT", defillamaSlug: "uniswap", aliases: ["uniswap", "$uni"] },
+  { symbol: "AAVE", name: "Aave", pair: "AAVEUSDT", defillamaSlug: "aave", aliases: ["aave", "$aave"] },
+  { symbol: "NEAR", name: "NEAR Protocol", pair: "NEARUSDT", defillamaChain: "Near", aliases: ["near protocol", "$near"] },
+  { symbol: "ICP", name: "Internet Computer", pair: "ICPUSDT", aliases: ["internet computer", "$icp"] },
+  { symbol: "RENDER", name: "Render", pair: "RENDERUSDT", aliases: ["render token", "$rndr", "$render"] },
+  { symbol: "ARB", name: "Arbitrum", pair: "ARBUSDT", defillamaChain: "Arbitrum", aliases: ["arbitrum", "$arb"] },
+  { symbol: "OP", name: "Optimism", pair: "OPUSDT", defillamaChain: "Optimism", aliases: ["optimism", "$op"] },
+  { symbol: "WLD", name: "Worldcoin", pair: "WLDUSDT", aliases: ["worldcoin", "$wld"] },
+  {
+    symbol: "USDT",
+    name: "Tether",
+    pair: "USDCUSDT",
+    proxyNote: "Proxy stablecoin: USDC priced in USDT. Di atas 1 berarti USDT relatif lebih murah dari USDC.",
+    aliases: ["tether", "usdt", "$usdt"],
+  },
+  {
+    symbol: "USDC",
+    name: "USD Coin",
+    pair: "USDCUSDT",
+    proxyNote: "Proxy stablecoin: USDC priced in USDT. Di bawah 1 berarti USDC relatif lebih murah dari USDT.",
+    aliases: ["usd coin", "usdc", "$usdc"],
+  },
+];
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9$]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasAlias(text, alias) {
+  const normalizedAlias = normalizeText(alias);
+  if (!normalizedAlias) return false;
+  const escaped = normalizedAlias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|\\s)${escaped}(\\s|$)`, "i").test(text);
+}
+
+function marketText({ market, event, markets } = {}) {
+  const marketList = Array.isArray(markets) ? markets : [];
+  return [
+    market?.question,
+    market?.eventTitle,
+    market?.groupItemTitle,
+    market?.description,
+    event?.title,
+    event?.description,
+    ...marketList.flatMap((item) => [
+      item?.question,
+      item?.eventTitle,
+      item?.groupItemTitle,
+      item?.description,
+    ]),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function detectCryptoAssets(input) {
+  const text = normalizeText(input);
+  if (!text) return [];
+
+  const detected = [];
+  for (const coin of COIN_ALIASES) {
+    const matched = coin.aliases.find((alias) => hasAlias(text, alias));
+    if (matched) {
+      detected.push({
+        symbol: coin.symbol,
+        name: coin.name,
+        pair: coin.pair,
+        proxyNote: coin.proxyNote || null,
+        defillamaChain: coin.defillamaChain || null,
+        defillamaSlug: coin.defillamaSlug || null,
+        matched,
+      });
+    }
+  }
+
+  return detected.slice(0, 6);
+}
+
+async function fetchJson(url, ttlSeconds = config.cryptoCacheTtlSeconds) {
+  const key = `research:${url}`;
+  const cached = getCache(key, ttlSeconds);
+  if (cached) return cached;
+
+  const signal =
+    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(config.researchFetchTimeoutMs)
+      : undefined;
+
+  const response = await fetch(url, {
+    signal,
+    headers: {
+      accept: "application/json",
+      "user-agent": "polymarket-telegram-analyzer/0.1",
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Crypto research HTTP ${response.status}: ${text.slice(0, 200)}`);
+  }
+
+  const json = await response.json();
+  setCache(key, json);
+  return json;
+}
+
+function binanceUrl(path, symbol) {
+  const url = new URL(path, config.binanceBaseUrl);
+  url.searchParams.set("symbol", symbol);
+  return url;
+}
+
+function binanceKlinesUrl(symbol) {
+  const url = binanceUrl("/api/v3/klines", symbol);
+  url.searchParams.set("interval", "1d");
+  url.searchParams.set("limit", "31");
+  return url;
+}
+
+function binanceFuturesUrl(path, symbol) {
+  const url = new URL(path, config.binanceFuturesBaseUrl);
+  url.searchParams.set("symbol", symbol);
+  return url;
+}
+
+function num(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function compactUsd(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "n/a";
+  if (Math.abs(n) >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (Math.abs(n) >= 1e3) return `$${(n / 1e3).toFixed(2)}K`;
+  return `$${n.toFixed(2)}`;
+}
+
+function isoFromMs(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return new Date(n).toISOString();
+}
+
+function pctChange(from, to) {
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from === 0) return null;
+  return ((to - from) / from) * 100;
+}
+
+function trendFromKlines(klines) {
+  if (!Array.isArray(klines)) {
+    return {
+      price_change_7d_pct: null,
+      price_change_30d_pct: null,
+      daily_closes_count: 0,
+    };
+  }
+
+  const closes = klines.map((row) => num(row?.[4])).filter((value) => value != null);
+  const latest = closes.at(-1);
+  const sevenAgo = closes.length >= 8 ? closes[closes.length - 8] : null;
+  const thirtyAgo = closes.length >= 31 ? closes[0] : null;
+
+  return {
+    price_change_7d_pct: pctChange(sevenAgo, latest),
+    price_change_30d_pct: pctChange(thirtyAgo, latest),
+    daily_closes_count: closes.length,
+  };
+}
+
+function errorMessage(error) {
+  if (!error) return "Unknown error";
+  if (error.name === "TimeoutError") return "Request timeout";
+  return error.message || String(error);
+}
+
+function providerError(provider, error) {
+  return { provider, status: "error", error: errorMessage(error) };
+}
+
+function unwrapResult(result, fallback) {
+  return result.status === "fulfilled" ? result.value : fallback;
+}
+
+async function fetchBinanceFutures(asset) {
+  if (asset.proxyNote) {
+    return {
+      futures_status: "skipped",
+      futures_reason: "Stablecoin proxy tidak memakai futures context.",
+    };
+  }
+
+  const premiumUrl = binanceFuturesUrl("/fapi/v1/premiumIndex", asset.pair);
+  const openInterestUrl = binanceFuturesUrl("/fapi/v1/openInterest", asset.pair);
+  const [premiumResult, openInterestResult] = await Promise.allSettled([
+    fetchJson(premiumUrl.toString()),
+    fetchJson(openInterestUrl.toString()),
+  ]);
+
+  if (premiumResult.status === "rejected" && openInterestResult.status === "rejected") {
+    return {
+      futures_status: "error",
+      futures_error: [
+        `premium ${errorMessage(premiumResult.reason)}`,
+        `openInterest ${errorMessage(openInterestResult.reason)}`,
+      ].join("; "),
+    };
+  }
+
+  const premium = premiumResult.status === "fulfilled" ? premiumResult.value : {};
+  const openInterest =
+    openInterestResult.status === "fulfilled" ? openInterestResult.value : {};
+
+  return {
+    futures_status:
+      premiumResult.status === "fulfilled" && openInterestResult.status === "fulfilled"
+        ? "ok"
+        : "partial",
+    futures_mark_price: num(premium.markPrice),
+    futures_index_price: num(premium.indexPrice),
+    futures_last_funding_rate: num(premium.lastFundingRate),
+    futures_next_funding_time: isoFromMs(premium.nextFundingTime),
+    futures_open_interest: num(openInterest.openInterest),
+    futures_time: isoFromMs(premium.time || openInterest.time),
+    futures_error:
+      premiumResult.status === "rejected"
+        ? `premium ${errorMessage(premiumResult.reason)}`
+        : openInterestResult.status === "rejected"
+          ? `openInterest ${errorMessage(openInterestResult.reason)}`
+          : null,
+  };
+}
+
+async function fetchFearGreed() {
+  const url = new URL(config.fearGreedUrl);
+  url.searchParams.set("limit", "7");
+  url.searchParams.set("format", "json");
+
+  const json = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds);
+  const rows = Array.isArray(json?.data) ? json.data : [];
+  const latest = rows[0] || null;
+  const values = rows.map((row) => num(row.value)).filter((value) => value != null);
+  const average7d =
+    values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+
+  return {
+    provider: "Alternative.me Fear & Greed",
+    status: latest ? "ok" : "empty",
+    current_value: latest ? num(latest.value) : null,
+    current_classification: latest?.value_classification || null,
+    average_7d: average7d,
+    latest_timestamp: latest?.timestamp ? isoFromMs(Number(latest.timestamp) * 1000) : null,
+    observations: rows.slice(0, 7).map((row) => ({
+      value: num(row.value),
+      classification: row.value_classification || null,
+      timestamp: row.timestamp ? isoFromMs(Number(row.timestamp) * 1000) : null,
+    })),
+  };
+}
+
+function fearGreedSummary(sentiment) {
+  if (!sentiment || sentiment.status !== "ok") return "n/a";
+  const current =
+    sentiment.current_value == null
+      ? "n/a"
+      : `${sentiment.current_value}/100 ${sentiment.current_classification || ""}`.trim();
+  const avg =
+    sentiment.average_7d == null ? "n/a" : `${sentiment.average_7d.toFixed(1)}/100`;
+  return `Fear & Greed ${current}, 7d avg ${avg}`;
+}
+
+async function fetchDefiLlamaChains(uniqueAssets) {
+  const chainNames = uniqueAssets.map((asset) => asset.defillamaChain).filter(Boolean);
+  if (!chainNames.length) return [];
+
+  const wanted = new Set(chainNames.map((name) => normalizeText(name)));
+  const url = new URL("/v2/chains", config.defillamaBaseUrl);
+  const chains = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds);
+  const rows = Array.isArray(chains) ? chains : [];
+
+  return rows
+    .filter((row) => wanted.has(normalizeText(row.name)))
+    .slice(0, 6)
+    .map((row) => ({
+      name: row.name,
+      tvl_usd: num(row.tvl),
+      change_1d_pct: num(row.change_1d),
+      change_7d_pct: num(row.change_7d),
+      change_1m_pct: num(row.change_1m),
+      stablecoins_mcap_usd: num(row.stables),
+    }));
+}
+
+async function fetchDefiLlamaProtocols(uniqueAssets) {
+  const assets = uniqueAssets.filter((asset) => asset.defillamaSlug).slice(0, 3);
+  if (!assets.length) return [];
+
+  const rows = await Promise.all(
+    assets.map(async (asset) => {
+      const url = new URL(`/protocol/${asset.defillamaSlug}`, config.defillamaBaseUrl);
+      const json = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds);
+      return {
+        symbol: asset.symbol,
+        name: json.name || asset.name,
+        slug: asset.defillamaSlug,
+        category: json.category || null,
+        tvl_usd: num(json.tvl),
+        change_1d_pct: num(json.change_1d),
+        change_7d_pct: num(json.change_7d),
+        chain_tvls: json.chainTvls
+          ? Object.entries(json.chainTvls)
+              .map(([chain, tvl]) => ({ chain, tvl_usd: num(tvl) }))
+              .sort((a, b) => (b.tvl_usd || 0) - (a.tvl_usd || 0))
+              .slice(0, 4)
+          : [],
+      };
+    })
+  );
+
+  return rows;
+}
+
+async function fetchDefiLlamaStablecoins(uniqueAssets) {
+  const stableSymbols = new Set(
+    uniqueAssets
+      .filter((asset) => asset.symbol === "USDT" || asset.symbol === "USDC")
+      .map((asset) => asset.symbol)
+  );
+  if (!stableSymbols.size) return [];
+
+  const url = new URL("/stablecoins", config.defillamaStablecoinsUrl);
+  url.searchParams.set("includePrices", "true");
+  const json = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds);
+  const rows = Array.isArray(json?.peggedAssets) ? json.peggedAssets : [];
+
+  return rows
+    .filter((row) => stableSymbols.has(String(row.symbol || "").toUpperCase()))
+    .slice(0, 4)
+    .map((row) => ({
+      name: row.name,
+      symbol: row.symbol,
+      peg_type: row.pegType || null,
+      peg_mechanism: row.pegMechanism || null,
+      price: num(row.price),
+      circulating_usd: num(row.circulating?.peggedUSD ?? row.circulating?.peggedUsd),
+      chains: row.chainCirculating
+        ? Object.entries(row.chainCirculating)
+            .map(([chain, value]) => ({
+              chain,
+              circulating_usd: num(value?.current?.peggedUSD ?? value?.current?.peggedUsd),
+            }))
+            .sort((a, b) => (b.circulating_usd || 0) - (a.circulating_usd || 0))
+            .slice(0, 4)
+        : [],
+    }));
+}
+
+async function buildDefiLlamaContext(uniqueAssets) {
+  const [chainsResult, protocolsResult, stablecoinsResult] = await Promise.allSettled([
+    fetchDefiLlamaChains(uniqueAssets),
+    fetchDefiLlamaProtocols(uniqueAssets),
+    fetchDefiLlamaStablecoins(uniqueAssets),
+  ]);
+
+  return {
+    provider: "DefiLlama",
+    status:
+      [chainsResult, protocolsResult, stablecoinsResult].some(
+        (result) => result.status === "fulfilled" && result.value?.length
+      )
+        ? "ok"
+        : "empty",
+    chains: unwrapResult(chainsResult, []),
+    protocols: unwrapResult(protocolsResult, []),
+    stablecoins: unwrapResult(stablecoinsResult, []),
+    errors: [chainsResult, protocolsResult, stablecoinsResult]
+      .filter((result) => result.status === "rejected")
+      .map((result) => errorMessage(result.reason)),
+  };
+}
+
+function defiLlamaSummary(defi) {
+  if (!defi || defi.status !== "ok") return "n/a";
+  const parts = [];
+  for (const chain of defi.chains || []) {
+    const change = chain.change_7d_pct == null ? "n/a" : `${chain.change_7d_pct.toFixed(2)}% 7d`;
+    parts.push(`${chain.name} TVL ${compactUsd(chain.tvl_usd)} (${change})`);
+  }
+  for (const protocol of defi.protocols || []) {
+    const change =
+      protocol.change_7d_pct == null ? "n/a" : `${protocol.change_7d_pct.toFixed(2)}% 7d`;
+    parts.push(`${protocol.name} TVL ${compactUsd(protocol.tvl_usd)} (${change})`);
+  }
+  for (const stable of defi.stablecoins || []) {
+    const price = stable.price == null ? "n/a" : stable.price.toFixed(4);
+    parts.push(`${stable.symbol} supply ${compactUsd(stable.circulating_usd)}, price ${price}`);
+  }
+  return parts.slice(0, 6).join("; ") || "n/a";
+}
+
+const NEWS_STOPWORDS = new Set([
+  "will",
+  "the",
+  "and",
+  "for",
+  "that",
+  "this",
+  "with",
+  "from",
+  "before",
+  "after",
+  "market",
+  "markets",
+  "polymarket",
+  "event",
+  "yes",
+  "no",
+  "hit",
+  "above",
+  "below",
+  "price",
+  "prices",
+  "increase",
+  "decrease",
+  "2025",
+  "2026",
+  "2027",
+]);
+
+function extractNewsKeywords(text) {
+  const words = normalizeText(text)
+    .split(/\s+/)
+    .map((word) => word.replace(/^\$+/, ""))
+    .filter((word) => word.length >= 3 && !NEWS_STOPWORDS.has(word) && !/^\d+$/.test(word));
+
+  const counts = new Map();
+  for (const word of words) counts.set(word, (counts.get(word) || 0) + 1);
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([word]) => word)
+    .slice(0, 6);
+}
+
+function newsQueryFor(uniqueAssets, text) {
+  const assetTerms = uniqueAssets
+    .filter((asset) => !asset.proxyNote)
+    .slice(0, 3)
+    .map((asset) => asset.name);
+  const stableTerms = uniqueAssets
+    .filter((asset) => asset.proxyNote)
+    .slice(0, 2)
+    .map((asset) => asset.symbol);
+  const keywords = extractNewsKeywords(text).slice(0, 4);
+  const terms = [...assetTerms, ...stableTerms, ...keywords, "crypto"].filter(Boolean);
+  return [...new Set(terms)].slice(0, 8).join(" ");
+}
+
+async function fetchGdeltNews({ uniqueAssets, text }) {
+  const query = newsQueryFor(uniqueAssets, text);
+  if (!query) {
+    return {
+      provider: "GDELT 2.1 DOC",
+      status: "skipped",
+      query: "",
+      articles: [],
+    };
+  }
+
+  const url = new URL(config.gdeltDocUrl);
+  url.searchParams.set("query", query);
+  url.searchParams.set("mode", "ArtList");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("maxrecords", "5");
+  url.searchParams.set("sort", "HybridRel");
+
+  const json = await fetchJson(url.toString(), config.newsCacheTtlSeconds);
+  const rows = Array.isArray(json?.articles) ? json.articles : [];
+
+  return {
+    provider: "GDELT 2.1 DOC",
+    status: rows.length ? "ok" : "empty",
+    query,
+    articles: rows.slice(0, 5).map((row) => ({
+      title: row.title || null,
+      domain: row.domain || null,
+      source_country: row.sourceCountry || null,
+      language: row.language || null,
+      seen_date: row.seendate || null,
+      url: row.url || null,
+    })),
+  };
+}
+
+function newsSummary(news) {
+  if (!news || news.status !== "ok") return "n/a";
+  return (news.articles || [])
+    .slice(0, 3)
+    .map((article) => `${article.title || "Untitled"} (${article.domain || "unknown"})`)
+    .join("; ");
+}
+
+async function fetchBinancePair(asset) {
+  if (!asset.pair) {
+    return {
+      symbol: asset.symbol,
+      name: asset.name,
+      pair: null,
+      status: "skipped",
+      reason: "Stablecoin/base asset tidak punya pair USDT yang informatif.",
+    };
+  }
+
+  const tickerUrl = binanceUrl("/api/v3/ticker/24hr", asset.pair);
+  const bookUrl = binanceUrl("/api/v3/ticker/bookTicker", asset.pair);
+  const klinesUrl = binanceKlinesUrl(asset.pair);
+  const [tickerResult, bookResult, klinesResult, futuresResult] = await Promise.allSettled([
+    fetchJson(tickerUrl.toString()),
+    fetchJson(bookUrl.toString()),
+    fetchJson(klinesUrl.toString()),
+    fetchBinanceFutures(asset),
+  ]);
+
+  if (tickerResult.status === "rejected") {
+    return {
+      symbol: asset.symbol,
+      name: asset.name,
+      pair: asset.pair,
+      status: "error",
+      error: errorMessage(tickerResult.reason),
+    };
+  }
+
+  const ticker = tickerResult.value;
+  const book = bookResult.status === "fulfilled" ? bookResult.value : {};
+  const trend =
+    klinesResult.status === "fulfilled"
+      ? trendFromKlines(klinesResult.value)
+      : trendFromKlines([]);
+  const futures =
+    futuresResult.status === "fulfilled"
+      ? futuresResult.value
+      : { futures_status: "error", futures_error: errorMessage(futuresResult.reason) };
+
+  return {
+    symbol: asset.symbol,
+    name: asset.name,
+    pair: asset.pair,
+    proxy_note: asset.proxyNote || null,
+    status: "ok",
+    last_price_usdt: num(ticker.lastPrice),
+    weighted_avg_price_24h: num(ticker.weightedAvgPrice),
+    price_change_24h: num(ticker.priceChange),
+    price_change_24h_pct: num(ticker.priceChangePercent),
+    high_24h: num(ticker.highPrice),
+    low_24h: num(ticker.lowPrice),
+    volume_base_24h: num(ticker.volume),
+    volume_quote_24h: num(ticker.quoteVolume),
+    trade_count_24h: num(ticker.count),
+    best_bid: num(book.bidPrice),
+    best_bid_qty: num(book.bidQty),
+    best_ask: num(book.askPrice),
+    best_ask_qty: num(book.askQty),
+    ...trend,
+    ...futures,
+    close_time: isoFromMs(ticker.closeTime),
+    book_error: bookResult.status === "rejected" ? errorMessage(bookResult.reason) : null,
+    trend_error: klinesResult.status === "rejected" ? errorMessage(klinesResult.reason) : null,
+  };
+}
+
+function researchSummary(pairs) {
+  const okPairs = pairs.filter((pair) => pair.status === "ok");
+  if (!okPairs.length) return "Crypto asset terdeteksi, tapi Binance tidak mengembalikan pair market data.";
+
+  return okPairs
+    .map((pair) => {
+      const price = pair.last_price_usdt == null ? "n/a" : `${pair.last_price_usdt} USDT`;
+      const change24h =
+        pair.price_change_24h_pct == null ? "n/a" : `${pair.price_change_24h_pct.toFixed(2)}%`;
+      const change7d =
+        pair.price_change_7d_pct == null ? "n/a" : `${pair.price_change_7d_pct.toFixed(2)}%`;
+      const change30d =
+        pair.price_change_30d_pct == null ? "n/a" : `${pair.price_change_30d_pct.toFixed(2)}%`;
+      const spread =
+        pair.best_bid != null && pair.best_ask != null
+          ? `${(pair.best_ask - pair.best_bid).toFixed(8)} USDT`
+          : "n/a";
+      const funding =
+        pair.futures_last_funding_rate == null
+          ? "n/a"
+          : `${(pair.futures_last_funding_rate * 100).toFixed(4)}%`;
+      const openInterest =
+        pair.futures_open_interest == null ? "n/a" : `${pair.futures_open_interest}`;
+      const proxyNote = pair.proxy_note ? `, note ${pair.proxy_note}` : "";
+      return `${pair.pair}: last ${price}, 24h ${change24h}, 7d ${change7d}, 30d ${change30d}, book spread ${spread}, futures funding ${funding}, futures OI ${openInterest}${proxyNote}`;
+    })
+    .join("; ");
+}
+
+export async function buildResearchContext({ market, event, markets } = {}) {
+  const text = marketText({ market, event, markets });
+  const detectedAssets = detectCryptoAssets(text);
+
+  if (!detectedAssets.length) {
+    return {
+      type: "none",
+      status: "skipped",
+      reason: "Tidak ada crypto asset yang terdeteksi dari market/event.",
+    };
+  }
+
+  const uniqueAssets = [];
+  const seenPairs = new Set();
+  for (const asset of detectedAssets) {
+    const key = asset.pair || asset.symbol;
+    if (seenPairs.has(key)) continue;
+    seenPairs.add(key);
+    uniqueAssets.push(asset);
+  }
+
+  const pairs = await Promise.all(
+    uniqueAssets.map(async (asset) => {
+      try {
+        return await fetchBinancePair(asset);
+      } catch (error) {
+        return {
+          symbol: asset.symbol,
+          name: asset.name,
+          pair: asset.pair,
+          status: "error",
+          error: errorMessage(error),
+        };
+      }
+    })
+  );
+  const okCount = pairs.filter((pair) => pair.status === "ok").length;
+  const [sentimentResult, defiResult, newsResult] = await Promise.allSettled([
+    fetchFearGreed(),
+    buildDefiLlamaContext(uniqueAssets),
+    fetchGdeltNews({ uniqueAssets, text }),
+  ]);
+
+  const sentiment = unwrapResult(
+    sentimentResult,
+    providerError("Alternative.me Fear & Greed", sentimentResult.reason)
+  );
+  const defi = unwrapResult(defiResult, providerError("DefiLlama", defiResult.reason));
+  const news = unwrapResult(newsResult, providerError("GDELT 2.1 DOC", newsResult.reason));
+
+  const extraOk = [sentiment, defi, news].some(
+    (item) => item?.status === "ok" || item?.status === "partial"
+  );
+  const status =
+    okCount === pairs.length && extraOk
+      ? "ok"
+      : okCount > 0 || extraOk
+        ? "partial"
+        : "error";
+
+  return {
+    type: "crypto",
+    status,
+    provider: "Binance + DefiLlama + Alternative.me + GDELT",
+    sourceBaseUrl: config.binanceBaseUrl,
+    futuresSourceBaseUrl: config.binanceFuturesBaseUrl,
+    defiLlamaSourceBaseUrl: config.defillamaBaseUrl,
+    fearGreedSourceUrl: config.fearGreedUrl,
+    gdeltSourceUrl: config.gdeltDocUrl,
+    fetchedAt: new Date().toISOString(),
+    detectedAssets,
+    summary: researchSummary(pairs),
+    sentimentSummary: fearGreedSummary(sentiment),
+    fundamentalSummary: defiLlamaSummary(defi),
+    newsSummary: newsSummary(news),
+    pairs,
+    sentiment,
+    defi,
+    news,
+    errors: pairs
+      .filter((pair) => pair.status === "error")
+      .map((pair) => `${pair.symbol}: ${pair.error || "unknown error"}`)
+      .concat(
+        [sentiment, defi, news]
+          .filter((item) => item?.status === "error")
+          .map((item) => `${item.provider}: ${item.error || "unknown error"}`)
+      ),
+    limitations: [
+      "Binance data adalah exchange market data, bukan agregat seluruh pasar dan bukan prediksi resolusi Polymarket.",
+      "Spot data sudah mencakup snapshot 24 jam dan tren candle harian 7/30 hari.",
+      "Futures data mencakup funding rate dan open interest jika pair tersedia di Binance USD-M Futures.",
+      "DefiLlama menambah konteks TVL, protocol, dan stablecoin jika asset relevan.",
+      "Alternative.me Fear & Greed adalah sentiment market-wide, bukan sentiment khusus satu coin.",
+      "GDELT headline adalah sinyal catalyst/news kasar dan perlu verifikasi manual sebelum dipakai entry.",
+      "Data ini belum mencakup liquidation, ETF flow detail, wallet/whale flow, atau social sentiment premium.",
+    ],
+  };
+}

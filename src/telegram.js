@@ -34,6 +34,11 @@ export class TelegramBot {
     const json = await response.json();
     for (const update of json.result || []) {
       this.offset = update.update_id + 1;
+      if (update.callback_query) {
+        await this.handleCallbackQuery(update.callback_query);
+        continue;
+      }
+
       if (!update.message?.chat?.id) continue;
 
       const chatId = update.message.chat.id;
@@ -57,6 +62,29 @@ export class TelegramBot {
     }
   }
 
+  async handleCallbackQuery(callbackQuery) {
+    const chatId = callbackQuery.message?.chat?.id;
+    const text = callbackQuery.data || "";
+    if (!chatId || !text.trim()) return;
+
+    await this.answerCallbackQuery(callbackQuery.id).catch(() => {});
+
+    try {
+      const context = {
+        chatId,
+        sendMessage: (messageText, options = {}) =>
+          this.sendMessage(chatId, messageText, options),
+        editMessageText: (messageId, messageText, options = {}) =>
+          this.editMessageText(chatId, messageId, messageText, options),
+        sendChatAction: (action = "typing") => this.sendChatAction(chatId, action),
+      };
+      const answer = await this.handler(text, callbackQuery.message, context);
+      await this.sendAnswer(chatId, answer || formatHelp());
+    } catch (error) {
+      await this.sendMessage(chatId, `Error: ${error.message}`);
+    }
+  }
+
   async sendAnswer(chatId, answer) {
     if (typeof answer === "string") {
       await this.sendMessage(chatId, answer);
@@ -75,6 +103,8 @@ export class TelegramBot {
           { command: "start", description: "Tampilkan menu utama" },
           { command: "search", description: "Cari market Polymarket" },
           { command: "analyze", description: "Analisis market, ID, atau link" },
+          { command: "quickscan", description: "Scan cepat event tanpa Qwen" },
+          { command: "top3", description: "Tampilkan top 3 pilihan event" },
           { command: "analyzebest", description: "Pilih kandidat paling worth it dari event" },
           { command: "analyzeall", description: "Jelaskan semua pilihan di event" },
           { command: "book", description: "Cek orderbook market" },
@@ -87,6 +117,20 @@ export class TelegramBot {
 
     if (!response.ok) {
       throw new Error(`Telegram setMyCommands HTTP ${response.status}`);
+    }
+  }
+
+  async answerCallbackQuery(callbackQueryId) {
+    if (!callbackQueryId) return;
+
+    const response = await fetch(`${this.apiBase}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackQueryId }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Telegram answerCallbackQuery HTTP ${response.status}`);
     }
   }
 

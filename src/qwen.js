@@ -28,6 +28,25 @@ function daysUntil(value) {
   return Math.round((time - Date.now()) / 86400000);
 }
 
+function compactOrderBook(book, levels = 12) {
+  const bids = Array.isArray(book?.bids) ? book.bids : [];
+  const asks = Array.isArray(book?.asks) ? book.asks : [];
+
+  return {
+    asset_id: book?.asset_id || null,
+    bids_count: bids.length,
+    asks_count: asks.length,
+    top_bids: bids.slice(0, levels).map((item) => ({
+      price: item.price,
+      size: item.size,
+    })),
+    top_asks: asks.slice(0, levels).map((item) => ({
+      price: item.price,
+      size: item.size,
+    })),
+  };
+}
+
 function extractJsonObject(text) {
   const raw = String(text || "").trim();
   if (!raw) throw new Error("Empty Qwen response");
@@ -60,8 +79,8 @@ function normalizeAnalysis(value, rawText) {
 
   return {
     verdict: VALID_VERDICTS.has(verdict) ? verdict : "SKIP",
-    confidence: Number.isFinite(Number(value.confidence))
-      ? Math.max(0, Math.min(100, Math.round(Number(value.confidence))))
+    confidence: Number.isFinite(Number(value.confidence)) && Number(value.confidence) > 0
+      ? Math.max(1, Math.min(100, Math.round(Number(value.confidence))))
       : null,
     summary: truncate(value.summary || value.ringkasan || "", 420),
     dataQuality: truncate(value.data_quality || value.dataQuality || "", 360),
@@ -109,6 +128,42 @@ function normalizeEventAnalysis(value, rawText) {
     avoid: cleanList(value.avoid || value.avoid_markets || value.avoidMarkets),
     missingData: cleanList(value.missing_data || value.missingData),
     finalNote: truncate(value.final_note || value.finalNote || "", 420),
+    rawText,
+  };
+}
+
+function normalizeScout(value, rawText) {
+  return {
+    taskType: truncate(value.task_type || value.taskType || "", 80),
+    complexity: truncate(value.complexity || "", 80),
+    mainQuestion: truncate(value.main_question || value.mainQuestion || "", 220),
+    marketType: truncate(value.market_type || value.marketType || "", 120),
+    riskFocus: cleanList(value.risk_focus || value.riskFocus),
+    missingData: cleanList(value.missing_data || value.missingData),
+    recommendedDepth: truncate(value.recommended_depth || value.recommendedDepth || "", 80),
+    rawText,
+  };
+}
+
+function normalizeAnalystReview(value, rawText) {
+  const verdict = String(value.preliminary_verdict || value.preliminaryVerdict || "").trim().toUpperCase();
+
+  return {
+    rulesSummary: truncate(value.rules_summary || value.rulesSummary || "", 360),
+    dataQuality: truncate(value.data_quality || value.dataQuality || "", 360),
+    bullishCase: cleanList(value.bullish_case || value.bullishCase),
+    bearishCase: cleanList(value.bearish_case || value.bearishCase),
+    risks: {
+      liquidity: truncate(value.risks?.liquidity || value.liquidity_risk || "", 220),
+      spread: truncate(value.risks?.spread || value.spread_risk || "", 220),
+      resolution: truncate(value.risks?.resolution || value.resolution_risk || "", 220),
+      catalyst: truncate(value.risks?.catalyst || value.catalyst || "", 220),
+    },
+    missingData: cleanList(value.missing_data || value.missingData),
+    preliminaryVerdict: VALID_VERDICTS.has(verdict) ? verdict : "WATCHLIST",
+    confidence: Number.isFinite(Number(value.confidence)) && Number(value.confidence) > 0
+      ? Math.max(1, Math.min(100, Math.round(Number(value.confidence))))
+      : null,
     rawText,
   };
 }
@@ -178,7 +233,108 @@ async function callQwen(payload) {
   return response.json();
 }
 
-export async function askQwen({ market, score, orderBook }) {
+async function callQwenJson(payload) {
+  let json;
+  try {
+    json = await callQwen(payload);
+  } catch (error) {
+    if (!String(error.message).includes("response_format")) throw error;
+    const { response_format, ...fallbackPayload } = payload;
+    json = await callQwen(fallbackPayload);
+  }
+
+  const text = json.choices?.[0]?.message?.content?.trim() || "";
+  return {
+    json,
+    text,
+    model: json.model || payload.model,
+    usage: json.usage || null,
+  };
+}
+
+async function callRoleQwenJson(payload, fallbackModel = "") {
+  try {
+    return await callQwenJson(payload);
+  } catch (error) {
+    if (/Qwen HTTP (401|403)/.test(String(error.message))) throw error;
+    if (!fallbackModel || payload.model === fallbackModel) throw error;
+    const fallback = await callQwenJson({ ...payload, model: fallbackModel });
+    return { ...fallback, fallbackFrom: payload.model };
+  }
+}
+
+function usageValue(usage, key) {
+  const value = usage?.[key];
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
+function promptUsage(usage) {
+  return usageValue(usage, "prompt_tokens") || usageValue(usage, "input_tokens");
+}
+
+function completionUsage(usage) {
+  return usageValue(usage, "completion_tokens") || usageValue(usage, "output_tokens");
+}
+
+function aggregateUsage(roleResults) {
+  const usages = roleResults.map((item) => item.usage).filter(Boolean);
+  if (!usages.length) return null;
+
+  const prompt = usages.reduce((sum, usage) => sum + promptUsage(usage), 0);
+  const completion = usages.reduce((sum, usage) => sum + completionUsage(usage), 0);
+  const total = usages.reduce((sum, usage) => {
+    const explicit = usageValue(usage, "total_tokens");
+    return sum + (explicit || promptUsage(usage) + completionUsage(usage));
+  }, 0);
+
+  return {
+    prompt_tokens: prompt || undefined,
+    completion_tokens: completion || undefined,
+    total_tokens: total || undefined,
+    role_usage: Object.fromEntries(roleResults.map((item) => [item.role, item.usage || null])),
+  };
+}
+
+function pipelineModelLabel(models) {
+  return `fast:${models.fast} | analyst:${models.analyst} | final:${models.final}`;
+}
+
+function roleMaxTokens(role) {
+  const total = Math.max(900, config.qwenMaxTokens);
+  if (role === "fast") return Math.max(300, Math.floor(total * 0.1));
+  if (role === "analyst") return Math.max(300, Math.floor(total * 0.3));
+  return Math.max(300, total - roleMaxTokens("fast") - roleMaxTokens("analyst"));
+}
+
+function parseJsonOr(value, fallback) {
+  try {
+    return extractJsonObject(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function promptSafe(value) {
+  if (!value || typeof value !== "object") return value;
+  const { rawText, ...rest } = value;
+  return rest;
+}
+
+function researchBlock(researchContext) {
+  if (!researchContext || researchContext.status === "skipped") {
+    return [
+      "EXTERNAL RESEARCH CONTEXT:",
+      "Tidak tersedia. Jangan mengarang data eksternal.",
+    ].join("\n");
+  }
+
+  return [
+    "EXTERNAL RESEARCH CONTEXT:",
+    JSON.stringify(researchContext, null, 2),
+  ].join("\n");
+}
+
+export async function askQwen({ market, score, orderBook, researchContext = null }) {
   const marketData = JSON.stringify(
     {
       currentDateAsiaJakarta: nowInJakarta(),
@@ -201,32 +357,138 @@ export async function askQwen({ market, score, orderBook }) {
     2
   );
 
-  const prompt = `
-Analisis market Polymarket berikut sebelum entry.
-
+  const sharedContext = `
 CURRENT DATE:
 ${nowInJakarta()} Asia/Jakarta
 
 DATA MARKET:
 ${marketData}
 
-ORDERBOOK YES:
-${JSON.stringify(orderBook, null, 2).slice(0, config.maxQwenInputChars)}
+ORDERBOOK YES (TOP LEVELS ONLY):
+${JSON.stringify(compactOrderBook(orderBook), null, 2).slice(0, config.maxQwenInputChars)}
 
 SCORING AWAL DARI BOT:
 ${JSON.stringify(score, null, 2)}
 
+${researchBlock(researchContext)}
+`.trim();
+
+  const scoutPrompt = `
+Klasifikasikan market Polymarket ini secara cepat sebelum dianalisis lebih dalam.
+
+${sharedContext}
+
+Aturan:
+- Jangan mengarang data eksternal.
+- Tugasmu hanya membuat brief pendek untuk analis berikutnya.
+- Balas hanya JSON valid.
+
+Format JSON:
+{
+  "task_type": "single_market_analysis",
+  "complexity": "simple/medium/complex",
+  "main_question": "inti pertanyaan market",
+  "market_type": "politik/makro/crypto/sports/lainnya",
+  "risk_focus": ["maks 4 risiko utama yang perlu dicek"],
+  "missing_data": ["maks 4 data eksternal yang masih kurang"],
+  "recommended_depth": "fast/standard/deep"
+}
+`.trim();
+
+  const scoutPayload = {
+    model: config.qwenFastModel,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Kamu model fast scout. Tugasmu membaca input cepat, mengklasifikasi kompleksitas, dan memberi brief ringkas tanpa analisis panjang.",
+      },
+      { role: "user", content: scoutPrompt },
+    ],
+    temperature: 0,
+    max_tokens: roleMaxTokens("fast"),
+    response_format: { type: "json_object" },
+  };
+
+  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenAnalystModel);
+  const scout = normalizeScout(parseJsonOr(scoutJson.text, {}), scoutJson.text);
+
+  const analystPrompt = `
+Review market Polymarket ini sebagai analis risiko. Kamu bukan final judge.
+
+${sharedContext}
+
+FAST SCOUT RESULT:
+${JSON.stringify(promptSafe(scout), null, 2)}
+
+Aturan:
+- Jangan mengarang data eksternal seperti FedWatch, dot plot, polling, CPI, berita, on-chain, funding, atau riset bank jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
+- Kalau memakai pengetahuan umum, labeli sebagai asumsi umum, bukan fakta aktual.
+- Fokus pada aturan resolusi, risiko, missing data, dan bull/bear case.
+- Balas hanya JSON valid.
+
+Format JSON:
+{
+  "rules_summary": "ringkasan aturan resolusi dan hal yang menentukan YES/NO",
+  "data_quality": "kualitas data yang tersedia dan batasannya",
+  "bullish_case": ["maks 3 poin"],
+  "bearish_case": ["maks 3 poin"],
+  "risks": {
+    "liquidity": "Low/Medium/High + alasan pendek",
+    "spread": "Low/Medium/High + alasan pendek",
+    "resolution": "Low/Medium/High + alasan pendek",
+    "catalyst": "Ada/tidak ada catalyst + alasan pendek"
+  },
+  "missing_data": ["maks 4 data yang masih kurang"],
+  "preliminary_verdict": "SKIP/WATCHLIST/VALUE CANDIDATE/HIGH RISK UNDERDOG",
+  "confidence": 65
+}
+`.trim();
+
+  const analystPayload = {
+    model: config.qwenAnalystModel,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Kamu model analyst/reviewer. Tugasmu membedah risk, rules, bull/bear case, dan missing data secara konservatif.",
+      },
+      { role: "user", content: analystPrompt },
+    ],
+    temperature: 0.1,
+    max_tokens: roleMaxTokens("analyst"),
+    response_format: { type: "json_object" },
+  };
+
+  const analystJson = await callRoleQwenJson(analystPayload, config.qwenFinalModel);
+  const analyst = normalizeAnalystReview(parseJsonOr(analystJson.text, {}), analystJson.text);
+
+  const finalPrompt = `
+Kamu final judge untuk market Polymarket. Ambil keputusan akhir dari data market, scoring bot, fast scout, dan analyst review.
+
+${sharedContext}
+
+FAST SCOUT RESULT:
+${JSON.stringify(promptSafe(scout), null, 2)}
+
+ANALYST REVIEW:
+${JSON.stringify(promptSafe(analyst), null, 2)}
+
 Aturan wajib:
-- Jangan mengarang data eksternal seperti FedWatch, dot plot, polling, CPI, berita, atau riset bank jika tidak ada di DATA MARKET.
+- Jangan mengarang data eksternal seperti FedWatch, dot plot, polling, CPI, berita, on-chain, funding, atau riset bank jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
 - Jika memakai pengetahuan umum, labeli sebagai asumsi umum, bukan fakta aktual.
 - Estimated fair probability dari bot saat ini sama dengan market implied probability, jadi edge mekanis 0 kecuali ada alasan kuat dan diberi label estimasi.
+- Verdict adalah status ENTRY/TRADABILITY, bukan prediksi arah YES/NO. Jika arah market jelas tapi entry buruk, verdict tetap SKIP atau WATCHLIST.
+- Summary wajib membedakan arah market dari kelayakan entry.
+- Jadikan analyst review sebagai bahan kritik, bukan keputusan otomatis.
 - Jangan berikan markdown. Balas hanya JSON valid.
 - Verdict hanya salah satu: SKIP, WATCHLIST, VALUE CANDIDATE, HIGH RISK UNDERDOG.
+- Confidence wajib angka 1-100 tentang keyakinanmu pada kualitas analisis/verdict. Jangan salin angka contoh mentah.
 
 Format JSON wajib:
 {
   "verdict": "SKIP",
-  "confidence": 0,
+  "confidence": 65,
   "summary": "1-2 kalimat inti market dan kondisi entry.",
   "data_quality": "Kualitas data yang tersedia dan batasannya.",
   "bullish_case": ["maks 3 poin"],
@@ -250,33 +512,25 @@ Format JSON wajib:
 `.trim();
 
   const payload = {
-    model: config.qwenModel,
+    model: config.qwenFinalModel,
     messages: [
       {
         role: "system",
         content:
-          "Kamu analis prediction market yang konservatif. Kamu bukan financial advisor. Tugasmu membedakan data aktual, estimasi, dan data yang tidak tersedia. Jangan mengarang fakta eksternal.",
+          "Kamu final judge prediction market yang konservatif. Kamu bukan financial advisor. Kamu menyatukan scout + analyst review menjadi keputusan akhir yang jelas.",
       },
-      { role: "user", content: prompt },
+      { role: "user", content: finalPrompt },
     ],
     temperature: 0.1,
-    max_tokens: config.qwenMaxTokens,
+    max_tokens: roleMaxTokens("final"),
     response_format: { type: "json_object" },
   };
 
-  let json;
-  try {
-    json = await callQwen(payload);
-  } catch (error) {
-    if (!String(error.message).includes("response_format")) throw error;
-    const { response_format, ...fallbackPayload } = payload;
-    json = await callQwen(fallbackPayload);
-  }
+  const finalJson = await callRoleQwenJson(payload, config.qwenAnalystModel);
 
-  const text = json.choices?.[0]?.message?.content?.trim() || "";
   let analysis;
   try {
-    analysis = normalizeAnalysis(extractJsonObject(text), text);
+    analysis = normalizeAnalysis(extractJsonObject(finalJson.text), finalJson.text);
   } catch {
     analysis = normalizeAnalysis(
       {
@@ -287,19 +541,33 @@ Format JSON wajib:
         bearish_case: ["Format Qwen tidak valid, jadi bot tidak memakai verdict bebas dari model."],
         final_reason: "Skip karena output model tidak terstruktur.",
       },
-      text
+      finalJson.text
     );
   }
 
+  const roleResults = [
+    { role: "fast", model: scoutJson.model, usage: scoutJson.usage },
+    { role: "analyst", model: analystJson.model, usage: analystJson.usage },
+    { role: "final", model: finalJson.model, usage: finalJson.usage },
+  ];
+  const models = {
+    fast: scoutJson.model,
+    analyst: analystJson.model,
+    final: finalJson.model,
+  };
+
   return {
-    provider: "qwen",
-    model: json.model || config.qwenModel,
-    usage: json.usage || null,
+    provider: "qwen-multi-role",
+    model: pipelineModelLabel(models),
+    models,
+    roleResults,
+    usage: aggregateUsage(roleResults),
+    researchContext,
     analysis,
   };
 }
 
-export async function askQwenEvent({ event, analyzedMarkets }) {
+export async function askQwenEvent({ event, analyzedMarkets, researchContext = null }) {
   const compactMarkets = analyzedMarkets.map(({ market, score }) => ({
     market_id: market.id,
     question: market.question,
@@ -322,9 +590,7 @@ export async function askQwenEvent({ event, analyzedMarkets }) {
     mechanical_verdict: score.verdict,
   }));
 
-  const prompt = `
-Bandingkan semua pilihan aktif dalam satu event Polymarket dan tentukan mana yang paling layak dipantau.
-
+  const eventContext = `
 CURRENT DATE:
 ${nowInJakarta()} Asia/Jakarta
 
@@ -343,11 +609,117 @@ ${JSON.stringify(
 MARKETS:
 ${JSON.stringify(compactMarkets, null, 2)}
 
+${researchBlock(researchContext)}
+`.trim();
+
+  const scoutPrompt = `
+Klasifikasikan event Polymarket multi-market ini secara cepat.
+
+${eventContext}
+
+Aturan:
+- Jangan mengarang data eksternal.
+- Tugasmu hanya membuat brief pendek untuk analyst dan final judge.
+- Balas hanya JSON valid.
+
+Format JSON:
+{
+  "task_type": "event_market_comparison",
+  "complexity": "simple/medium/complex",
+  "main_question": "inti event",
+  "market_type": "politik/makro/crypto/sports/lainnya",
+  "risk_focus": ["maks 4 risiko utama"],
+  "missing_data": ["maks 4 data eksternal yang masih kurang"],
+  "recommended_depth": "fast/standard/deep"
+}
+`.trim();
+
+  const scoutPayload = {
+    model: config.qwenFastModel,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Kamu model fast scout. Tugasmu membaca event multi-market cepat dan memberi brief ringkas tanpa memilih final secara agresif.",
+      },
+      { role: "user", content: scoutPrompt },
+    ],
+    temperature: 0,
+    max_tokens: roleMaxTokens("fast"),
+    response_format: { type: "json_object" },
+  };
+
+  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenAnalystModel);
+  const scout = normalizeScout(parseJsonOr(scoutJson.text, {}), scoutJson.text);
+
+  const analystPrompt = `
+Review semua pilihan aktif dalam event Polymarket ini. Kamu bukan final judge.
+
+${eventContext}
+
+FAST SCOUT RESULT:
+${JSON.stringify(promptSafe(scout), null, 2)}
+
+Aturan:
+- Jangan mengarang data eksternal seperti polling, berita, FedWatch, on-chain data, funding, atau filing jika tidak ada di input / EXTERNAL RESEARCH CONTEXT.
+- Bandingkan market dari sisi orderbook, spread, liquidity, rules, timeline, dan blocker.
+- Nilai "worth it" berarti paling layak dipantau/diteliti, bukan pasti value.
+- Balas hanya JSON valid.
+
+Format JSON:
+{
+  "rules_summary": "ringkasan struktur event dan cara tiap market akan resolve",
+  "data_quality": "kualitas data event dan batasannya",
+  "bullish_case": ["maks 3 poin umum kenapa event layak dipantau"],
+  "bearish_case": ["maks 3 poin umum kenapa perlu hati-hati"],
+  "risks": {
+    "liquidity": "catatan liquidity antar pilihan",
+    "spread": "catatan spread antar pilihan",
+    "resolution": "risiko resolution antar pilihan",
+    "catalyst": "ada/tidak ada catalyst dari data input"
+  },
+  "missing_data": ["maks 4 data eksternal yang masih kurang"],
+  "preliminary_verdict": "SKIP/WATCHLIST/VALUE CANDIDATE/HIGH RISK UNDERDOG",
+  "confidence": 65
+}
+`.trim();
+
+  const analystPayload = {
+    model: config.qwenAnalystModel,
+    messages: [
+      {
+        role: "system",
+        content:
+          "Kamu model analyst/reviewer untuk event multi-market. Tugasmu membandingkan risiko dan kualitas kandidat secara konservatif.",
+      },
+      { role: "user", content: analystPrompt },
+    ],
+    temperature: 0.1,
+    max_tokens: roleMaxTokens("analyst"),
+    response_format: { type: "json_object" },
+  };
+
+  const analystJson = await callRoleQwenJson(analystPayload, config.qwenFinalModel);
+  const analyst = normalizeAnalystReview(parseJsonOr(analystJson.text, {}), analystJson.text);
+
+  const finalPrompt = `
+Bandingkan semua pilihan aktif dalam satu event Polymarket dan tentukan mana yang paling layak dipantau.
+
+${eventContext}
+
+FAST SCOUT RESULT:
+${JSON.stringify(promptSafe(scout), null, 2)}
+
+ANALYST REVIEW:
+${JSON.stringify(promptSafe(analyst), null, 2)}
+
 Aturan wajib:
-- Jangan mengarang data eksternal seperti polling, berita, FedWatch, on-chain data, atau filing jika tidak ada di input.
+- Jangan mengarang data eksternal seperti polling, berita, FedWatch, on-chain data, funding, atau filing jika tidak ada di input / EXTERNAL RESEARCH CONTEXT.
 - Nilai "worth it" di sini berarti paling layak dipantau/diteliti dari data market, bukan pasti value.
 - Karena belum ada fair probability eksternal, jangan klaim VALUE CANDIDATE kecuali alasannya sangat konservatif.
+- Verdict ranking adalah status entry/tradability tiap pilihan, bukan prediksi arah YES/NO.
 - Prioritaskan market dengan orderbook sehat, spread rendah, liquidity cukup, rules jelas, dan alasan risiko yang masuk akal.
+- Jadikan analyst review sebagai bahan kritik, bukan keputusan otomatis.
 - Balas hanya JSON valid, tanpa markdown.
 - Field ranking cukup TOP 8 paling layak dipantau setelah mempertimbangkan semua market. Jangan tulis semua market di JSON.
 
@@ -370,41 +742,47 @@ Format JSON wajib:
 `.trim();
 
   const payload = {
-    model: config.qwenModel,
+    model: config.qwenFinalModel,
     messages: [
       {
         role: "system",
         content:
-          "Kamu analis event prediction market yang konservatif. Kamu membandingkan semua pilihan, bukan memilih otomatis secara buta. Jangan mengarang fakta eksternal.",
+          "Kamu final judge event prediction market yang konservatif. Kamu memilih ranking akhir dari scout + analyst review + market data.",
       },
-      { role: "user", content: prompt },
+      { role: "user", content: finalPrompt },
     ],
     temperature: 0.1,
-    max_tokens: config.qwenMaxTokens,
+    max_tokens: roleMaxTokens("final"),
     response_format: { type: "json_object" },
   };
 
-  let json;
-  try {
-    json = await callQwen(payload);
-  } catch (error) {
-    if (!String(error.message).includes("response_format")) throw error;
-    const { response_format, ...fallbackPayload } = payload;
-    json = await callQwen(fallbackPayload);
-  }
+  const finalJson = await callRoleQwenJson(payload, config.qwenAnalystModel);
 
-  const text = json.choices?.[0]?.message?.content?.trim() || "";
   let analysis;
   try {
-    analysis = normalizeEventAnalysis(extractJsonObject(text), text);
+    analysis = normalizeEventAnalysis(extractJsonObject(finalJson.text), finalJson.text);
   } catch {
-    analysis = mechanicalEventFallback(analyzedMarkets, text);
+    analysis = mechanicalEventFallback(analyzedMarkets, finalJson.text);
   }
 
+  const roleResults = [
+    { role: "fast", model: scoutJson.model, usage: scoutJson.usage },
+    { role: "analyst", model: analystJson.model, usage: analystJson.usage },
+    { role: "final", model: finalJson.model, usage: finalJson.usage },
+  ];
+  const models = {
+    fast: scoutJson.model,
+    analyst: analystJson.model,
+    final: finalJson.model,
+  };
+
   return {
-    provider: "qwen",
-    model: json.model || config.qwenModel,
-    usage: json.usage || null,
+    provider: "qwen-multi-role",
+    model: pipelineModelLabel(models),
+    models,
+    roleResults,
+    usage: aggregateUsage(roleResults),
+    researchContext,
     analysis,
   };
 }

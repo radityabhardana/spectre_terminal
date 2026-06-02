@@ -32,7 +32,7 @@ function safeJsonParse(value, fallback) {
   }
 }
 
-export const SEARCH_ENGINE_VERSION = "public-search-v2-event-wide-analysis-v3-buttons-best-all";
+export const SEARCH_ENGINE_VERSION = "public-search-v2-event-wide-analysis-v11-free-research-apis";
 
 function normalizeMarket(raw, event = null, eventSearchRank = 999) {
   const outcomes = safeJsonParse(raw.outcomes, raw.outcomes || []);

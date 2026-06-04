@@ -34,6 +34,13 @@ function positiveInt(value, fallback) {
   return rounded > 0 ? rounded : fallback;
 }
 
+function nonNegativeInt(value, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  const rounded = Math.floor(num);
+  return rounded >= 0 ? rounded : fallback;
+}
+
 export const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || "",
   qwenApiKey: process.env.QWEN_API_KEY || "",
@@ -62,6 +69,9 @@ export const config = {
   fundamentalCacheTtlSeconds: positiveInt(process.env.FUNDAMENTAL_CACHE_TTL_SECONDS, 900),
   newsCacheTtlSeconds: positiveInt(process.env.NEWS_CACHE_TTL_SECONDS, 900),
   researchFetchTimeoutMs: positiveInt(process.env.RESEARCH_FETCH_TIMEOUT_MS, 8000),
+  commandCooldownMs: nonNegativeInt(process.env.COMMAND_COOLDOWN_MS, 3000),
+  qwenCommandCooldownMs: nonNegativeInt(process.env.QWEN_COMMAND_COOLDOWN_MS, 45000),
+  duplicateCommandCooldownMs: nonNegativeInt(process.env.DUPLICATE_COMMAND_COOLDOWN_MS, 15000),
 };
 
 export function assertConfig() {
@@ -73,5 +83,11 @@ export function assertConfig() {
     throw new Error(
       `Missing env: ${missing.join(", ")}. Copy .env.example to .env and fill it.`
     );
+  }
+}
+
+export function assertQwenConfig() {
+  if (!config.qwenApiKey) {
+    throw new Error("Missing env: QWEN_API_KEY. Copy .env.example to .env and fill it.");
   }
 }

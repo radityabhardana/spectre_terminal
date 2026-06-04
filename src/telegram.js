@@ -101,6 +101,7 @@ export class TelegramBot {
       body: JSON.stringify({
         commands: [
           { command: "start", description: "Tampilkan menu utama" },
+          { command: "top", description: "Lihat market aktif yang lagi top" },
           { command: "search", description: "Cari market Polymarket" },
           { command: "analyze", description: "Analisis market, ID, atau link" },
           { command: "quickscan", description: "Scan cepat event tanpa Qwen" },

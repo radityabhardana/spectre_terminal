@@ -1,0 +1,236 @@
+import fs from "node:fs/promises";
+import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { config } from "./config.js";
+import { handleCommand } from "./index.js";
+import { SEARCH_ENGINE_VERSION } from "./polymarket.js";
+
+const modulePath = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(modulePath);
+const publicDir = path.resolve(__dirname, "..", "public");
+const port = Number(process.env.WEB_PORT || process.env.PORT || 8787);
+const host = process.env.WEB_HOST || "127.0.0.1";
+
+const modeCommands = {
+  auto: "",
+  top: "/top",
+  search: "/search",
+  analyze: "/analyze",
+  quickscan: "/quickscan",
+  top3: "/top3",
+  analyzebest: "/analyzebest",
+  analyzeall: "/analyzeall",
+  book: "/book",
+};
+
+function qwenHealth() {
+  const configured = Boolean(config.qwenApiKey);
+  return {
+    qwenConfigured: configured,
+    qwenStatus: configured ? "key_loaded" : "missing",
+    qwenLabel: configured ? "Qwen key loaded" : "Qwen key missing",
+  };
+}
+
+function contentType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".html") return "text/html; charset=utf-8";
+  if (ext === ".css") return "text/css; charset=utf-8";
+  if (ext === ".js") return "text/javascript; charset=utf-8";
+  if (ext === ".json") return "application/json; charset=utf-8";
+  if (ext === ".svg") return "image/svg+xml";
+  return "application/octet-stream";
+}
+
+function sendJson(res, status, data) {
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  res.end(JSON.stringify(data));
+}
+
+function normalizeOptions(options = {}) {
+  const inline = options?.reply_markup?.inline_keyboard;
+  if (!Array.isArray(inline)) return { buttons: [] };
+
+  return {
+    buttons: inline.map((row) =>
+      row
+        .filter((button) => button?.text && button?.callback_data)
+        .map((button) => ({
+          label: button.text,
+          command: button.callback_data,
+        }))
+    ),
+  };
+}
+
+function pushMessage(messages, text, options = {}, role = "assistant") {
+  const message = {
+    id: messages.length + 1,
+    role,
+    text: String(text || ""),
+    ...normalizeOptions(options),
+  };
+  messages.push(message);
+  return message;
+}
+
+function normalizeAnswer(answer) {
+  if (typeof answer === "string") return { text: answer, options: {} };
+  return {
+    text: answer?.text || "",
+    options: answer?.options || {},
+  };
+}
+
+function createWebContext(messages) {
+  return {
+    chatId: "web",
+    sendMessage: async (messageText, options = {}) => {
+      const message = pushMessage(messages, messageText, options);
+      return { message_id: message.id };
+    },
+    editMessageText: async (messageId, messageText, options = {}) => {
+      const index = Number(messageId) - 1;
+      if (messages[index]) {
+        messages[index] = {
+          ...messages[index],
+          text: String(messageText || ""),
+          ...normalizeOptions(options),
+        };
+        return messages[index];
+      }
+      const message = pushMessage(messages, messageText, options);
+      return { message_id: message.id };
+    },
+    sendChatAction: async () => {},
+  };
+}
+
+function commandFromPayload(payload) {
+  const input = String(payload?.text || "").trim();
+  const mode = String(payload?.mode || "auto").toLowerCase();
+  if (!input && mode === "top") return "/top";
+  if (!input) return "";
+  if (input.startsWith("/")) return input;
+  const command = modeCommands[mode] || "";
+  return command ? `${command} ${input}` : input;
+}
+
+async function readBody(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 1024 * 1024) throw new Error("Request terlalu besar.");
+    chunks.push(chunk);
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return raw ? JSON.parse(raw) : {};
+}
+
+async function handleApiCommand(req, res) {
+  const payload = await readBody(req);
+  const commandText = commandFromPayload(payload);
+  if (!commandText) {
+    sendJson(res, 400, { ok: false, error: "Isi input dulu." });
+    return;
+  }
+
+  const messages = [];
+  const context = createWebContext(messages);
+
+  try {
+    const answer = await handleCommand(commandText, { text: commandText, chat: { id: "web" } }, context);
+    const normalized = normalizeAnswer(answer);
+    pushMessage(messages, normalized.text, normalized.options);
+
+    sendJson(res, 200, {
+      ok: true,
+      command: commandText,
+      version: SEARCH_ENGINE_VERSION,
+      ...qwenHealth(),
+      messages,
+    });
+  } catch (error) {
+    sendJson(res, 500, {
+      ok: false,
+      command: commandText,
+      version: SEARCH_ENGINE_VERSION,
+      error: error.message || String(error),
+      messages,
+    });
+  }
+}
+
+async function serveStatic(req, res) {
+  const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  const relativePath = requestUrl.pathname === "/" ? "index.html" : requestUrl.pathname.slice(1);
+  const filePath = path.resolve(publicDir, decodeURIComponent(relativePath));
+
+  if (!filePath.startsWith(publicDir)) {
+    res.writeHead(403);
+    res.end("Forbidden");
+    return;
+  }
+
+  try {
+    const body = await fs.readFile(filePath);
+    res.writeHead(200, {
+      "content-type": contentType(filePath),
+      "cache-control": "no-store",
+    });
+    res.end(body);
+  } catch {
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Not found");
+  }
+}
+
+export function startWebServer(options = {}) {
+  const webPort = Number(options.port || port);
+  const webHost = options.host || host;
+
+  const server = http.createServer(async (req, res) => {
+    try {
+      if (req.method === "GET" && req.url === "/api/health") {
+        sendJson(res, 200, {
+          ok: true,
+          version: SEARCH_ENGINE_VERSION,
+          ...qwenHealth(),
+        });
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/command") {
+        await handleApiCommand(req, res);
+        return;
+      }
+
+      if (req.method === "GET") {
+        await serveStatic(req, res);
+        return;
+      }
+
+      res.writeHead(405, { "content-type": "text/plain; charset=utf-8" });
+      res.end("Method not allowed");
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error.message || String(error) });
+    }
+  });
+
+  server.listen(webPort, webHost, () => {
+    console.log(`Web UI running at http://${webHost}:${webPort}`);
+  });
+
+  return server;
+}
+
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === modulePath;
+
+if (isMainModule) {
+  startWebServer();
+}

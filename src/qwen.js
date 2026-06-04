@@ -335,6 +335,8 @@ function researchBlock(researchContext) {
 }
 
 export async function askQwen({ market, score, orderBook, researchContext = null }) {
+  const primaryOutcomeLabel = String(score?.primaryOutcomeLabel || market.outcomes?.[0] || "YES");
+  const secondaryOutcomeLabel = String(score?.secondaryOutcomeLabel || market.outcomes?.[1] || "NO");
   const marketData = JSON.stringify(
     {
       currentDateAsiaJakarta: nowInJakarta(),
@@ -351,6 +353,8 @@ export async function askQwen({ market, score, orderBook, researchContext = null
       volume: market.volume,
       outcomes: market.outcomes,
       outcomePrices: market.outcomePrices,
+      primaryOutcomeLabel,
+      secondaryOutcomeLabel,
       url: market.url,
     },
     null,
@@ -364,7 +368,7 @@ ${nowInJakarta()} Asia/Jakarta
 DATA MARKET:
 ${marketData}
 
-ORDERBOOK YES (TOP LEVELS ONLY):
+ORDERBOOK ${primaryOutcomeLabel.toUpperCase()} (TOP LEVELS ONLY):
 ${JSON.stringify(compactOrderBook(orderBook), null, 2).slice(0, config.maxQwenInputChars)}
 
 SCORING AWAL DARI BOT:
@@ -429,7 +433,7 @@ Aturan:
 
 Format JSON:
 {
-  "rules_summary": "ringkasan aturan resolusi dan hal yang menentukan YES/NO",
+  "rules_summary": "ringkasan aturan resolusi dan hal yang menentukan outcome utama/lawan",
   "data_quality": "kualitas data yang tersedia dan batasannya",
   "bullish_case": ["maks 3 poin"],
   "bearish_case": ["maks 3 poin"],
@@ -478,7 +482,7 @@ Aturan wajib:
 - Jangan mengarang data eksternal seperti FedWatch, dot plot, polling, CPI, berita, on-chain, funding, atau riset bank jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
 - Jika memakai pengetahuan umum, labeli sebagai asumsi umum, bukan fakta aktual.
 - Estimated fair probability dari bot saat ini sama dengan market implied probability, jadi edge mekanis 0 kecuali ada alasan kuat dan diberi label estimasi.
-- Verdict adalah status ENTRY/TRADABILITY, bukan prediksi arah YES/NO. Jika arah market jelas tapi entry buruk, verdict tetap SKIP atau WATCHLIST.
+- Verdict adalah status ENTRY/TRADABILITY, bukan prediksi arah outcome utama/lawan. Jika arah market jelas tapi entry buruk, verdict tetap SKIP atau WATCHLIST.
 - Summary wajib membedakan arah market dari kelayakan entry.
 - Jadikan analyst review sebagai bahan kritik, bukan keputusan otomatis.
 - Jangan berikan markdown. Balas hanya JSON valid.
@@ -573,11 +577,13 @@ export async function askQwenEvent({ event, analyzedMarkets, researchContext = n
     question: market.question,
     variant: market.groupItemTitle,
     status: market.closed ? "closed" : market.acceptingOrders ? "open" : "active_orders_unclear",
-    yes_price: market.outcomePrices?.[0] ?? null,
-    no_price: market.outcomePrices?.[1] ?? null,
+    primary_outcome: score.primaryOutcomeLabel || market.outcomes?.[0] || "YES",
+    secondary_outcome: score.secondaryOutcomeLabel || market.outcomes?.[1] || "NO",
+    gamma_primary_price: score.gammaPrimaryPrice ?? market.outcomePrices?.[0] ?? null,
+    gamma_secondary_price: market.outcomePrices?.[score.secondaryOutcomeIndex ?? 1] ?? market.outcomePrices?.[1] ?? null,
     liquidity: market.liquidity,
-    volume: market.volume,
-    implied_probability_percent: score.marketProbability,
+    gamma_volume: market.volume,
+    clob_implied_probability_percent: score.marketProbability,
     best_bid: score.bestBid,
     best_ask: score.bestAsk,
     spread_percent: score.spreadPercent,
@@ -717,7 +723,7 @@ Aturan wajib:
 - Jangan mengarang data eksternal seperti polling, berita, FedWatch, on-chain data, funding, atau filing jika tidak ada di input / EXTERNAL RESEARCH CONTEXT.
 - Nilai "worth it" di sini berarti paling layak dipantau/diteliti dari data market, bukan pasti value.
 - Karena belum ada fair probability eksternal, jangan klaim VALUE CANDIDATE kecuali alasannya sangat konservatif.
-- Verdict ranking adalah status entry/tradability tiap pilihan, bukan prediksi arah YES/NO.
+- Verdict ranking adalah status entry/tradability tiap pilihan, bukan prediksi arah outcome utama/lawan.
 - Prioritaskan market dengan orderbook sehat, spread rendah, liquidity cukup, rules jelas, dan alasan risiko yang masuk akal.
 - Jadikan analyst review sebagai bahan kritik, bukan keputusan otomatis.
 - Balas hanya JSON valid, tanpa markdown.

@@ -32,7 +32,7 @@ function safeJsonParse(value, fallback) {
   }
 }
 
-export const SEARCH_ENGINE_VERSION = "public-search-v2-event-wide-analysis-v11-free-research-apis";
+export const SEARCH_ENGINE_VERSION = "public-search-v2-event-wide-analysis-v14-top-market-discovery";
 
 function normalizeMarket(raw, event = null, eventSearchRank = 999) {
   const outcomes = safeJsonParse(raw.outcomes, raw.outcomes || []);
@@ -60,15 +60,136 @@ function normalizeMarket(raw, event = null, eventSearchRank = 999) {
     description: raw.description || "",
     resolutionSource: raw.resolutionSource || event?.resolutionSource || "",
     endDate: raw.endDate || raw.end_date || raw.endDateIso || "",
+    startDate: raw.startDate || raw.start_date || raw.startDateIso || raw.createdAt || "",
+    updatedAt: raw.updatedAt || raw.updated_at || "",
     active: raw.active ?? true,
     closed: raw.closed ?? false,
     acceptingOrders: raw.acceptingOrders ?? false,
     volume: Number(raw.volumeNum ?? raw.volume ?? raw.volume24hr ?? 0),
+    volume24hr: Number(raw.volume24hr ?? raw.volume24hrNum ?? raw.volume24h ?? raw.volumeNum ?? raw.volume ?? 0),
     liquidity: Number(raw.liquidityNum ?? raw.liquidity ?? 0),
     outcomes,
     outcomePrices: outcomePrices.map(Number),
     clobTokenIds: clobTokenIds.map(String),
     raw,
+  };
+}
+
+function listRows(data, key) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.[key])) return data[key];
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+}
+
+export function topMarketMode(input = "") {
+  const value = normalizeText(input || "volume");
+
+  if (["liquidity", "liq", "liquid"].includes(value)) {
+    return {
+      mode: "liquidity",
+      title: "Top markets by liquidity",
+      apiOrder: "liquidity",
+      ascending: false,
+      metric: (market) => market.liquidity,
+      metricLabel: "Liquidity",
+    };
+  }
+
+  if (["ending", "close", "closing", "deadline", "soon"].includes(value)) {
+    return {
+      mode: "ending",
+      title: "Markets closing soon",
+      apiOrder: "end_date",
+      ascending: true,
+      metric: (market) => {
+        const time = new Date(market.endDate).getTime();
+        return Number.isFinite(time) ? -time : Number.NEGATIVE_INFINITY;
+      },
+      metricLabel: "Close",
+    };
+  }
+
+  if (["new", "newest", "recent", "fresh"].includes(value)) {
+    return {
+      mode: "new",
+      title: "Newest active markets",
+      apiOrder: "start_date",
+      ascending: false,
+      metric: (market) => {
+        const time = new Date(market.startDate || market.updatedAt).getTime();
+        return Number.isFinite(time) ? time : 0;
+      },
+      metricLabel: "Start",
+    };
+  }
+
+  return {
+    mode: "volume",
+    title: "Top markets by 24h volume",
+    apiOrder: "volume_24hr",
+    ascending: false,
+    metric: (market) => market.volume24hr || market.volume,
+    metricLabel: "24h Volume",
+  };
+}
+
+function sortByTopMetric(markets, config) {
+  return [...markets].sort((a, b) => {
+    const metricDiff = Number(config.metric(b) || 0) - Number(config.metric(a) || 0);
+    if (metricDiff !== 0) return metricDiff;
+
+    const liquidityDiff = b.liquidity - a.liquidity;
+    if (liquidityDiff !== 0) return liquidityDiff;
+
+    return (b.volume24hr || b.volume) - (a.volume24hr || a.volume);
+  });
+}
+
+async function fetchTopEvents(modeConfig, limit) {
+  const url = new URL("/events", config.gammaUrl);
+  url.searchParams.set("active", "true");
+  url.searchParams.set("closed", "false");
+  url.searchParams.set("order", modeConfig.apiOrder);
+  url.searchParams.set("ascending", String(modeConfig.ascending));
+  url.searchParams.set("limit", String(Math.max(limit * 4, 40)));
+  return fetchJson(url.toString());
+}
+
+async function fetchTopMarketRows(modeConfig, limit) {
+  const url = new URL("/markets", config.gammaUrl);
+  url.searchParams.set("active", "true");
+  url.searchParams.set("closed", "false");
+  url.searchParams.set("order", modeConfig.apiOrder);
+  url.searchParams.set("ascending", String(modeConfig.ascending));
+  url.searchParams.set("limit", String(Math.max(limit * 2, 20)));
+  return fetchJson(url.toString());
+}
+
+export async function listTopMarkets({ mode = "volume", limit = 10 } = {}) {
+  const modeConfig = topMarketMode(mode);
+  const eventsData = await fetchTopEvents(modeConfig, limit);
+  const eventRows = listRows(eventsData, "events");
+  const eventMarkets = eventRows.flatMap((event, eventIndex) =>
+    Array.isArray(event.markets)
+      ? event.markets.map((market) => normalizeMarket(market, event, eventIndex))
+      : []
+  );
+
+  let markets = eventMarkets.filter(openTradableMarket);
+
+  if (!markets.length) {
+    const marketsData = await fetchTopMarketRows(modeConfig, limit);
+    markets = listRows(marketsData, "markets")
+      .map((market) => normalizeMarket(market))
+      .filter(openTradableMarket);
+  }
+
+  return {
+    mode: modeConfig.mode,
+    title: modeConfig.title,
+    metricLabel: modeConfig.metricLabel,
+    markets: sortByTopMetric(markets, modeConfig).slice(0, limit),
   };
 }
 
@@ -247,15 +368,33 @@ export function parsePolymarketLink(value) {
   const parts = url.pathname.split("/").filter(Boolean);
   const eventIndex = parts.indexOf("event");
   const marketIndex = parts.indexOf("market");
+  const fallbackSlug = parts.at(-1);
 
   if (eventIndex >= 0 && parts[eventIndex + 1]) {
-    return { type: "event", slug: parts[eventIndex + 1], url: input };
+    return { type: "event", slug: decodeSlug(parts[eventIndex + 1]), url: input };
   }
   if (marketIndex >= 0 && parts[marketIndex + 1]) {
-    return { type: "market", slug: parts[marketIndex + 1], url: input };
+    return { type: "market", slug: decodeSlug(parts[marketIndex + 1]), url: input };
+  }
+
+  if (isPolymarketSlug(fallbackSlug)) {
+    return { type: "slug", slug: decodeSlug(fallbackSlug), url: input };
   }
 
   return null;
+}
+
+function decodeSlug(value) {
+  try {
+    return decodeURIComponent(String(value || "").trim());
+  } catch {
+    return String(value || "").trim();
+  }
+}
+
+function isPolymarketSlug(value) {
+  const slug = decodeSlug(value);
+  return /^[a-z0-9][a-z0-9-]{2,}$/i.test(slug);
 }
 
 export async function getMarketFromPolymarketLink(value) {
@@ -291,11 +430,25 @@ export async function getMarketFromPolymarketLink(value) {
     }
   };
 
-  if (parsed.type === "event") {
-    return (await tryEventSlug()) || (await tryMarketSlug());
+  const trySearchSlug = async () => {
+    try {
+      const query = parsed.slug.replace(/-/g, " ");
+      const markets = await searchMarkets(query, 1);
+      return markets[0] || null;
+    } catch {
+      return null;
+    }
+  };
+
+  if (parsed.type === "market") {
+    return (await tryMarketSlug()) || (await tryEventSlug()) || (await trySearchSlug());
   }
 
-  return (await tryMarketSlug()) || (await tryEventSlug());
+  if (parsed.type === "event" || parsed.type === "slug") {
+    return (await tryEventSlug()) || (await tryMarketSlug()) || (await trySearchSlug());
+  }
+
+  return (await tryMarketSlug()) || (await tryEventSlug()) || (await trySearchSlug());
 }
 
 export async function getMarketsFromPolymarketLink(value) {
@@ -334,11 +487,39 @@ export async function getMarketsFromPolymarketLink(value) {
     }
   };
 
-  if (parsed.type === "event") {
-    return (await tryEventSlug()) || (await tryMarketSlug());
+  const trySearchSlug = async () => {
+    try {
+      const query = parsed.slug.replace(/-/g, " ");
+      const markets = await searchMarkets(query, 10);
+      if (!markets.length) return null;
+
+      return {
+        kind: markets.length > 1 ? "event" : "market",
+        event: {
+          id: "",
+          title: `Search fallback: ${parsed.slug}`,
+          slug: parsed.slug,
+          description: "",
+          endDate: "",
+          url: parsed.url,
+          raw: null,
+        },
+        markets,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  if (parsed.type === "market") {
+    return (await tryMarketSlug()) || (await tryEventSlug()) || (await trySearchSlug());
   }
 
-  return (await tryMarketSlug()) || (await tryEventSlug());
+  if (parsed.type === "event" || parsed.type === "slug") {
+    return (await tryEventSlug()) || (await tryMarketSlug()) || (await trySearchSlug());
+  }
+
+  return (await tryMarketSlug()) || (await tryEventSlug()) || (await trySearchSlug());
 }
 
 export async function getOrderBook(tokenId) {
@@ -350,12 +531,17 @@ export async function getOrderBook(tokenId) {
 export function pickYesNoTokens(market) {
   const yesIndex = market.outcomes.findIndex((x) => String(x).toLowerCase() === "yes");
   const noIndex = market.outcomes.findIndex((x) => String(x).toLowerCase() === "no");
+  const primaryIndex = yesIndex >= 0 ? yesIndex : 0;
+  const secondaryIndex = noIndex >= 0 ? noIndex : primaryIndex === 0 ? 1 : 0;
 
   return {
-    yesTokenId: yesIndex >= 0 ? market.clobTokenIds[yesIndex] : market.clobTokenIds[0],
-    noTokenId: noIndex >= 0 ? market.clobTokenIds[noIndex] : market.clobTokenIds[1],
-    yesPrice:
-      yesIndex >= 0 ? market.outcomePrices[yesIndex] : market.outcomePrices[0],
-    noPrice: noIndex >= 0 ? market.outcomePrices[noIndex] : market.outcomePrices[1],
+    yesTokenId: market.clobTokenIds[primaryIndex],
+    noTokenId: market.clobTokenIds[secondaryIndex],
+    yesPrice: market.outcomePrices[primaryIndex],
+    noPrice: market.outcomePrices[secondaryIndex],
+    yesLabel: market.outcomes[primaryIndex] || "Yes",
+    noLabel: market.outcomes[secondaryIndex] || "No",
+    yesIndex: primaryIndex,
+    noIndex: secondaryIndex,
   };
 }

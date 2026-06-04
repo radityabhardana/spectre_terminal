@@ -166,9 +166,13 @@ function entryVerdictMeaning(verdict) {
 
 function directionSignal(score) {
   const p = Number(score?.marketProbability);
+  const primaryLabel = String(score?.primaryOutcomeLabel || "YES").toUpperCase();
+  const secondaryLabel = String(score?.secondaryOutcomeLabel || "NO").toUpperCase();
   if (!Number.isFinite(p)) {
     return {
       side: "N/A",
+      primaryLabel,
+      secondaryLabel,
       yesConfidence: NaN,
       noConfidence: NaN,
       dominanceGap: NaN,
@@ -180,12 +184,12 @@ function directionSignal(score) {
   const dominanceGap = Math.abs(yesConfidence - noConfidence);
 
   if (yesConfidence >= noConfidence + 2) {
-    return { side: "YES", yesConfidence, noConfidence, dominanceGap };
+    return { side: primaryLabel, primaryLabel, secondaryLabel, yesConfidence, noConfidence, dominanceGap };
   }
   if (noConfidence >= yesConfidence + 2) {
-    return { side: "NO", yesConfidence, noConfidence, dominanceGap };
+    return { side: secondaryLabel, primaryLabel, secondaryLabel, yesConfidence, noConfidence, dominanceGap };
   }
-  return { side: "NETRAL", yesConfidence, noConfidence, dominanceGap };
+  return { side: "NETRAL", primaryLabel, secondaryLabel, yesConfidence, noConfidence, dominanceGap };
 }
 
 function directionStrength(direction) {
@@ -211,9 +215,10 @@ function oneLine(list) {
 export function formatHelp() {
   return [
     "Polymarket Analyzer Bot",
-    "Version: public-search-v2-event-wide-analysis-v11-free-research-apis",
+    "Version: public-search-v2-event-wide-analysis-v14-top-market-discovery",
     "",
     "Command:",
+    "/top [volume|liquidity|new|ending] - lihat market aktif yang lagi top",
     "/search <keyword> - cari market aktif",
     "/analyze <keyword, marketId, atau link Polymarket> - analisis manual dengan Qwen",
     "/quickscan <link/slug event> - scan cepat event tanpa Qwen",
@@ -224,9 +229,52 @@ export function formatHelp() {
     "/example - contoh alur pakai bot",
     "",
     "Qwen pipeline: fast scout -> analyst reviewer -> final judge.",
+    "Anti-spam aktif: command umum dan command Qwen punya cooldown supaya token/API tidak cepat habis.",
     "Tombol menu akan muncul di bawah chat setelah /start.",
-    "Kamu juga bisa kirim link Polymarket atau Market ID langsung untuk dianalisis.",
+    "Kamu juga bisa kirim link Polymarket, termasuk route kategori seperti /sports/..., atau Market ID langsung untuk dianalisis.",
     "Bot ini hanya analisis, bukan auto-entry.",
+  ].join("\n");
+}
+
+function topMetricLine(result, market) {
+  if (result.mode === "ending") return `Close: ${formatDateWib(market.endDate)} WIB`;
+  if (result.mode === "new") return `Start: ${formatDateWib(market.startDate)} WIB`;
+  if (result.mode === "liquidity") return `Liquidity: ${money(market.liquidity)}`;
+  return `24h volume: ${money(market.volume24hr || market.volume)}`;
+}
+
+export function formatTopMarkets(result) {
+  const markets = result?.markets || [];
+  if (!markets.length) return "Top market tidak ditemukan.";
+
+  const body = markets
+    .map((market, index) =>
+      [
+        `${index + 1}. ${market.question}`,
+        market.eventTitle && market.eventTitle !== market.question ? `Event: ${market.eventTitle}` : null,
+        `Market ID: ${market.id || "n/a"}`,
+        `Status: ${statusLabel(market)}`,
+        market.groupItemTitle ? `Variant: ${market.groupItemTitle}` : null,
+        outcomeLine(market),
+        topMetricLine(result, market),
+        `Liquidity: ${money(market.liquidity)} | Gamma volume: ${money(market.volume)} | 24h: ${money(market.volume24hr || market.volume)}`,
+        `Analyze: /analyze ${market.id}`,
+        market.url ? `URL: ${market.url}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    )
+    .join("\n\n");
+
+  return [
+    "TOP MARKETS",
+    result.title || "Top active markets",
+    `Mode: ${result.mode || "volume"}`,
+    "",
+    body,
+    "",
+    "Tips: pakai /top liquidity, /top new, atau /top ending untuk mode lain.",
+    "Qwen belum dipakai di sini; ini discovery cepat dari Gamma market data.",
   ].join("\n");
 }
 
@@ -349,7 +397,7 @@ export function formatSearchResults(markets) {
         m.groupItemTitle ? `Variant: ${m.groupItemTitle}` : "",
         `API close/resolution: ${formatDateWib(m.endDate)} WIB`,
         outcomeLine(m),
-        `Liquidity: ${money(m.liquidity)} | Volume: ${money(m.volume)}`,
+        `Liquidity: ${money(m.liquidity)} | Gamma volume: ${money(m.volume)}`,
         `Analyze: /analyze ${m.id}`,
         `Book: /book ${m.id}`,
       ]
@@ -408,7 +456,7 @@ export function formatAnalysis({ market, score, qwenResult }) {
     "",
     "ARAH MARKET - SCOUTING",
     `Dominan: ${direction.side}`,
-    `Confidence YES: ${pct(direction.yesConfidence)} | Confidence NO: ${pct(
+    `Confidence ${direction.primaryLabel}: ${pct(direction.yesConfidence)} | Confidence ${direction.secondaryLabel}: ${pct(
       direction.noConfidence
     )}`,
     `Gap dominansi: ${points(direction.dominanceGap)} (semakin besar = arah makin tegas)`,
@@ -417,8 +465,8 @@ export function formatAnalysis({ market, score, qwenResult }) {
     "SNAPSHOT DATA",
     outcomeLine(market),
     `Liquidity: ${money(market.liquidity)}`,
-    `Volume: ${money(market.volume)}`,
-    `Orderbook YES: bid ${price(score.bestBid)} | ask ${price(score.bestAsk)} | spread ${pct(
+    `Gamma volume: ${money(market.volume)}`,
+    `Orderbook ${direction.primaryLabel}: bid ${price(score.bestBid)} | ask ${price(score.bestAsk)} | spread ${pct(
       score.spreadPercent
     )}`,
     "",
@@ -426,6 +474,7 @@ export function formatAnalysis({ market, score, qwenResult }) {
     "CONFIDENCE & RISK",
     `Data confidence: ${confidenceText(score.confidenceScore)} | Qwen confidence: ${confidenceText(qwen.confidence)}`,
     `Risks: liquidity ${score.liquidityRisk}, spread ${score.spreadRisk}, resolution ${score.resolutionRisk}`,
+    score.dataWarnings?.length ? `Data warning: ${score.dataWarnings.join("; ")}` : null,
     `Guardrail: ${blockers}`,
     "",
     "ALASAN SINGKAT",
@@ -455,11 +504,11 @@ export function formatMarketBubble({ market, score, index, total }) {
     `Market: ${market.groupItemTitle || market.question}`,
     `Market ID: ${market.id}`,
     `Arah market: ${direction.side} (${strength})`,
-    `Confidence YES: ${pct(direction.yesConfidence)} | NO: ${pct(direction.noConfidence)}`,
+    `Confidence ${direction.primaryLabel}: ${pct(direction.yesConfidence)} | ${direction.secondaryLabel}: ${pct(direction.noConfidence)}`,
     `Gap dominansi: ${points(direction.dominanceGap)}`,
     `Data confidence: ${score.confidenceScore}/100`,
     `Underdog: ${score.underdogScore}/10`,
-    `Orderbook YES: bid ${price(score.bestBid)} | ask ${price(score.bestAsk)} | spread ${pct(
+    `Orderbook ${direction.primaryLabel}: bid ${price(score.bestBid)} | ask ${price(score.bestAsk)} | spread ${pct(
       score.spreadPercent
     )}`,
     `Risk: liquidity ${score.liquidityRisk}, spread ${score.spreadRisk}, resolution ${score.resolutionRisk}`,
@@ -478,7 +527,7 @@ export function formatEventQuickScan({ event, analyzedMarkets, limit = 8 }) {
     return [
       `${index + 1}. ${label}`,
       `Market ID: ${item.market.id}`,
-      `Arah: ${direction.side} (${strength}) | YES ${pct(direction.yesConfidence)} / NO ${pct(direction.noConfidence)}`,
+      `Arah: ${direction.side} (${strength}) | ${direction.primaryLabel} ${pct(direction.yesConfidence)} / ${direction.secondaryLabel} ${pct(direction.noConfidence)}`,
       `Entry: ${entryVerdictMeaning(item.score.verdict)}`,
       `Data: confidence ${confidenceText(item.score.confidenceScore)}, underdog ${item.score.underdogScore}/10, spread ${pct(item.score.spreadPercent)}`,
       `Analyze detail: /analyze ${item.market.id}`,
@@ -550,10 +599,10 @@ export function formatEventAnalysis({ event, analyzedMarkets, qwenResult }) {
       `Market ID: ${market.id}`,
       `Question: ${market.question}`,
       outcomeLine(market),
-      `Orderbook YES: bid ${price(score.bestBid)} | ask ${price(score.bestAsk)} | spread ${pct(
+      `Orderbook ${String(score.primaryOutcomeLabel || "YES").toUpperCase()}: bid ${price(score.bestBid)} | ask ${price(score.bestAsk)} | spread ${pct(
         score.spreadPercent
       )}`,
-      `Liquidity: ${money(market.liquidity)} | Volume: ${money(market.volume)}`,
+      `Liquidity: ${money(market.liquidity)} | Gamma volume: ${money(market.volume)}`,
       `Bot: data confidence ${score.confidenceScore}/100 | underdog ${score.underdogScore}/10 | ${score.verdict}`,
       qwenItem ? `Qwen: ${qwenItem.verdict} - ${qwenItem.reason}` : "Qwen: tidak diranking khusus",
       `Analyze single: /analyze ${market.id}`,

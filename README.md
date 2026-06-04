@@ -38,7 +38,7 @@ NEWS_CACHE_TTL_SECONDS=900
 RESEARCH_FETCH_TIMEOUT_MS=8000
 ```
 
-Jalankan:
+Jalankan Telegram bot dan website sekaligus:
 
 ```bash
 npm start
@@ -50,11 +50,28 @@ Jika PowerShell memblokir `npm`, pakai:
 npm.cmd start
 ```
 
+Untuk menjalankan salah satu saja:
+
+```powershell
+npm.cmd run web
+npm.cmd run telegram
+```
+
+Buka:
+
+```text
+http://localhost:8787
+```
+
+Kalau port 8787 sudah dipakai, ubah `WEB_PORT` di `.env`.
+Default host adalah `127.0.0.1` supaya UI hanya lokal di komputer sendiri.
+
 ## Command Telegram
 
 - `/start` atau `/help` - tampilkan bantuan.
 - `/version` - cek versi search engine yang sedang aktif.
 - `/example` - tampilkan contoh alur pakai bot.
+- `/top [volume|liquidity|new|ending]` - lihat market aktif yang lagi top tanpa perlu keyword/link.
 - `/search <keyword>` - cari market aktif.
 - `/book <tokenId, marketId, atau link Polymarket>` - cek orderbook token CLOB dari hasil `/search`.
 - `/analyze <keyword, marketId, atau link Polymarket>` - cari market paling relevan, analisis market ID pilihan, atau analisis langsung dari link Polymarket.
@@ -66,14 +83,44 @@ npm.cmd start
 Saat `/start`, Telegram akan menampilkan keyboard menu dengan tombol:
 
 ```text
-Search Market | Analyze Link / ID
-Quick Scan Event | Orderbook Check
-Example Flow | Bot Version
-Help
+Top Markets | Analyze Link / ID
+Search Market | Quick Scan Event
+Orderbook Check | Example Flow
+Bot Version | Help
 ```
 
 Saat `/analyze`, bot mengirim pesan progress dengan estimasi sisa waktu, lalu mengirim hasil final setelah Qwen selesai.
 Kamu juga bisa mengirim link Polymarket atau Market ID langsung tanpa `/analyze`; bot akan otomatis menganalisisnya.
+Link Polymarket tidak harus selalu `/event/...` atau `/market/...`; route kategori seperti `/sports/wta-doubles/wta-doubles-barnmur-presswa-2026-06-02` juga akan dicoba dari slug terakhir.
+
+## Website Lokal
+
+Website memakai engine analisis yang sama dengan Telegram, tapi tampilannya lebih enak untuk output panjang.
+Mode yang tersedia:
+
+- `Auto` - tempel command, link, keyword, atau Market ID langsung.
+- `Top Markets` - lihat market aktif yang lagi rame tanpa input.
+- `Deep Analyze` - setara `/analyze`.
+- `Search` - setara `/search`.
+- `Quick Scan Event` - setara `/quickscan`.
+- `Top 3 Event` - setara `/top3`.
+- `AI Best Event` - setara `/analyzebest`.
+- `Analyze All` - setara `/analyzeall`.
+- `Orderbook` - setara `/book`.
+
+Kalau hasil menampilkan tombol Event Hub, tombol itu bisa diklik langsung dari website.
+Status `Qwen key loaded` hanya berarti `QWEN_API_KEY` sudah kebaca dari `.env`; Qwen baru benar-benar dipakai saat mode deep seperti `Deep Analyze` atau `AI Best Event` dijalankan.
+Panel `Polymarket Live` otomatis menampilkan embed Polymarket ketika URL market/event terdeteksi. Embed resmi Polymarket paling aman untuk single market; untuk event multi-pilihan, pilih salah satu market dulu agar widget-nya tepat.
+
+Anti-spam guard aktif untuk Telegram dan Website:
+
+```text
+COMMAND_COOLDOWN_MS -> jeda umum antar command.
+DUPLICATE_COMMAND_COOLDOWN_MS -> jeda untuk command yang sama persis.
+QWEN_COMMAND_COOLDOWN_MS -> jeda khusus command AI/Qwen seperti /analyze, /analyzebest, /analyzeall.
+```
+
+Default-nya command umum 3 detik, command sama 15 detik, dan Qwen 45 detik. Kalau terlalu ketat atau terlalu longgar, ubah nilainya di `.env`.
 
 Pipeline Qwen:
 
@@ -108,6 +155,8 @@ Alur manual yang disarankan:
 
 ```text
 /search Colombia Presidential Election
+/top
+/top liquidity
 /analyze 569356
 /analyze https://polymarket.com/event/microstrategy-sell-any-bitcoin-in-2025
 /quickscan colombia-presidential-election
@@ -117,8 +166,10 @@ Alur manual yang disarankan:
 ```
 
 `/search` memakai Polymarket Gamma `/public-search`, jadi Qwen belum dipakai. Qwen dipakai saat `/analyze` dan `/analyzebest`.
+`/top` memakai Polymarket Gamma `/events` aktif, default sort `volume_24hr`, jadi cocok buat discovery market yang sedang rame.
 Output analisis akan menampilkan `Qwen pipeline` dan `Qwen usage` jika API mengembalikan data token usage.
-Untuk market crypto, output juga menampilkan `RESEARCH CONTEXT` dari Binance jika coin berhasil terdeteksi.
+Untuk market crypto, output juga menampilkan `RESEARCH CONTEXT` dari Binance, DeFiLlama, Alternative.me, dan GDELT jika coin berhasil terdeteksi.
+Untuk market live cepat seperti `Up/Down`, bot memakai CLOB/orderbook sebagai acuan utama arah live, lalu memberi warning jika harga/volume Gamma terlihat lag atau terlalu kecil.
 
 Kalau link event berisi banyak market aktif:
 
@@ -128,7 +179,7 @@ Kalau link event berisi banyak market aktif:
 - Tombol angka `1`, `2`, `3`, dst langsung deep analyze market itu saja.
 - `AI Best` menjalankan Qwen untuk pilih satu kandidat lalu deep analyze.
 - `/analyzebest <link/slug event>` pilih satu kandidat paling worth it dari semua pilihan aktif lalu deep dive hasil lengkapnya.
-- `/analyzeall <link event>` masuk mode **jelaskan semua**: bot kirim 1 bubble per pilihan berisi arah YES/NO, confidence, underdog, risk, dan entry status mekanis.
+- `/analyzeall <link event>` masuk mode **jelaskan semua**: bot kirim 1 bubble per pilihan berisi arah outcome utama/lawan, confidence, underdog, risk, dan entry status mekanis.
 - Untuk deep dive Qwen per pilihan, pakai `/analyze <Market ID>`.
 
 Untuk tes search tanpa Telegram:

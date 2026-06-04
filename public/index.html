@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MVPM Polymarket Analyzer</title>
+    <link rel="stylesheet" href="/styles.css?v=17-pro-assets" />
+  </head>
+  <body>
+    <div class="ambient-grid" aria-hidden="true"></div>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <img src="/assets/mvpm-mark.svg" alt="" />
+          </div>
+          <div>
+            <h1>MVPM Analyzer</h1>
+            <p id="versionText">Engine handshake...</p>
+          </div>
+        </div>
+        <div class="status-row">
+          <span class="status-pill">Gamma</span>
+          <span class="status-pill">CLOB</span>
+          <span id="qwenStatus" class="status-pill">Qwen</span>
+          <span class="status-pill muted">Local</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="control-panel">
+          <div class="panel-header">
+            <div>
+              <span class="panel-kicker">Command Deck</span>
+              <strong class="panel-title">Discovery</strong>
+            </div>
+            <span class="panel-code">MVPM-01</span>
+          </div>
+
+          <div class="preset-grid" aria-label="Top market presets">
+            <button type="button" data-command="/top"><span class="cmd-icon bars"></span>Volume</button>
+            <button type="button" data-command="/top liquidity"><span class="cmd-icon depth"></span>Liquidity</button>
+            <button type="button" data-command="/top new"><span class="cmd-icon pulse"></span>New</button>
+            <button type="button" data-command="/top ending"><span class="cmd-icon clock"></span>Ending</button>
+          </div>
+
+          <div class="field">
+            <label for="modeSelect">Mode</label>
+            <div class="select-shell">
+              <select id="modeSelect">
+                <option value="auto">Auto</option>
+                <option value="top">Top Markets</option>
+                <option value="analyze">Deep Analyze</option>
+                <option value="search">Search</option>
+                <option value="quickscan">Quick Scan Event</option>
+                <option value="top3">Top 3 Event</option>
+                <option value="analyzebest">AI Best Event</option>
+                <option value="analyzeall">Analyze All</option>
+                <option value="book">Orderbook</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field grow">
+            <label for="commandInput">Input</label>
+            <textarea
+              id="commandInput"
+              spellcheck="false"
+              placeholder="Tempel link Polymarket, Market ID, keyword, atau command..."
+            ></textarea>
+          </div>
+
+          <div class="button-row">
+            <button id="runButton" class="primary-button" type="button"><span class="run-mark"></span>Run</button>
+            <button id="clearButton" class="ghost-button" type="button" aria-label="Clear">Clear</button>
+          </div>
+
+          <div class="quick-actions" aria-label="Quick actions">
+            <button type="button" data-mode="top">Top</button>
+            <button type="button" data-mode="analyze">Deep</button>
+            <button type="button" data-mode="quickscan">Quick</button>
+            <button type="button" data-mode="top3">Top 3</button>
+            <button type="button" data-mode="book">Book</button>
+          </div>
+        </aside>
+
+        <section class="result-panel">
+          <div class="console-head">
+            <div>
+              <span class="panel-kicker">Analysis Console</span>
+              <h2>Market Intelligence</h2>
+            </div>
+            <div class="console-metrics" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+          </div>
+
+          <div id="deckTabs" class="deck-tabs" aria-label="Command output tabs"></div>
+
+          <div class="console-body">
+            <div class="console-feed">
+              <div id="emptyState" class="empty-state">
+                <img class="empty-asset" src="/assets/market-lens.svg" alt="" />
+                <h2>Ready for signal.</h2>
+                <p>Polymarket Gamma + CLOB + Qwen pipeline.</p>
+              </div>
+
+              <div id="loadingState" class="loading-state hidden">
+                <div class="spinner" aria-hidden="true"></div>
+                <div>
+                  <strong>Analisis berjalan</strong>
+                  <span id="timerText">0s</span>
+                </div>
+              </div>
+
+              <div id="messages" class="messages" aria-live="polite"></div>
+            </div>
+
+            <aside class="poly-panel">
+              <div class="poly-head">
+                <div>
+                  <span class="panel-kicker">Polymarket Live</span>
+                  <strong id="polyTitle">Embed panel</strong>
+                </div>
+                <a id="polyOpenLink" class="poly-open disabled" href="https://polymarket.com" target="_blank" rel="noopener">Open</a>
+              </div>
+              <div id="polyEmpty" class="poly-empty">
+                <span>Paste atau pilih market Polymarket.</span>
+                <small>Embed akan muncul otomatis ketika URL market terdeteksi.</small>
+              </div>
+              <iframe
+                id="polyFrame"
+                class="poly-frame hidden"
+                title="polymarket-market-iframe"
+                frameborder="0"
+                allowtransparency="true"
+              ></iframe>
+            </aside>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js?v=17-pro-assets" type="module"></script>
+  </body>
+</html>

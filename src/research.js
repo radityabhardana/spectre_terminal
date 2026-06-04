@@ -80,6 +80,23 @@ function marketText({ market, event, markets } = {}) {
     .join(" ");
 }
 
+function primaryAssetText({ market, event, markets } = {}) {
+  const marketList = Array.isArray(markets) ? markets : [];
+  return [
+    market?.question,
+    market?.eventTitle,
+    market?.groupItemTitle,
+    event?.title,
+    ...marketList.flatMap((item) => [
+      item?.question,
+      item?.eventTitle,
+      item?.groupItemTitle,
+    ]),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 export function detectCryptoAssets(input) {
   const text = normalizeText(input);
   if (!text) return [];
@@ -324,7 +341,7 @@ async function fetchDefiLlamaProtocols(uniqueAssets) {
   const assets = uniqueAssets.filter((asset) => asset.defillamaSlug).slice(0, 3);
   if (!assets.length) return [];
 
-  const rows = await Promise.all(
+  const results = await Promise.allSettled(
     assets.map(async (asset) => {
       const url = new URL(`/protocol/${asset.defillamaSlug}`, config.defillamaBaseUrl);
       const json = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds);
@@ -346,7 +363,9 @@ async function fetchDefiLlamaProtocols(uniqueAssets) {
     })
   );
 
-  return rows;
+  return results
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => result.value);
 }
 
 async function fetchDefiLlamaStablecoins(uniqueAssets) {
@@ -629,7 +648,9 @@ function researchSummary(pairs) {
 
 export async function buildResearchContext({ market, event, markets } = {}) {
   const text = marketText({ market, event, markets });
-  const detectedAssets = detectCryptoAssets(text);
+  const primaryText = primaryAssetText({ market, event, markets });
+  const detectedFromTitle = detectCryptoAssets(primaryText);
+  const detectedAssets = detectedFromTitle.length ? detectedFromTitle : detectCryptoAssets(text);
 
   if (!detectedAssets.length) {
     return {

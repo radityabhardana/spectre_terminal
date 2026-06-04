@@ -1,3 +1,5 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { assertConfig, config } from "./config.js";
 import {
   formatAnalysis,
@@ -8,11 +10,13 @@ import {
   formatHelp,
   formatMarketBubble,
   formatSearchResults,
+  formatTopMarkets,
 } from "./format.js";
 import {
   getMarketFromPolymarketLink,
   getMarketById,
   getMarketsFromPolymarketLink,
+  listTopMarkets,
   getOrderBook,
   parsePolymarketLink,
   pickYesNoTokens,
@@ -21,11 +25,13 @@ import {
 } from "./polymarket.js";
 import { askQwen, askQwenEvent } from "./qwen.js";
 import { buildResearchContext } from "./research.js";
+import { enterCommandGuard, releaseCommandGuard } from "./rate-limit.js";
 import { scoreMarket } from "./scoring.js";
 import { appendAnalysisLog } from "./storage.js";
 import { TelegramBot } from "./telegram.js";
 
 const MENU_BUTTONS = {
+  TOP: "Top Markets",
   SEARCH: "Search Market",
   ANALYZE: "Analyze Link / ID",
   QUICK_SCAN: "Quick Scan Event",
@@ -39,10 +45,10 @@ function menuKeyboard() {
   return {
     reply_markup: {
       keyboard: [
-        [{ text: MENU_BUTTONS.SEARCH }, { text: MENU_BUTTONS.ANALYZE }],
-        [{ text: MENU_BUTTONS.QUICK_SCAN }, { text: MENU_BUTTONS.BOOK }],
-        [{ text: MENU_BUTTONS.EXAMPLE }, { text: MENU_BUTTONS.VERSION }],
-        [{ text: MENU_BUTTONS.HELP }],
+        [{ text: MENU_BUTTONS.TOP }, { text: MENU_BUTTONS.ANALYZE }],
+        [{ text: MENU_BUTTONS.SEARCH }, { text: MENU_BUTTONS.QUICK_SCAN }],
+        [{ text: MENU_BUTTONS.BOOK }, { text: MENU_BUTTONS.EXAMPLE }],
+        [{ text: MENU_BUTTONS.VERSION }, { text: MENU_BUTTONS.HELP }],
       ],
       resize_keyboard: true,
       one_time_keyboard: false,
@@ -123,6 +129,7 @@ function menuAnswer(text) {
 
 function normalizeButtonText(text) {
   const trimmed = String(text || "").trim();
+  if (trimmed === MENU_BUTTONS.TOP) return "/top";
   if (trimmed === MENU_BUTTONS.SEARCH) return "/search";
   if (trimmed === MENU_BUTTONS.ANALYZE) return "/analyze";
   if (trimmed === MENU_BUTTONS.QUICK_SCAN) return "/quickscan";
@@ -201,11 +208,43 @@ async function resolveAnalyzeInput(arg) {
 async function scoreOneMarket(market) {
   const tokens = pickYesNoTokens(market);
   if (!tokens.yesTokenId) {
-    throw new Error(`Market ${market.id} tidak punya token YES.`);
+    throw new Error(`Market ${market.id} tidak punya token utama.`);
   }
 
   const yesBook = await getOrderBook(tokens.yesTokenId);
-  const score = scoreMarket({ market, yesBook });
+  const baseScore = scoreMarket({ market, yesBook });
+  const clobMidpoint =
+    baseScore.marketProbability == null ? null : baseScore.marketProbability / 100;
+  const gammaPrice = Number(tokens.yesPrice);
+  const dataWarnings = [];
+
+  if (
+    Number.isFinite(clobMidpoint) &&
+    Number.isFinite(gammaPrice) &&
+    Math.abs(clobMidpoint - gammaPrice) >= 0.05
+  ) {
+    dataWarnings.push(
+      `Gamma ${tokens.yesLabel} price ${gammaPrice.toFixed(3)} beda dari CLOB midpoint ${clobMidpoint.toFixed(3)}; untuk live market pakai CLOB/orderbook sebagai acuan utama.`
+    );
+  }
+
+  if (Number(market.volume) > 0 && Number(market.volume) < 100) {
+    dataWarnings.push(
+      "Gamma volume sangat kecil untuk market live; volume bisa stale/baru mulai dan tidak selalu mencerminkan aktivitas orderbook."
+    );
+  }
+
+  const score = {
+    ...baseScore,
+    primaryOutcomeLabel: tokens.yesLabel,
+    secondaryOutcomeLabel: tokens.noLabel,
+    primaryOutcomeIndex: tokens.yesIndex,
+    secondaryOutcomeIndex: tokens.noIndex,
+    primaryTokenId: tokens.yesTokenId,
+    secondaryTokenId: tokens.noTokenId,
+    gammaPrimaryPrice: Number.isFinite(gammaPrice) ? gammaPrice : null,
+    dataWarnings,
+  };
   return { market, yesBook, score };
 }
 
@@ -534,7 +573,7 @@ async function analyzeAllEvent({ result, query, setStep, ctx }) {
   setStep(`Found ${result.markets.length} active markets`);
   const analyzedMarkets = await scoreEventMarkets(result.markets, setStep);
   if (!analyzedMarkets.length) {
-    return "Event ditemukan, tapi tidak ada market dengan orderbook YES yang bisa dianalisis.";
+    return "Event ditemukan, tapi tidak ada market dengan orderbook utama yang bisa dianalisis.";
   }
 
   const sorted = sortMarketsForAllMode(analyzedMarkets);
@@ -570,9 +609,12 @@ async function analyzeAllEvent({ result, query, setStep, ctx }) {
   });
 }
 
-async function handleCommand(text, message, ctx) {
+export async function handleCommand(text, message, ctx) {
   const { command, arg } = parseCommand(text);
+  const guard = enterCommandGuard({ command, arg, message, ctx });
+  if (!guard.allowed) return menuAnswer(guard.message);
 
+  try {
   if (command === "/start" || command === "/help") {
     return menuAnswer(formatHelp());
   }
@@ -585,6 +627,10 @@ async function handleCommand(text, message, ctx) {
     return menuAnswer(
       [
         "EXAMPLE FLOW",
+        "0. Lihat market lagi rame:",
+        "/top",
+        "/top liquidity",
+        "",
         "1. Cari market:",
         "/search MicroStrategy sells any Bitcoin",
         "",
@@ -612,6 +658,11 @@ async function handleCommand(text, message, ctx) {
     return menuAnswer(formatSearchResults(markets));
   }
 
+  if (command === "/top" || command === "/trending") {
+    const result = await listTopMarkets({ mode: arg || "volume", limit: 10 });
+    return menuAnswer(formatTopMarkets(result));
+  }
+
   if (command === "/book") {
     if (!arg) return menuAnswer("Pakai format: /book <tokenId, marketId, atau link Polymarket>\n\nContoh: /book 2169995");
     let tokenId = arg;
@@ -619,7 +670,7 @@ async function handleCommand(text, message, ctx) {
       const market = await resolveMarketInput(arg);
       const tokens = pickYesNoTokens(market);
       if (!tokens.yesTokenId) {
-        return menuAnswer("Market ditemukan, tapi token YES tidak tersedia.");
+        return menuAnswer("Market ditemukan, tapi token utama tidak tersedia.");
       }
       tokenId = tokens.yesTokenId;
     }
@@ -823,9 +874,21 @@ async function handleCommand(text, message, ctx) {
   }
 
   return menuAnswer(formatHelp());
+  } finally {
+    releaseCommandGuard(guard);
+  }
 }
 
-assertConfig();
+export function startTelegramBot() {
+  assertConfig();
+  const bot = new TelegramBot(config.telegramToken, handleCommand);
+  bot.start();
+  return bot;
+}
 
-const bot = new TelegramBot(config.telegramToken, handleCommand);
-bot.start();
+const isMainModule =
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMainModule) {
+  startTelegramBot();
+}

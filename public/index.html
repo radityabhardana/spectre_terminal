@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MVPM Polymarket Analyzer</title>
-    <link rel="stylesheet" href="/styles.css?v=17-pro-assets" />
+    <link rel="stylesheet" href="/styles.css?v=18-mode-cleanup" />
   </head>
   <body>
     <div class="ambient-grid" aria-hidden="true"></div>
@@ -49,12 +49,9 @@
             <div class="select-shell">
               <select id="modeSelect">
                 <option value="auto">Auto</option>
-                <option value="top">Top Markets</option>
-                <option value="analyze">Deep Analyze</option>
                 <option value="search">Search</option>
+                <option value="analyze">Deep Analyze</option>
                 <option value="quickscan">Quick Scan Event</option>
-                <option value="top3">Top 3 Event</option>
-                <option value="analyzebest">AI Best Event</option>
                 <option value="analyzeall">Analyze All</option>
                 <option value="book">Orderbook</option>
               </select>
@@ -75,12 +72,17 @@
             <button id="clearButton" class="ghost-button" type="button" aria-label="Clear">Clear</button>
           </div>
 
-          <div class="quick-actions" aria-label="Quick actions">
-            <button type="button" data-mode="top">Top</button>
-            <button type="button" data-mode="analyze">Deep</button>
-            <button type="button" data-mode="quickscan">Quick</button>
-            <button type="button" data-mode="top3">Top 3</button>
-            <button type="button" data-mode="book">Book</button>
+          <div class="field action-field">
+            <label>Event Actions</label>
+            <div class="quick-actions" aria-label="Quick actions">
+              <button type="button" data-mode="search">Search</button>
+              <button type="button" data-mode="analyze">Deep</button>
+              <button type="button" data-mode="quickscan">Quick</button>
+              <button type="button" data-mode="top3">Top 3</button>
+              <button type="button" data-mode="analyzebest">AI Best</button>
+              <button type="button" data-mode="analyzeall">All</button>
+              <button type="button" data-mode="book">Book</button>
+            </div>
           </div>
         </aside>
 
@@ -143,6 +145,6 @@
       </main>
     </div>
 
-    <script src="/app.js?v=17-pro-assets" type="module"></script>
+    <script src="/app.js?v=18-mode-cleanup" type="module"></script>
   </body>
 </html>

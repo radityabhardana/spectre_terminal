@@ -92,8 +92,7 @@ function updateCommandDeckState() {
 
   document.querySelectorAll(".quick-actions button").forEach((button) => {
     const mode = button.dataset.mode || "auto";
-    const tab = mode === "top" ? tabInfoForCommand("/top", "auto") : null;
-    button.classList.toggle("active", Boolean(tab && tab.id === activeTabId));
+    button.classList.toggle("active", activeTabId.startsWith(`${mode}:`) || activeTabId.startsWith(`cmd:/${mode}`));
   });
 }
 
@@ -364,11 +363,11 @@ commandInput.addEventListener("keydown", (event) => {
 document.querySelectorAll(".quick-actions button").forEach((button) => {
   button.addEventListener("click", () => {
     const mode = button.dataset.mode || "auto";
-    modeSelect.value = mode;
+    const modeOption = modeSelect.querySelector(`option[value="${mode}"]`);
+    if (modeOption) modeSelect.value = mode;
 
-    if (mode === "top") {
-      commandInput.value = "";
-      openDeckCommand("/top");
+    if (commandInput.value.trim()) {
+      runCommand("", mode);
       return;
     }
 

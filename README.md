@@ -96,20 +96,26 @@ Link Polymarket tidak harus selalu `/event/...` atau `/market/...`; route katego
 ## Website Lokal
 
 Website memakai engine analisis yang sama dengan Telegram, tapi tampilannya lebih enak untuk output panjang.
-Mode yang tersedia:
+Command Deck `Discovery` adalah tombol sekali klik tanpa input:
+
+- `Volume` - market aktif dengan volume terbesar.
+- `Liquidity` - market aktif dengan likuiditas terbesar.
+- `New` - market aktif terbaru.
+- `Ending` - market aktif yang paling dekat deadline.
+
+Mode input manual:
 
 - `Auto` - tempel command, link, keyword, atau Market ID langsung.
-- `Top Markets` - lihat market aktif yang lagi rame tanpa input.
-- `Deep Analyze` - setara `/analyze`.
 - `Search` - setara `/search`.
+- `Deep Analyze` - setara `/analyze`.
 - `Quick Scan Event` - setara `/quickscan`.
-- `Top 3 Event` - setara `/top3`.
-- `AI Best Event` - setara `/analyzebest`.
 - `Analyze All` - setara `/analyzeall`.
 - `Orderbook` - setara `/book`.
 
+Tombol `Event Actions` memakai isi input yang sedang ada. Kalau input sudah berisi link/slug/Market ID, tombol `Search`, `Deep`, `Quick`, `Top 3`, `AI Best`, `All`, dan `Book` langsung jalan; kalau input kosong, tombol hanya fokus ke textarea.
+
 Kalau hasil menampilkan tombol Event Hub, tombol itu bisa diklik langsung dari website.
-Status `Qwen key loaded` hanya berarti `QWEN_API_KEY` sudah kebaca dari `.env`; Qwen baru benar-benar dipakai saat mode deep seperti `Deep Analyze` atau `AI Best Event` dijalankan.
+Status `Qwen key loaded` hanya berarti `QWEN_API_KEY` sudah kebaca dari `.env`; Qwen baru benar-benar dipakai saat action deep seperti `Deep Analyze` atau `AI Best` dijalankan.
 Panel `Polymarket Live` otomatis menampilkan embed Polymarket ketika URL market/event terdeteksi. Embed resmi Polymarket paling aman untuk single market; untuk event multi-pilihan, pilih salah satu market dulu agar widget-nya tepat.
 
 Anti-spam guard aktif untuk Telegram dan Website:

@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { handleCommand } from "./index.js";
+import { getCooldownState } from "./rate-limit.js";
 import { SEARCH_ENGINE_VERSION } from "./polymarket.js";
 
 const modulePath = fileURLToPath(import.meta.url);
@@ -33,12 +34,13 @@ function qwenHealth() {
   };
 }
 
-function rateLimitHealth() {
+function rateLimitHealth(scope = "web") {
   return {
     rateLimit: {
       commandCooldownMs: config.commandCooldownMs,
       duplicateCommandCooldownMs: config.duplicateCommandCooldownMs,
       qwenCommandCooldownMs: config.qwenCommandCooldownMs,
+      ...getCooldownState(scope),
     },
   };
 }

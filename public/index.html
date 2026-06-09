@@ -12,7 +12,7 @@
       rel="stylesheet"
     />
     <script src="https://unpkg.com/lucide@latest"></script>
-    <link rel="stylesheet" href="/styles.css?v=31-smart-input" />
+    <link rel="stylesheet" href="/styles.css?v=36-close-tab" />
   </head>
   <body>
     <div class="app-shell">
@@ -77,9 +77,23 @@
 
           <!-- Section 2: Smart Input -->
           <div class="panel-section grow">
-            <div class="section-header">
+            <div class="section-header" style="display:flex; align-items:center; gap:6px;">
               <span class="section-icon input-icon"></span>
               <span class="section-label">Analyze</span>
+              <div class="tooltip-container">
+                <i data-lucide="help-circle" class="chip-icon" style="width:14px; height:14px; color:var(--text-tertiary); cursor:help;"></i>
+                <div class="tooltip-content">
+                  <strong>Available Commands:</strong><br><br>
+                  <span style="color:var(--neon-cyan)">/analyze [id]</span> - Deep dive 1 market<br>
+                  <span style="color:var(--neon-cyan)">/search [keyword]</span> - Cari market ID dari keyword<br>
+                  <span style="color:var(--neon-cyan)">/quickscan [url]</span> - Scan cepat seluruh market di 1 event<br>
+                  <span style="color:var(--neon-cyan)">/top3 [url]</span> - Analisis 3 market teratas dari event<br>
+                  <span style="color:var(--neon-cyan)">/analyzebest [url]</span> - Analisis 1 market paling mis-priced<br>
+                  <span style="color:var(--neon-cyan)">/analyzeall [url]</span> - Analisis seluruh market dalam event<br>
+                  <span style="color:var(--neon-cyan)">/book [id]</span> - Intip orderbook dan likuiditas<br>
+                  <span style="color:var(--neon-cyan)">/top</span> - Lihat 5 market paling aktif saat ini
+                </div>
+              </div>
             </div>
 
             <div class="smart-input-area">
@@ -160,9 +174,9 @@
           <!-- Section 3: Guard Rail (compact) -->
           <div class="panel-section">
             <div class="guard-compact">
-              <span class="guard-dot"></span>
+              <span class="guard-dot" id="guardDot"></span>
               <span class="guard-text">Guard Rail</span>
-              <span class="guard-status">Cooldown active · Qwen protected</span>
+              <span class="guard-status" id="guardStatus">Ready</span>
             </div>
           </div>
         </aside>
@@ -245,6 +259,6 @@
       </footer>
     </div>
 
-    <script src="/app.js?v=31-smart-input" type="module"></script>
+    <script src="/app.js?v=39-cooldown" type="module"></script>
   </body>
 </html>

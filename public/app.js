@@ -23,6 +23,8 @@ const polyTitle = document.querySelector("#polyTitle");
 const polyOpenLink = document.querySelector("#polyOpenLink");
 const inputDetected = document.querySelector("#inputDetected");
 const smartHint = document.querySelector("#smartHint");
+const guardDot = document.querySelector("#guardDot");
+const guardStatus = document.querySelector("#guardStatus");
 
 // Status bar
 const connDot = document.querySelector("#connDot");
@@ -49,8 +51,11 @@ let startedAt = 0;
 let versionWarningShown = false;
 let activeRequest = null;
 let cooldownTimerId = null;
-let cooldownUntil = 0;
-let antiSpamCooldownMs = 3000;
+let commandCooldownUntil = 0;
+let qwenCooldownUntil = 0;
+let commandCooldownMs = 3000;
+let qwenCommandCooldownMs = 45000;
+let duplicateCommandCooldownMs = 15000;
 const outputTabs = new Map();
 let activeTabId = "";
 
@@ -59,18 +64,23 @@ let selectedAction = "analyze"; // default action
 
 /* --- Local Storage State --- */
 function saveState() {
-  const tabsData = Array.from(outputTabs.entries());
-  localStorage.setItem("mvpm_state", JSON.stringify({ activeTabId, tabsData }));
+  const tabsData = Array.from(outputTabs.values()).map(t => ({
+    id: t.id,
+    label: t.label,
+    hidden: !!t.hidden,
+    messages: t.messages.slice(-50), // keep last 50 msgs
+  }));
+  localStorage.setItem("mvpm_state_v2", JSON.stringify({ activeTabId, tabsData }));
 }
 
 function loadState() {
   try {
-    const saved = localStorage.getItem("mvpm_state");
+    const saved = localStorage.getItem("mvpm_state_v2");
     if (!saved) return;
     const { activeTabId: savedActiveId, tabsData } = JSON.parse(saved);
     if (tabsData) {
       outputTabs.clear();
-      for (const [id, tab] of tabsData) outputTabs.set(id, tab);
+      for (const tab of tabsData) outputTabs.set(tab.id, tab);
     }
     if (savedActiveId && outputTabs.has(savedActiveId)) {
       activeTabId = savedActiveId;
@@ -98,6 +108,11 @@ function detectInputType(value) {
   const text = String(value || "").trim();
   if (!text) return { type: "empty", label: "" };
 
+  // Slash command
+  if (text.startsWith("/")) {
+    return { type: "command", label: `⌘ Command: ${text.split(/\s+/)[0]}` };
+  }
+
   // Polymarket event URL
   if (/polymarket\.com\/event\//i.test(text)) {
     return { type: "event-url", label: "🔗 Polymarket event link detected" };
@@ -121,11 +136,6 @@ function detectInputType(value) {
   // Slug-like (event slug)
   if (/^[a-z0-9-]{5,}$/.test(text)) {
     return { type: "event-slug", label: `📂 Event slug: ${text}` };
-  }
-
-  // Slash command
-  if (text.startsWith("/")) {
-    return { type: "command", label: `⌘ Command: ${text.split(/\s+/)[0]}` };
   }
 
   // Keyword
@@ -161,6 +171,7 @@ function updateInputDetection() {
 
   // Update action chip visibility/relevance
   highlightRelevantActions(detection.type);
+  if (cooldownTimerId) updateCooldownUI(); // Update UI in case the new intended command is blocked
 }
 
 function highlightRelevantActions(inputType) {
@@ -236,11 +247,7 @@ function shortLabel(value, max = 34) {
 function tabInfoForCommand(requestText, mode = "auto") {
   const command = String(requestText || "").trim();
   const lower = command.toLowerCase();
-  const modeLabels = {
-    auto: "Auto", top: "Volume", search: "Search", analyze: "Deep",
-    quickscan: "Quick", top3: "Top 3", analyzebest: "AI Best",
-    analyzeall: "All", book: "Book",
-  };
+  
   const topLabels = {
     "/top": "Volume", "/top liquidity": "Liquidity",
     "/top new": "New", "/top ending": "Ending",
@@ -250,28 +257,21 @@ function tabInfoForCommand(requestText, mode = "auto") {
     return { id: `top:${lower.replace("/top", "volume").trim() || "volume"}`, label: topLabels[lower] };
   }
 
-  if (lower.startsWith("/")) {
-    const [commandName, ...restParts] = command.split(/\s+/);
-    const name = commandName.replace("/", "").toLowerCase();
-    const rest = restParts.join(" ");
-    return {
-      id: `cmd:${lower}`,
-      label: rest ? `${modeLabels[name] || commandName}: ${shortLabel(rest, 26)}` : modeLabels[name] || commandName,
-    };
-  }
-
+  // Everything else goes to a single unified tab
   return {
-    id: `${mode}:${lower || "empty"}`,
-    label: command ? `${modeLabels[mode] || "Auto"}: ${shortLabel(command, 26)}` : modeLabels[mode] || "Console",
+    id: "cmd:console",
+    label: "Console",
   };
 }
 
 function ensureTab(tabInfo) {
   const info = typeof tabInfo === "string" ? { id: tabInfo, label: tabInfo } : tabInfo;
   if (!outputTabs.has(info.id)) {
-    outputTabs.set(info.id, { id: info.id, label: info.label || "Console", messages: [] });
-  } else if (info.label) {
-    outputTabs.get(info.id).label = info.label;
+    outputTabs.set(info.id, { id: info.id, label: info.label || "Console", messages: [], hidden: false });
+  } else {
+    const tab = outputTabs.get(info.id);
+    if (info.label) tab.label = info.label;
+    tab.hidden = false;
   }
   return outputTabs.get(info.id);
 }
@@ -290,11 +290,34 @@ function updateCommandDeckState() {
 function renderTabs() {
   deckTabsEl.innerHTML = "";
   for (const tab of outputTabs.values()) {
+    if (tab.hidden) continue;
+
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = tab.label;
     button.title = tab.label;
     button.classList.toggle("active", tab.id === activeTabId);
+    
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = tab.label;
+    button.appendChild(labelSpan);
+
+    if (tab.id !== "cmd:console") {
+      const closeSpan = document.createElement("span");
+      closeSpan.textContent = "×";
+      closeSpan.className = "tab-close";
+      closeSpan.addEventListener("click", (e) => {
+        e.stopPropagation();
+        tab.hidden = true;
+        if (activeTabId === tab.id) {
+          activeTabId = "cmd:console";
+        }
+        renderTabs();
+        renderMessages();
+        saveState();
+      });
+      button.appendChild(closeSpan);
+    }
+
     button.addEventListener("click", () => setActiveTab(tab.id));
     deckTabsEl.append(button);
   }
@@ -339,35 +362,73 @@ function setBusy(nextBusy) {
   }
 }
 
-function setCooldown(ms = antiSpamCooldownMs) {
-  const durationMs = Math.max(0, Number(ms) || 0);
-  if (!durationMs) return;
-  cooldownUntil = Date.now() + durationMs;
-  runButton.disabled = true;
-  runButton.classList.remove("cancel");
-  runButton.classList.add("cooldown");
-
-  const update = () => {
-    const remaining = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
-    if (runLabel) runLabel.textContent = remaining ? `${remaining}s` : "Run";
-    if (runIcon) runIcon.textContent = remaining ? "⏳" : "▶";
-
-    if (!remaining) {
-      clearInterval(cooldownTimerId);
-      cooldownTimerId = null;
-      runButton.disabled = false;
-      runButton.classList.remove("cooldown");
-      loadHealth();
-    }
-  };
-
-  clearInterval(cooldownTimerId);
-  update();
-  cooldownTimerId = setInterval(update, 250);
+function getCooldownRemaining(commandText) {
+  if (!commandText) return 0;
+  const target = isQwenCommand(commandText) ? qwenCooldownUntil : commandCooldownUntil;
+  return Math.max(0, target - Date.now());
 }
 
-function isCoolingDown() {
-  return Date.now() < cooldownUntil;
+function setCooldown(ms, isQwen = false) {
+  const durationMs = Math.max(0, Number(ms) || 0);
+  if (!durationMs) return;
+  const targetTime = Date.now() + durationMs;
+  
+  if (isQwen) {
+    if (targetTime > qwenCooldownUntil) qwenCooldownUntil = targetTime;
+  } else {
+    if (targetTime > commandCooldownUntil) commandCooldownUntil = targetTime;
+  }
+  
+  if (!cooldownTimerId) {
+    cooldownTimerId = setInterval(updateCooldownUI, 250);
+  }
+  updateCooldownUI();
+}
+
+function updateCooldownUI() {
+  const now = Date.now();
+  // Which command is the user about to run?
+  const text = commandInput.value.trim();
+  const command = text.startsWith("/") ? text : buildCommand(selectedAction, text);
+  
+  // Calculate remaining ms for the intended command
+  const remainingMs = getCooldownRemaining(command);
+  const remaining = Math.ceil(remainingMs / 1000);
+
+  // We should also display if ANY cooldown is active on the Guard Rail
+  const maxRemainingMs = Math.max(0, qwenCooldownUntil - now, commandCooldownUntil - now);
+  const maxRemaining = Math.ceil(maxRemainingMs / 1000);
+
+  if (remaining > 0) {
+    runButton.disabled = true;
+    runButton.classList.remove("cancel");
+    runButton.classList.add("cooldown");
+  } else if (!busy) {
+    runButton.disabled = false;
+    runButton.classList.remove("cooldown");
+  }
+
+  if (runLabel) runLabel.textContent = remaining > 0 ? `${remaining}s` : (busy ? "Cancel" : "Run");
+  if (runIcon) runIcon.textContent = remaining > 0 ? "⏳" : (busy ? "■" : "▶");
+
+  if (guardStatus) {
+    if (maxRemaining > 0) {
+      guardStatus.textContent = `Cooldown active (${maxRemaining}s) - Qwen protected`;
+      guardStatus.style.color = "var(--text-warn)";
+    } else {
+      guardStatus.textContent = "Ready - Qwen protected";
+      guardStatus.style.color = "var(--text-secondary)";
+    }
+  }
+  if (guardDot) {
+    guardDot.className = maxRemaining > 0 ? "guard-dot warn" : "guard-dot";
+  }
+
+  if (maxRemaining <= 0 && cooldownTimerId) {
+    clearInterval(cooldownTimerId);
+    cooldownTimerId = null;
+    loadHealth();
+  }
 }
 
 function cancelActiveRequest() {
@@ -458,11 +519,10 @@ function appendMessageElement(message) {
 
   const header = document.createElement("div");
   header.className = "message-header";
-  const label = document.createElement("span");
-  label.textContent = message.role === "user" ? "› Input" : message.role === "error" ? "× Error" : "◆ Result";
   const meta = document.createElement("span");
-  meta.textContent = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  header.append(label, meta);
+  meta.className = "msg-time";
+  meta.textContent = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+  header.append(meta);
 
   const body = document.createElement("div");
   body.className = "message-body formatted-text";
@@ -555,15 +615,42 @@ function warnIfServerVersionMismatch(data = {}, tabId = activeTabId) {
 }
 
 function syncRateLimit(data = {}) {
-  const cooldown = Number(data.rateLimit?.commandCooldownMs);
-  if (Number.isFinite(cooldown) && cooldown >= 0) antiSpamCooldownMs = cooldown;
+  const limits = data.rateLimit || {};
+  if (Number.isFinite(limits.commandCooldownMs)) commandCooldownMs = limits.commandCooldownMs;
+  if (Number.isFinite(limits.qwenCommandCooldownMs)) qwenCommandCooldownMs = limits.qwenCommandCooldownMs;
+  if (Number.isFinite(limits.duplicateCommandCooldownMs)) duplicateCommandCooldownMs = limits.duplicateCommandCooldownMs;
+
+  const cWaitMs = limits.commandWaitMs || 0;
+  if (cWaitMs > 0) {
+    setCooldown(cWaitMs, false);
+  }
+
+  const qWaitMs = limits.qwenWaitMs || 0;
+  if (qWaitMs > 0) {
+    setCooldown(qWaitMs, true);
+  }
+}
+
+function isQwenCommand(commandText) {
+  const lower = String(commandText || "").trim().toLowerCase();
+  const QWEN_COMMANDS = ["/analyze", "/analyzebest", "/analyzeall", "/eventmarket", "/eventbest", "/eventall"];
+  const [cmdName, ...args] = lower.split(/\s+/);
+  return QWEN_COMMANDS.includes(cmdName) && args.length > 0;
 }
 
 /* --- Execute Command --- */
 async function executeCommand(commandText) {
-  if (busy || isCoolingDown()) return;
+  if (busy) return;
   const text = String(commandText || "").trim();
   if (!text) return;
+
+  const remMs = getCooldownRemaining(text);
+  if (remMs > 0) {
+    const tabInfo = tabInfoForCommand(text, "auto");
+    setActiveTab(tabInfo);
+    addError(`ANTI-SPAM: Command ini masih dalam cooldown ${Math.ceil(remMs / 1000)} detik lagi.`, tabInfo.id);
+    return;
+  }
 
   const tabInfo = tabInfoForCommand(text, "auto");
   setActiveTab(tabInfo, { reset: true });
@@ -574,6 +661,7 @@ async function executeCommand(commandText) {
 
   const fetchStart = Date.now();
 
+  let data = null;
   try {
     const response = await fetch("/api/command", {
       method: "POST",
@@ -581,7 +669,7 @@ async function executeCommand(commandText) {
       body: JSON.stringify({ text, mode: "auto" }),
       signal: activeRequest.signal,
     });
-    const data = await response.json();
+    data = await response.json();
     const latency = Date.now() - fetchStart;
     if (sbLatency) sbLatency.textContent = `${latency}ms`;
 
@@ -604,7 +692,13 @@ async function executeCommand(commandText) {
   } finally {
     activeRequest = null;
     setBusy(false);
-    setCooldown();
+    // Jika fetch sukses, state udah disync via syncRateLimit.
+    // Jika gagal network, set local fallback cooldown.
+    if (!data || !data.rateLimit) {
+      const isQwen = isQwenCommand(commandText);
+      const ms = isQwen ? qwenCommandCooldownMs : commandCooldownMs;
+      setCooldown(ms, isQwen);
+    }
   }
 }
 
@@ -715,12 +809,9 @@ document.querySelectorAll("[data-command]").forEach((btn) => {
     document.querySelectorAll("[data-action]").forEach(b => b.classList.remove("selected"));
     btn.classList.add("selected");
 
-    // If there's input, run immediately
+    // Hanya select action, jangan otomatis jalan biar user bisa teken RUN
     const text = commandInput.value.trim();
-    if (text && !busy && !isCoolingDown()) {
-      const command = buildCommand(action, text);
-      executeCommand(command);
-    } else if (!text) {
+    if (!text) {
       commandInput.focus();
     }
   });

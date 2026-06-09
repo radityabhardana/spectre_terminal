@@ -487,7 +487,7 @@ export function formatAnalysis({ market, score, qwenResult }) {
       direction.noConfidence
     )}`,
     `Gap dominansi: ${points(direction.dominanceGap)} (semakin besar = arah makin tegas)`,
-    `Underdog: ${score.underdogScore}/10`,
+    `Underdog: skor ${score.underdogScore}/10 (${score.underdogScore >= 5 ? `${direction.secondaryLabel} = underdog di market ini (probabilitas rendah)` : 'pasar cukup percaya pada ' + direction.side})`,
     "",
     "SNAPSHOT DATA",
     outcomeLine(market),
@@ -534,7 +534,9 @@ export function formatMarketBubble({ market, score, index, total }) {
     `Confidence ${direction.primaryLabel}: ${pct(direction.yesConfidence)} | ${direction.secondaryLabel}: ${pct(direction.noConfidence)}`,
     `Gap dominansi: ${points(direction.dominanceGap)}`,
     `Data confidence: ${score.confidenceScore}/100`,
-    `Underdog: ${score.underdogScore}/10`,
+    score.underdogScore >= 5
+      ? `Underdog: skor ${score.underdogScore}/10 → ${direction.secondaryLabel} dianggap underdog oleh market`
+      : `Underdog: skor ${score.underdogScore}/10 → ${direction.side} jadi favorit market`,
     `Orderbook ${direction.primaryLabel}: bid ${price(score.bestBid)} | ask ${price(score.bestAsk)} | spread ${pct(
       score.spreadPercent
     )}`,
@@ -556,7 +558,7 @@ export function formatEventQuickScan({ event, analyzedMarkets, limit = 8 }) {
       `Market ID: ${item.market.id}`,
       `Arah: ${direction.side} (${strength}) | ${direction.primaryLabel} ${pct(direction.yesConfidence)} / ${direction.secondaryLabel} ${pct(direction.noConfidence)}`,
       `Entry: ${entryVerdictMeaning(item.score.verdict)}`,
-      `Data: confidence ${confidenceText(item.score.confidenceScore)}, underdog ${item.score.underdogScore}/10, spread ${pct(item.score.spreadPercent)}`,
+      `Data: confidence ${confidenceText(item.score.confidenceScore)}, underdog skor ${item.score.underdogScore}/10 (${item.score.underdogScore >= 5 ? direction.secondaryLabel + ' underdog' : direction.side + ' favorit'}), spread ${pct(item.score.spreadPercent)}`,
       `Analyze detail: /analyze ${item.market.id}`,
       "",
     ];

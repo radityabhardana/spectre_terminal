@@ -677,7 +677,16 @@ export async function handleCommand(text, message, ctx) {
 
   if (command === "/search") {
     if (!arg) return menuAnswer("Pakai format: /search <keyword>\n\nContoh: /search MicroStrategy sells any Bitcoin");
-    const markets = await searchMarkets(arg, 5);
+    
+    let query = arg;
+    const parsed = parsePolymarketLink(arg);
+    if (parsed && parsed.slug) {
+      // If it's a link, use the slug (e.g. 'ufc-jus3-ili1-2026-06-14') as the keyword
+      // Replace dashes with spaces for better search relevance
+      query = parsed.slug.replace(/-/g, " ");
+    }
+    
+    const markets = await searchMarkets(query, 5);
     return menuAnswer(formatSearchResults(markets));
   }
 

@@ -574,6 +574,18 @@ textarea:focus {
   flex-shrink: 0;
 }
 
+.guard-dot.warn {
+  background: var(--neon-cyan);
+  box-shadow: 0 0 6px rgba(0,212,255,0.4);
+  animation: dotPulseFast 1s ease-in-out infinite;
+}
+
+@keyframes dotPulseFast {
+  0% { opacity: 0.5; box-shadow: 0 0 2px rgba(0,212,255,0.2); }
+  50% { opacity: 1; box-shadow: 0 0 8px rgba(0,212,255,0.6); }
+  100% { opacity: 0.5; box-shadow: 0 0 2px rgba(0,212,255,0.2); }
+}
+
 .guard-text {
   font-weight: 600;
   color: var(--text-secondary);
@@ -690,6 +702,30 @@ textarea:focus {
   color: var(--neon-green);
   border-bottom-color: var(--neon-green);
   background: rgba(0,255,136,0.03);
+}
+
+.deck-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  margin-right: -4px;
+}
+
+.tab-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
 }
 
 /* --- Console Body --- */
@@ -826,10 +862,10 @@ textarea:focus {
 }
 
 .message.user {
-  border-color: rgba(0,212,255,0.2);
-  background: rgba(0,212,255,0.03);
+  border-color: rgba(188,140,255,0.3);
+  background: rgba(188,140,255,0.04);
 }
-.message.user::before { background: var(--neon-cyan); }
+.message.user::before { background: var(--neon-purple); }
 
 .message.error {
   border-color: rgba(255,71,87,0.3);
@@ -869,7 +905,7 @@ textarea:focus {
   scrollbar-color: rgba(0,255,136,0.15) transparent;
 }
 
-.message.user .message-body { max-height: none; color: var(--neon-cyan); }
+.message.user .message-body { max-height: none; color: var(--neon-purple); }
 .message.error .message-body { color: var(--neon-red); }
 
 .message-body.raw-pre {
@@ -1028,7 +1064,8 @@ textarea:focus {
   width: 100%; height: 100%;
   min-height: 0;
   border: 0;
-  background: var(--bg-base);
+  background: transparent;
+  color-scheme: dark;
 }
 
 /* --- Status Bar --- */
@@ -1162,6 +1199,41 @@ textarea::-webkit-scrollbar-thumb,
   .header-clock { display: none; }
 
   .status-pill:not(:nth-child(-n+2)) { display: none; }
+}
+
+/* --- Tooltip --- */
+.tooltip-container {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip-content {
+  visibility: hidden;
+  opacity: 0;
+  position: fixed;
+  top: 140px;
+  left: 340px;
+  transform: translateX(-10px);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: 14px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: normal;
+  width: 300px;
+  z-index: 9999;
+  transition: all 0.2s ease;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.8);
+  pointer-events: none;
+}
+
+.tooltip-container:hover .tooltip-content {
+  visibility: visible;
+  opacity: 1;
+  transform: translateX(0);
 }
 
 @media (max-width: 560px) {

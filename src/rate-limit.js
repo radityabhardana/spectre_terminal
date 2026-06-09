@@ -135,3 +135,21 @@ export function enterCommandGuard({ command, arg, message, ctx }) {
 export function releaseCommandGuard(guard) {
   if (typeof guard?.release === "function") guard.release();
 }
+
+export function getCooldownState(scope = "web") {
+  const now = Date.now();
+  
+  const lastCommandAt = commandCooldowns.get(scope) || 0;
+  const commandWaitMs = Math.max(0, config.commandCooldownMs - (now - lastCommandAt));
+  
+  const lastQwenAt = qwenCooldowns.get(scope) || 0;
+  const qwenWaitMs = Math.max(0, config.qwenCommandCooldownMs - (now - lastQwenAt));
+  
+  const activeQwen = qwenInFlight.get(scope);
+  
+  return {
+    commandWaitMs,
+    qwenWaitMs,
+    qwenInFlight: Boolean(activeQwen),
+  };
+}

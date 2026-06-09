@@ -542,12 +542,20 @@ async function fetchGdeltNews({ uniqueAssets, text }) {
   url.searchParams.set("maxrecords", "5");
   url.searchParams.set("sort", "HybridRel");
 
-  const json = await fetchJson(url.toString(), config.newsCacheTtlSeconds);
+  let json = null;
+  let errorMsg = null;
+  try {
+    json = await fetchJson(url.toString(), config.newsCacheTtlSeconds);
+  } catch (error) {
+    errorMsg = error.message;
+  }
+
   const rows = Array.isArray(json?.articles) ? json.articles : [];
 
   return {
     provider: "GDELT 2.1 DOC",
-    status: rows.length ? "ok" : "empty",
+    status: errorMsg ? "error" : rows.length ? "ok" : "empty",
+    error: errorMsg,
     query,
     articles: rows.slice(0, 5).map((row) => ({
       title: row.title || null,
@@ -684,7 +692,7 @@ export async function buildResearchContext({ market, event, markets } = {}) {
       summary: `Terdeteksi ${detectedUfcFighters.length} petarung UFC. Statistik: ${JSON.stringify(detectedUfcFighters)}`,
       newsSummary: newsSummary(newsResult),
       news: newsResult,
-      errors: [],
+      errors: newsResult.status === "error" ? [newsResult.error] : [],
       limitations: [
         "Data base statistik petarung (Kaggle) adalah data s/d tahun 2025.",
         "Momentum terbaru/cedera mengandalkan headline berita GDELT.",

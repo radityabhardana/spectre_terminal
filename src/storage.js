@@ -1,45 +1,72 @@
 import fs from "node:fs";
 import path from "node:path";
+import Database from "better-sqlite3";
 import { config } from "./config.js";
 
 const dataDir = path.resolve(process.cwd(), "data");
-const cachePath = path.join(dataDir, "cache.json");
-
-function ensureDataDir() {
+if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
-function readJson(filePath, fallback) {
+const dbPath = path.join(dataDir, "database.db");
+const db = new Database(dbPath);
+
+// Enable WAL mode for better concurrent performance
+db.pragma('journal_mode = WAL');
+
+// Initialize tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS cache (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    saved_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS analysis_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    data TEXT NOT NULL
+  );
+`);
+
+export function getCache(key, ttlSeconds = config.cacheTtlSeconds) {
   try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch {
-    return fallback;
+    const row = db.prepare('SELECT value, saved_at FROM cache WHERE key = ?').get(key);
+    if (!row) return null;
+
+    const ageSeconds = (Date.now() - row.saved_at) / 1000;
+    if (ageSeconds > ttlSeconds) {
+      db.prepare('DELETE FROM cache WHERE key = ?').run(key);
+      return null;
+    }
+
+    return JSON.parse(row.value);
+  } catch (error) {
+    console.error("[Storage] getCache error:", error.message);
+    return null;
   }
 }
 
-function writeJson(filePath, value) {
-  ensureDataDir();
-  fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
-}
-
-export function getCache(key, ttlSeconds = config.cacheTtlSeconds) {
-  const cache = readJson(cachePath, {});
-  const hit = cache[key];
-  if (!hit) return null;
-
-  const ageSeconds = (Date.now() - hit.savedAt) / 1000;
-  if (ageSeconds > ttlSeconds) return null;
-  return hit.value;
-}
-
 export function setCache(key, value) {
-  const cache = readJson(cachePath, {});
-  cache[key] = { savedAt: Date.now(), value };
-  writeJson(cachePath, cache);
+  try {
+    db.prepare(`
+      INSERT INTO cache (key, value, saved_at) 
+      VALUES (?, ?, ?) 
+      ON CONFLICT(key) DO UPDATE SET 
+        value = excluded.value, 
+        saved_at = excluded.saved_at
+    `).run(key, JSON.stringify(value), Date.now());
+  } catch (error) {
+    console.error("[Storage] setCache error:", error.message);
+  }
 }
 
 export function appendAnalysisLog(entry) {
-  ensureDataDir();
-  const line = JSON.stringify({ at: new Date().toISOString(), ...entry });
-  fs.appendFileSync(path.join(dataDir, "analysis_log.jsonl"), `${line}\n`);
+  try {
+    const createdAt = new Date().toISOString();
+    const data = JSON.stringify({ at: createdAt, ...entry });
+    db.prepare('INSERT INTO analysis_log (created_at, data) VALUES (?, ?)').run(createdAt, data);
+  } catch (error) {
+    console.error("[Storage] appendAnalysisLog error:", error.message);
+  }
 }

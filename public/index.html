@@ -3,99 +3,181 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MVPM Polymarket Analyzer</title>
-    <link rel="stylesheet" href="/styles.css?v=18-mode-cleanup" />
+    <title>MVPM Terminal — Polymarket Analyzer</title>
+    <meta name="description" content="Professional Polymarket prediction market analysis terminal with real-time data, AI-powered insights, and order book analysis." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="/styles.css?v=31-smart-input" />
   </head>
   <body>
-    <div class="ambient-grid" aria-hidden="true"></div>
     <div class="app-shell">
+      <!-- === HEADER BAR === -->
       <header class="topbar">
         <div class="brand">
           <div class="brand-mark" aria-hidden="true">
             <img src="/assets/mvpm-mark.svg" alt="" />
           </div>
           <div>
-            <h1>MVPM Analyzer</h1>
+            <h1>MVPM Terminal</h1>
             <p id="versionText">Engine handshake...</p>
           </div>
         </div>
+
+        <div class="header-clock" id="headerClock" aria-label="Local time">
+          <span class="clock-label">Local</span>
+          <span id="clockTime">--:--:--</span>
+        </div>
+
         <div class="status-row">
           <span class="status-pill">Gamma</span>
           <span class="status-pill">CLOB</span>
-          <span id="qwenStatus" class="status-pill">Qwen</span>
+          <span id="qwenStatus" class="status-pill ai">Qwen</span>
           <span class="status-pill muted">Local</span>
         </div>
       </header>
 
+      <!-- === MAIN WORKSPACE === -->
       <main class="workspace">
+        <!-- Sidebar: Unified Smart Input -->
         <aside class="control-panel">
-          <div class="panel-header">
-            <div>
-              <span class="panel-kicker">Command Deck</span>
-              <strong class="panel-title">Discovery</strong>
+          <!-- Section 1: Discover (no input needed) -->
+          <div class="panel-section">
+            <div class="section-header">
+              <span class="section-icon discover-icon"></span>
+              <span class="section-label">Discover</span>
+              <span class="section-hint">No input needed</span>
             </div>
-            <span class="panel-code">MVPM-01</span>
-          </div>
-
-          <div class="preset-grid" aria-label="Top market presets">
-            <button type="button" data-command="/top"><span class="cmd-icon bars"></span>Volume</button>
-            <button type="button" data-command="/top liquidity"><span class="cmd-icon depth"></span>Liquidity</button>
-            <button type="button" data-command="/top new"><span class="cmd-icon pulse"></span>New</button>
-            <button type="button" data-command="/top ending"><span class="cmd-icon clock"></span>Ending</button>
-          </div>
-
-          <div class="field">
-            <label for="modeSelect">Mode</label>
-            <div class="select-shell">
-              <select id="modeSelect">
-                <option value="auto">Auto</option>
-                <option value="search">Search</option>
-                <option value="analyze">Deep Analyze</option>
-                <option value="quickscan">Quick Scan Event</option>
-                <option value="analyzeall">Analyze All</option>
-                <option value="book">Orderbook</option>
-              </select>
+            <div class="action-row">
+              <button type="button" class="action-chip" data-command="/top">
+                <i data-lucide="bar-chart-2" class="chip-icon"></i>
+                <span>Top Volume</span>
+              </button>
+              <button type="button" class="action-chip" data-command="/top liquidity">
+                <i data-lucide="droplet" class="chip-icon"></i>
+                <span>Top Liquidity</span>
+              </button>
+              <button type="button" class="action-chip" data-command="/top new">
+                <i data-lucide="sparkles" class="chip-icon"></i>
+                <span>Newest</span>
+              </button>
+              <button type="button" class="action-chip" data-command="/top ending">
+                <i data-lucide="clock" class="chip-icon"></i>
+                <span>Ending Soon</span>
+              </button>
             </div>
           </div>
 
-          <div class="field grow">
-            <label for="commandInput">Input</label>
-            <textarea
-              id="commandInput"
-              spellcheck="false"
-              placeholder="Tempel link Polymarket, Market ID, keyword, atau command..."
-            ></textarea>
+          <!-- Divider -->
+          <div class="panel-divider"></div>
+
+          <!-- Section 2: Smart Input -->
+          <div class="panel-section grow">
+            <div class="section-header">
+              <span class="section-icon input-icon"></span>
+              <span class="section-label">Analyze</span>
+            </div>
+
+            <div class="smart-input-area">
+              <textarea
+                id="commandInput"
+                spellcheck="false"
+                rows="3"
+                placeholder="Paste Polymarket link, market ID, keyword, atau event slug..."
+              ></textarea>
+              <div class="input-detected" id="inputDetected"></div>
+            </div>
+
+            <!-- Action buttons: appear based on input -->
+            <div class="smart-actions" id="smartActions">
+              <p class="smart-hint" id="smartHint">Paste link atau ketik keyword di atas, lalu pilih aksi:</p>
+
+              <!-- Single market actions -->
+              <div class="action-group" id="singleActions">
+                <span class="group-label">Market</span>
+                <div class="action-row">
+                  <button type="button" class="action-chip primary" data-action="analyze" id="btnAnalyze">
+                    <i data-lucide="cpu" class="chip-icon"></i>
+                    <span>Deep Analyze</span>
+                    <span class="chip-tag ai">AI</span>
+                  </button>
+                  <button type="button" class="action-chip" data-action="search" id="btnSearch">
+                    <i data-lucide="search" class="chip-icon"></i>
+                    <span>Search</span>
+                  </button>
+                  <button type="button" class="action-chip" data-action="book" id="btnBook">
+                    <i data-lucide="book-open" class="chip-icon"></i>
+                    <span>Orderbook</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Event actions -->
+              <div class="action-group" id="eventActions">
+                <span class="group-label">Event</span>
+                <div class="action-row">
+                  <button type="button" class="action-chip" data-action="quickscan" id="btnQuickscan">
+                    <i data-lucide="zap" class="chip-icon"></i>
+                    <span>Quick Scan</span>
+                  </button>
+                  <button type="button" class="action-chip" data-action="top3" id="btnTop3">
+                    <i data-lucide="award" class="chip-icon"></i>
+                    <span>Top 3</span>
+                  </button>
+                  <button type="button" class="action-chip primary" data-action="analyzebest" id="btnAnalyzeBest">
+                    <i data-lucide="target" class="chip-icon"></i>
+                    <span>AI Best Pick</span>
+                    <span class="chip-tag ai">AI</span>
+                  </button>
+                  <button type="button" class="action-chip" data-action="analyzeall" id="btnAnalyzeAll">
+                    <i data-lucide="list" class="chip-icon"></i>
+                    <span>Analyze All</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Run / Clear row -->
+            <div class="run-row">
+              <button id="clearButton" class="btn-secondary" type="button">
+                <i data-lucide="x" class="btn-icon"></i>
+                Clear
+              </button>
+              <button id="runButton" class="btn-primary" type="button" aria-label="Run analysis">
+                <i data-lucide="play" class="btn-icon run-icon" id="runIcon"></i>
+                <span id="runLabel">Run</span>
+              </button>
+            </div>
           </div>
 
-          <div class="button-row">
-            <button id="runButton" class="primary-button" type="button"><span class="run-mark"></span>Run</button>
-            <button id="clearButton" class="ghost-button" type="button" aria-label="Clear">Clear</button>
-          </div>
+          <!-- Divider -->
+          <div class="panel-divider"></div>
 
-          <div class="field action-field">
-            <label>Event Actions</label>
-            <div class="quick-actions" aria-label="Quick actions">
-              <button type="button" data-mode="search">Search</button>
-              <button type="button" data-mode="analyze">Deep</button>
-              <button type="button" data-mode="quickscan">Quick</button>
-              <button type="button" data-mode="top3">Top 3</button>
-              <button type="button" data-mode="analyzebest">AI Best</button>
-              <button type="button" data-mode="analyzeall">All</button>
-              <button type="button" data-mode="book">Book</button>
+          <!-- Section 3: Guard Rail (compact) -->
+          <div class="panel-section">
+            <div class="guard-compact">
+              <span class="guard-dot"></span>
+              <span class="guard-text">Guard Rail</span>
+              <span class="guard-status">Cooldown active · Qwen protected</span>
             </div>
           </div>
         </aside>
 
+        <!-- Main: Result Panel -->
         <section class="result-panel">
           <div class="console-head">
             <div>
               <span class="panel-kicker">Analysis Console</span>
               <h2>Market Intelligence</h2>
             </div>
-            <div class="console-metrics" aria-hidden="true">
-              <span></span>
-              <span></span>
-              <span></span>
+            <div class="console-actions">
+              <button id="togglePolyBtn" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px;">
+                <i data-lucide="eye" class="btn-icon" style="width:12px; height:12px;"></i> Polymarket
+              </button>
             </div>
           </div>
 
@@ -105,14 +187,14 @@
             <div class="console-feed">
               <div id="emptyState" class="empty-state">
                 <img class="empty-asset" src="/assets/market-lens.svg" alt="" />
-                <h2>Ready for signal.</h2>
+                <h2>> Ready for signal_</h2>
                 <p>Polymarket Gamma + CLOB + Qwen pipeline.</p>
               </div>
 
               <div id="loadingState" class="loading-state hidden">
                 <div class="spinner" aria-hidden="true"></div>
                 <div>
-                  <strong>Analisis berjalan</strong>
+                  <strong>Processing</strong>
                   <span id="timerText">0s</span>
                 </div>
               </div>
@@ -143,8 +225,26 @@
           </div>
         </section>
       </main>
+
+      <!-- === STATUS BAR === -->
+      <footer class="status-bar" id="statusBar">
+        <div class="status-bar-item">
+          <span class="status-bar-dot" id="connDot"></span>
+          <span id="connLabel">Connected</span>
+        </div>
+        <div class="status-bar-item">
+          <span id="sbEngine">Engine: handshake...</span>
+        </div>
+        <div class="status-bar-item">
+          <span class="status-bar-dot ai" id="sbQwenDot"></span>
+          <span id="sbQwenLabel">Qwen: checking</span>
+        </div>
+        <div class="status-bar-item">
+          <span id="sbLatency">--ms</span>
+        </div>
+      </footer>
     </div>
 
-    <script src="/app.js?v=18-mode-cleanup" type="module"></script>
+    <script src="/app.js?v=31-smart-input" type="module"></script>
   </body>
 </html>

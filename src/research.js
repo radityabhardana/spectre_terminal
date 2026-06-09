@@ -1,5 +1,9 @@
 import { config } from "./config.js";
 import { getCache, setCache } from "./storage.js";
+import { initUfcData, detectUfcFighters } from "./ufc.js";
+
+// Initialize UFC data at startup
+initUfcData();
 
 const COIN_ALIASES = [
   { symbol: "BTC", name: "Bitcoin", pair: "BTCUSDT", aliases: ["bitcoin", "btc", "$btc"] },
@@ -473,6 +477,18 @@ const NEWS_STOPWORDS = new Set([
   "2025",
   "2026",
   "2027",
+  "win",
+  "who",
+  "when",
+  "what",
+  "where",
+  "why",
+  "how",
+  "election",
+  "presidential",
+  "president",
+  "nominee",
+  "candidate",
 ]);
 
 function extractNewsKeywords(text) {
@@ -500,7 +516,11 @@ function newsQueryFor(uniqueAssets, text) {
     .slice(0, 2)
     .map((asset) => asset.symbol);
   const keywords = extractNewsKeywords(text).slice(0, 4);
-  const terms = [...assetTerms, ...stableTerms, ...keywords, "crypto"].filter(Boolean);
+  
+  // Only append "crypto" if there are actually crypto assets detected
+  const cryptoTerm = uniqueAssets.length > 0 ? "crypto" : null;
+  const terms = [...assetTerms, ...stableTerms, ...keywords, cryptoTerm].filter(Boolean);
+  
   return [...new Set(terms)].slice(0, 8).join(" ");
 }
 
@@ -649,14 +669,58 @@ function researchSummary(pairs) {
 export async function buildResearchContext({ market, event, markets } = {}) {
   const text = marketText({ market, event, markets });
   const primaryText = primaryAssetText({ market, event, markets });
+  
+  const detectedUfcFighters = detectUfcFighters(primaryText).length ? detectUfcFighters(primaryText) : detectUfcFighters(text);
+  
+  if (detectedUfcFighters.length > 0) {
+    const newsResult = await fetchGdeltNews({ uniqueAssets: [], text }); // We can pass fighters later
+    
+    return {
+      type: "sports_ufc",
+      status: "ok",
+      provider: "Kaggle Dataset + GDELT",
+      fetchedAt: new Date().toISOString(),
+      fighters: detectedUfcFighters,
+      summary: `Terdeteksi ${detectedUfcFighters.length} petarung UFC. Statistik: ${JSON.stringify(detectedUfcFighters)}`,
+      newsSummary: newsSummary(newsResult),
+      news: newsResult,
+      errors: [],
+      limitations: [
+        "Data base statistik petarung (Kaggle) adalah data s/d tahun 2025.",
+        "Momentum terbaru/cedera mengandalkan headline berita GDELT.",
+        "Statistik tidak selalu menjamin hasil pertarungan."
+      ]
+    };
+  }
+
   const detectedFromTitle = detectCryptoAssets(primaryText);
   const detectedAssets = detectedFromTitle.length ? detectedFromTitle : detectCryptoAssets(text);
 
+  // If no crypto assets, we do a "general" news-only research context
   if (!detectedAssets.length) {
+    const newsResult = await fetchGdeltNews({ uniqueAssets: [], text });
+    
     return {
-      type: "none",
-      status: "skipped",
-      reason: "Tidak ada crypto asset yang terdeteksi dari market/event.",
+      type: "general",
+      status: newsResult.status === "ok" ? "ok" : "partial",
+      provider: "GDELT 2.1 DOC",
+      gdeltSourceUrl: config.gdeltDocUrl,
+      fetchedAt: new Date().toISOString(),
+      detectedAssets: [],
+      summary: "Non-crypto event. No market data available.",
+      sentimentSummary: "n/a",
+      fundamentalSummary: "n/a",
+      newsSummary: newsSummary(newsResult),
+      pairs: [],
+      sentiment: null,
+      defi: null,
+      news: newsResult,
+      errors: newsResult.status === "error" ? [errorMessage(newsResult.error)] : [],
+      limitations: [
+        "Event ini tidak terdeteksi sebagai event Crypto. Analisis menggunakan keyword general.",
+        "Data hanya berisi berita dari GDELT berdasarkan judul event/market.",
+        "Berita headline adalah sinyal kasar dan butuh verifikasi manual.",
+      ],
     };
   }
 

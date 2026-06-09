@@ -131,6 +131,33 @@ function researchLines(qwenResult) {
     ].filter((line) => line != null && line !== false);
   }
 
+  if (research.type === "general") {
+    return [
+      "RESEARCH CONTEXT",
+      `Provider: ${research.provider || "n/a"}`,
+      `Status: ${research.status || "n/a"}`,
+      `Category: General (Non-Crypto)`,
+      research.newsSummary ? `News/Catalyst: ${research.newsSummary}` : null,
+      research.errors?.length ? `Partial errors: ${research.errors.join("; ")}` : null,
+      research.fetchedAt ? `Fetched: ${research.fetchedAt}` : null,
+      "",
+    ].filter((line) => line != null && line !== false);
+  }
+
+  if (research.type === "sports_ufc") {
+    return [
+      "RESEARCH CONTEXT",
+      `Provider: ${research.provider || "n/a"}`,
+      `Status: ${research.status || "n/a"}`,
+      `Category: Sports / UFC`,
+      `Fighters detected: ${(research.fighters || []).map(f => f.fighter || f.name).join(", ") || "n/a"}`,
+      `Matchup Stats: ${research.summary || "n/a"}`,
+      research.newsSummary ? `News/Catalyst: ${research.newsSummary}` : null,
+      research.fetchedAt ? `Fetched: ${research.fetchedAt}` : null,
+      "",
+    ].filter((line) => line != null && line !== false);
+  }
+
   return [];
 }
 

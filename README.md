@@ -112,9 +112,9 @@ Mode input manual:
 - `Analyze All` - setara `/analyzeall`.
 - `Orderbook` - setara `/book`.
 
-Tombol `Event Actions` memakai isi input yang sedang ada. Kalau input sudah berisi link/slug/Market ID, tombol `Search`, `Deep`, `Quick`, `Top 3`, `AI Best`, `All`, dan `Book` langsung jalan; kalau input kosong, tombol hanya fokus ke textarea.
-
+`Top 3` dan `AI Best` tidak tampil sebagai tombol permanen di sidebar. Keduanya muncul sebagai tombol konteks di Event Hub setelah kamu mengirim link event multi-pilihan, atau bisa dipanggil manual lewat `/top3 <event>` dan `/analyzebest <event>`.
 Kalau hasil menampilkan tombol Event Hub, tombol itu bisa diklik langsung dari website.
+Tombol bulan di dalam textarea berfungsi sebagai `Run`; saat analisis berjalan tombol berubah menjadi `Cancel`. Setelah proses selesai atau dibatalkan, tombol masuk animasi cooldown mengikuti `COMMAND_COOLDOWN_MS` supaya anti-spam guard terasa jelas.
 Status `Qwen key loaded` hanya berarti `QWEN_API_KEY` sudah kebaca dari `.env`; Qwen baru benar-benar dipakai saat action deep seperti `Deep Analyze` atau `AI Best` dijalankan.
 Panel `Polymarket Live` otomatis menampilkan embed Polymarket ketika URL market/event terdeteksi. Embed resmi Polymarket paling aman untuk single market; untuk event multi-pilihan, pilih salah satu market dulu agar widget-nya tepat.
 

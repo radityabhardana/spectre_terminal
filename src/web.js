@@ -33,6 +33,16 @@ function qwenHealth() {
   };
 }
 
+function rateLimitHealth() {
+  return {
+    rateLimit: {
+      commandCooldownMs: config.commandCooldownMs,
+      duplicateCommandCooldownMs: config.duplicateCommandCooldownMs,
+      qwenCommandCooldownMs: config.qwenCommandCooldownMs,
+    },
+  };
+}
+
 function contentType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".html") return "text/html; charset=utf-8";
@@ -44,6 +54,7 @@ function contentType(filePath) {
 }
 
 function sendJson(res, status, data) {
+  if (res.destroyed || res.writableEnded) return;
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
@@ -86,9 +97,10 @@ function normalizeAnswer(answer) {
   };
 }
 
-function createWebContext(messages) {
+function createWebContext(messages, signal = null) {
   return {
     chatId: "web",
+    signal,
     sendMessage: async (messageText, options = {}) => {
       const message = pushMessage(messages, messageText, options);
       return { message_id: message.id };
@@ -133,6 +145,12 @@ async function readBody(req) {
 }
 
 async function handleApiCommand(req, res) {
+  const controller = new AbortController();
+  req.on("aborted", () => controller.abort());
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+
   const payload = await readBody(req);
   const commandText = commandFromPayload(payload);
   if (!commandText) {
@@ -141,7 +159,7 @@ async function handleApiCommand(req, res) {
   }
 
   const messages = [];
-  const context = createWebContext(messages);
+  const context = createWebContext(messages, controller.signal);
 
   try {
     const answer = await handleCommand(commandText, { text: commandText, chat: { id: "web" } }, context);
@@ -153,14 +171,17 @@ async function handleApiCommand(req, res) {
       command: commandText,
       version: SEARCH_ENGINE_VERSION,
       ...qwenHealth(),
+      ...rateLimitHealth(),
       messages,
     });
   } catch (error) {
+    if (controller.signal.aborted) return;
     sendJson(res, 500, {
       ok: false,
       command: commandText,
       version: SEARCH_ENGINE_VERSION,
       error: error.message || String(error),
+      ...rateLimitHealth(),
       messages,
     });
   }
@@ -201,6 +222,7 @@ export function startWebServer(options = {}) {
           ok: true,
           version: SEARCH_ENGINE_VERSION,
           ...qwenHealth(),
+          ...rateLimitHealth(),
         });
         return;
       }

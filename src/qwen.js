@@ -215,7 +215,16 @@ function mechanicalEventFallback(analyzedMarkets, rawText = "") {
   );
 }
 
-async function callQwen(payload) {
+function throwIfAborted(signal) {
+  if (signal?.aborted) {
+    const error = new Error("Prompt dibatalkan.");
+    error.name = "AbortError";
+    throw error;
+  }
+}
+
+async function callQwen(payload, signal = null) {
+  throwIfAborted(signal);
   const response = await fetch(`${config.qwenBaseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -223,6 +232,7 @@ async function callQwen(payload) {
       "content-type": "application/json",
     },
     body: JSON.stringify(payload),
+    signal,
   });
 
   if (!response.ok) {
@@ -233,14 +243,14 @@ async function callQwen(payload) {
   return response.json();
 }
 
-async function callQwenJson(payload) {
+async function callQwenJson(payload, signal = null) {
   let json;
   try {
-    json = await callQwen(payload);
+    json = await callQwen(payload, signal);
   } catch (error) {
     if (!String(error.message).includes("response_format")) throw error;
     const { response_format, ...fallbackPayload } = payload;
-    json = await callQwen(fallbackPayload);
+    json = await callQwen(fallbackPayload, signal);
   }
 
   const text = json.choices?.[0]?.message?.content?.trim() || "";
@@ -252,13 +262,14 @@ async function callQwenJson(payload) {
   };
 }
 
-async function callRoleQwenJson(payload, fallbackModel = "") {
+async function callRoleQwenJson(payload, fallbackModel = "", signal = null) {
   try {
-    return await callQwenJson(payload);
+    return await callQwenJson(payload, signal);
   } catch (error) {
+    if (error.name === "AbortError") throw error;
     if (/Qwen HTTP (401|403)/.test(String(error.message))) throw error;
     if (!fallbackModel || payload.model === fallbackModel) throw error;
-    const fallback = await callQwenJson({ ...payload, model: fallbackModel });
+    const fallback = await callQwenJson({ ...payload, model: fallbackModel }, signal);
     return { ...fallback, fallbackFrom: payload.model };
   }
 }
@@ -334,7 +345,8 @@ function researchBlock(researchContext) {
   ].join("\n");
 }
 
-export async function askQwen({ market, score, orderBook, researchContext = null }) {
+export async function askQwen({ market, score, orderBook, researchContext = null, signal = null }) {
+  throwIfAborted(signal);
   const primaryOutcomeLabel = String(score?.primaryOutcomeLabel || market.outcomes?.[0] || "YES");
   const secondaryOutcomeLabel = String(score?.secondaryOutcomeLabel || market.outcomes?.[1] || "NO");
   const marketData = JSON.stringify(
@@ -384,6 +396,7 @@ ${sharedContext}
 
 Aturan:
 - Jangan mengarang data eksternal.
+- Jika ada statistik UFC (Kaggle dataset), bandingkan keunggulan fisik (height/reach) dan teknis (striking/takedown defense) petarung, tapi periksa juga GDELT untuk momentum/cedera terbaru.
 - Tugasmu hanya membuat brief pendek untuk analis berikutnya.
 - Balas hanya JSON valid.
 
@@ -414,7 +427,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenAnalystModel);
+  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenAnalystModel, signal);
   const scout = normalizeScout(parseJsonOr(scoutJson.text, {}), scoutJson.text);
 
   const analystPrompt = `
@@ -427,6 +440,7 @@ ${JSON.stringify(promptSafe(scout), null, 2)}
 
 Aturan:
 - Jangan mengarang data eksternal seperti FedWatch, dot plot, polling, CPI, berita, on-chain, funding, atau riset bank jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
+- Jika ada statistik UFC (Kaggle dataset), jadikan sebagai analisis data-driven utama. Bandingkan keunggulan fisik (height/reach) dan teknis (striking/takedown defense) petarung, tapi periksa juga GDELT untuk momentum/cedera terbaru.
 - Kalau memakai pengetahuan umum, labeli sebagai asumsi umum, bukan fakta aktual.
 - Fokus pada aturan resolusi, risiko, missing data, dan bull/bear case.
 - Balas hanya JSON valid.
@@ -464,7 +478,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const analystJson = await callRoleQwenJson(analystPayload, config.qwenFinalModel);
+  const analystJson = await callRoleQwenJson(analystPayload, config.qwenFinalModel, signal);
   const analyst = normalizeAnalystReview(parseJsonOr(analystJson.text, {}), analystJson.text);
 
   const finalPrompt = `
@@ -480,6 +494,7 @@ ${JSON.stringify(promptSafe(analyst), null, 2)}
 
 Aturan wajib:
 - Jangan mengarang data eksternal seperti FedWatch, dot plot, polling, CPI, berita, on-chain, funding, atau riset bank jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
+- Jika ada statistik UFC (Kaggle dataset), evaluasi apakah statistik historis sejalan dengan probabilitas market atau ada value. Gabungkan dengan data GDELT terbaru.
 - Jika memakai pengetahuan umum, labeli sebagai asumsi umum, bukan fakta aktual.
 - Estimated fair probability dari bot saat ini sama dengan market implied probability, jadi edge mekanis 0 kecuali ada alasan kuat dan diberi label estimasi.
 - Verdict adalah status ENTRY/TRADABILITY, bukan prediksi arah outcome utama/lawan. Jika arah market jelas tapi entry buruk, verdict tetap SKIP atau WATCHLIST.
@@ -530,7 +545,7 @@ Format JSON wajib:
     response_format: { type: "json_object" },
   };
 
-  const finalJson = await callRoleQwenJson(payload, config.qwenAnalystModel);
+  const finalJson = await callRoleQwenJson(payload, config.qwenAnalystModel, signal);
 
   let analysis;
   try {
@@ -571,7 +586,8 @@ Format JSON wajib:
   };
 }
 
-export async function askQwenEvent({ event, analyzedMarkets, researchContext = null }) {
+export async function askQwenEvent({ event, analyzedMarkets, researchContext = null, signal = null }) {
+  throwIfAborted(signal);
   const compactMarkets = analyzedMarkets.map(({ market, score }) => ({
     market_id: market.id,
     question: market.question,
@@ -655,7 +671,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenAnalystModel);
+  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenAnalystModel, signal);
   const scout = normalizeScout(parseJsonOr(scoutJson.text, {}), scoutJson.text);
 
   const analystPrompt = `
@@ -705,7 +721,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const analystJson = await callRoleQwenJson(analystPayload, config.qwenFinalModel);
+  const analystJson = await callRoleQwenJson(analystPayload, config.qwenFinalModel, signal);
   const analyst = normalizeAnalystReview(parseJsonOr(analystJson.text, {}), analystJson.text);
 
   const finalPrompt = `
@@ -762,7 +778,7 @@ Format JSON wajib:
     response_format: { type: "json_object" },
   };
 
-  const finalJson = await callRoleQwenJson(payload, config.qwenAnalystModel);
+  const finalJson = await callRoleQwenJson(payload, config.qwenAnalystModel, signal);
 
   let analysis;
   try {

@@ -39,6 +39,12 @@ RESEARCH_FETCH_TIMEOUT_MS=8000
 WEB_PASSWORD=rahasia
 ```
 
+Install dependency dan library (termasuk SQLite engine):
+
+```bash
+npm install
+```
+
 Jalankan Telegram bot dan website sekaligus:
 
 ```bash

@@ -1232,6 +1232,122 @@ if (btnResetShadow) {
 // Kick off the first fetch, then use adaptive scheduling (not a fixed setInterval)
 fetchShadowStatus().then(() => scheduleShadowPoll());
 
+/* --- Analyzed Events History --- */
+const historyModal = document.querySelector("#historyModal");
+const btnHistory = document.querySelector("#btnHistory");
+const closeHistoryModal = document.querySelector("#closeHistoryModal");
+const historyTableBody = document.querySelector("#historyTableBody");
+
+if (btnHistory && historyModal && closeHistoryModal) {
+  btnHistory.addEventListener("click", () => {
+    historyModal.style.display = "flex";
+    fetchHistoryEvents();
+  });
+
+  closeHistoryModal.addEventListener("click", () => {
+    historyModal.style.display = "none";
+  });
+}
+
+async function fetchHistoryEvents() {
+  try {
+    const res = await fetch("/api/history/events");
+    const data = await res.json();
+    if (data.ok) {
+      renderHistoryEvents(data.events);
+    }
+  } catch (error) {
+    console.error("Failed to fetch history events:", error);
+  }
+}
+
+function renderHistoryEvents(events) {
+  let total = events.length;
+  let wins = 0;
+  let losses = 0;
+  let pending = 0;
+
+  let html = "";
+  for (const event of events) {
+    if (event.result === 'menang') wins++;
+    else if (event.result === 'kalah') losses++;
+    else pending++;
+
+    const statusColor = event.status === 'selesai' ? (event.result === 'menang' ? 'var(--neon-green)' : 'var(--neon-red)') : 'var(--text-tertiary)';
+    
+    html += `
+      <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+        <td style="padding:10px 0;"><a href="${event.url}" target="_blank" style="color:var(--text-primary); text-decoration:none;">${event.question}</a></td>
+        <td style="padding:10px 0; color:var(--text-secondary); font-weight:bold;">${event.prediction || '-'}</td>
+        <td style="padding:10px 0; color:var(--text-tertiary); text-transform:capitalize;">${event.status}</td>
+        <td style="padding:10px 0; color:${statusColor}; font-weight:bold; text-transform:capitalize;">${event.result || '-'}</td>
+        <td style="padding:10px 0; text-align:right;">
+          <button class="action-chip" style="height:24px; font-size:10px; padding:0 8px; ${event.status === 'selesai' ? 'opacity:0.5; cursor:not-allowed;' : ''}" 
+                  onclick="checkHistoryEvent(${event.id}, '${event.market_id}', '${event.prediction}')"
+                  ${event.status === 'selesai' ? 'disabled' : ''}>
+            Periksa
+          </button>
+        </td>
+      </tr>
+    `;
+  }
+
+  historyTableBody.innerHTML = html || '<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-tertiary);">Belum ada riwayat analisis.</td></tr>';
+  
+  document.querySelector("#historyTotal").textContent = total;
+  document.querySelector("#historyWins").textContent = wins;
+  document.querySelector("#historyLosses").textContent = losses;
+  document.querySelector("#historyPending").textContent = pending;
+
+  const resolved = wins + losses;
+  const winRate = resolved > 0 ? Math.round((wins / resolved) * 100) : 0;
+  
+  const winRateEl = document.querySelector("#historyWinRate");
+  winRateEl.textContent = `${winRate}%`;
+  winRateEl.style.color = winRate >= 50 ? 'var(--neon-green)' : (winRate > 0 ? 'var(--neon-amber)' : 'var(--text-secondary)');
+}
+
+const alertModal = document.querySelector("#alertModal");
+const alertModalText = document.querySelector("#alertModalText");
+const closeAlertModal = document.querySelector("#closeAlertModal");
+
+function showCustomAlert(text) {
+  if (alertModal && alertModalText) {
+    alertModalText.textContent = text;
+    alertModal.style.display = "flex";
+  } else {
+    alert(text);
+  }
+}
+
+if (closeAlertModal && alertModal) {
+  closeAlertModal.addEventListener("click", () => {
+    alertModal.style.display = "none";
+  });
+}
+
+window.checkHistoryEvent = async function(id, marketId, prediction) {
+  try {
+    const res = await fetch("/api/history/events/check", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id, market_id: marketId, prediction })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (data.status === 'belum selesai') {
+        showCustomAlert("Event belum selesai");
+      }
+      fetchHistoryEvents(); // refresh list
+    } else {
+      showCustomAlert("Gagal memeriksa market: " + data.error);
+    }
+  } catch (error) {
+    console.error("Error checking history event:", error);
+    showCustomAlert("Terjadi kesalahan jaringan.");
+  }
+}
+
 /* --- Init --- */
 if (typeof lucide !== "undefined") {
   lucide.createIcons();

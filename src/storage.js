@@ -48,6 +48,18 @@ db.exec(`
     resolved_at TEXT
   );
   
+  CREATE TABLE IF NOT EXISTS analyzed_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    url TEXT NOT NULL,
+    prediction TEXT,
+    status TEXT NOT NULL DEFAULT 'belum selesai',
+    result TEXT,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+  );
+
   INSERT OR IGNORE INTO shadow_balance (id, balance, updated_at) VALUES (1, 10000, datetime('now'));
 `);
 
@@ -193,6 +205,41 @@ export function resolveShadowBet(id, pnl, revenue) {
     return true;
   } catch (error) {
     console.error("[Storage] resolveShadowBet error:", error.message);
+    return false;
+  }
+}
+
+export function addAnalyzedEvent(event) {
+  try {
+    const createdAt = new Date().toISOString();
+    const info = db.prepare(`
+      INSERT INTO analyzed_events (market_id, question, url, prediction, status, created_at)
+      VALUES (?, ?, ?, ?, 'belum selesai', ?)
+    `).run(event.market_id, event.question, event.url, event.prediction, createdAt);
+    return info.lastInsertRowid;
+  } catch (error) {
+    console.error("[Storage] addAnalyzedEvent error:", error.message);
+    return null;
+  }
+}
+
+export function getAnalyzedEvents(limit = 100) {
+  try {
+    return db.prepare('SELECT * FROM analyzed_events ORDER BY id DESC LIMIT ?').all(limit);
+  } catch (error) {
+    console.error("[Storage] getAnalyzedEvents error:", error.message);
+    return [];
+  }
+}
+
+export function updateAnalyzedEventStatus(id, status, result) {
+  try {
+    const resolvedAt = new Date().toISOString();
+    db.prepare('UPDATE analyzed_events SET status = ?, result = ?, resolved_at = ? WHERE id = ?')
+      .run(status, result, resolvedAt, id);
+    return true;
+  } catch (error) {
+    console.error("[Storage] updateAnalyzedEventStatus error:", error.message);
     return false;
   }
 }

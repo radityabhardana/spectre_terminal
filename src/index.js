@@ -27,7 +27,7 @@ import { askQwen, askQwenEvent } from "./qwen.js";
 import { buildResearchContext } from "./research.js";
 import { enterCommandGuard, releaseCommandGuard } from "./rate-limit.js";
 import { scoreMarket } from "./scoring.js";
-import { appendAnalysisLog } from "./storage.js";
+import { appendAnalysisLog, addAnalyzedEvent } from "./storage.js";
 import { TelegramBot } from "./telegram.js";
 
 const MENU_BUTTONS = {
@@ -472,6 +472,13 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
     },
   });
 
+  addAnalyzedEvent({
+    market_id: scored.market.id,
+    question: scored.market.question,
+    url: scored.market.url,
+    prediction: scored.score.primaryOutcomeLabel || "YES"
+  });
+
   return formatAnalysis({ market: scored.market, score: scored.score, qwenResult });
 }
 
@@ -566,6 +573,13 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
       researchContext: bestResearchContext,
       analysis: bestQwen.analysis,
     },
+  });
+
+  addAnalyzedEvent({
+    market_id: best.market.id,
+    question: best.market.question,
+    url: best.market.url,
+    prediction: best.score.primaryOutcomeLabel || "YES"
   });
 
   return [

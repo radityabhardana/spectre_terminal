@@ -189,10 +189,6 @@
                 <i data-lucide="clock" class="chip-icon"></i>
                 <span>Ending Soon</span>
               </button>
-              <button type="button" class="action-chip" id="btnHistory">
-                <i data-lucide="history" class="chip-icon"></i>
-                <span>History Logs</span>
-              </button>
             </div>
           </div>
 
@@ -379,7 +375,63 @@
         <div class="status-bar-item">
           <span id="sbLatency">--ms</span>
         </div>
+        <div style="flex:1;"></div>
+        <div class="status-bar-item" style="cursor:pointer;" id="btnHistory" title="Riwayat Analisis">
+          <i data-lucide="history" style="width:14px; height:14px;"></i>
+          <span style="font-weight:600; color:var(--text-primary);">History Logs</span>
+        </div>
       </footer>
+      
+      <!-- History Modal -->
+      <div id="historyModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
+        <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.5); width:80%; max-width:900px; max-height:80vh; display:flex; flex-direction:column;">
+          <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
+              <i data-lucide="history" style="width:16px; height:16px; color:var(--neon-purple);"></i>
+              Riwayat Analisis
+            </h3>
+            <button id="closeHistoryModal" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;">
+              <i data-lucide="x" style="width:20px; height:20px;"></i>
+            </button>
+          </div>
+          <div style="padding:16px 20px; display:flex; gap:20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.2);">
+            <div>Win Rate Analisis: <span id="historyWinRate" style="color:var(--neon-green); font-weight:bold; font-size:16px;">0%</span></div>
+            <div>Total Analisis: <span id="historyTotal">0</span></div>
+            <div>Menang: <span id="historyWins" style="color:var(--neon-green);">0</span></div>
+            <div>Kalah: <span id="historyLosses" style="color:var(--neon-red);">0</span></div>
+            <div>Belum Selesai: <span id="historyPending" style="color:var(--text-tertiary);">0</span></div>
+          </div>
+          <div style="padding:16px 20px; overflow-y:auto; flex:1;">
+            <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:left;">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border); color:var(--text-tertiary);">
+                  <th style="padding:8px 0; width:45%;">Pertanyaan</th>
+                  <th style="padding:8px 0;">Prediksi</th>
+                  <th style="padding:8px 0;">Status</th>
+                  <th style="padding:8px 0;">Hasil</th>
+                  <th style="padding:8px 0; text-align:right;">Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="historyTableBody">
+                <!-- Rows injected via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Custom Alert Modal -->
+      <div id="alertModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10000; justify-content:center; align-items:center;">
+        <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5); width:300px; display:flex; flex-direction:column; text-align:center;">
+          <div style="padding:20px;">
+            <i data-lucide="info" style="width:32px; height:32px; color:var(--neon-cyan); margin-bottom:12px;"></i>
+            <p id="alertModalText" style="margin:0; color:var(--text-primary); font-size:14px; line-height:1.5;"></p>
+          </div>
+          <div style="border-top:1px solid var(--border); background:rgba(0,0,0,0.2); padding:10px;">
+            <button id="closeAlertModal" class="btn-primary" style="width:100%;">Tutup</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script src="/app.js?v=39-cooldown" type="module"></script>

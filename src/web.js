@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { handleCommand } from "./index.js";
 import { getCooldownState } from "./rate-limit.js";
-import { SEARCH_ENGINE_VERSION } from "./polymarket.js";
-import { getAnalysisLogs } from "./storage.js";
+import { SEARCH_ENGINE_VERSION, getMarketById } from "./polymarket.js";
+import { getAnalysisLogs, getAnalyzedEvents, updateAnalyzedEventStatus } from "./storage.js";
 import { getShadowState, configureShadow, startShadow, stopShadow, resetShadowBalance } from "./shadow.js";
 
 const modulePath = fileURLToPath(import.meta.url);
@@ -303,6 +303,68 @@ export function startWebServer(options = {}) {
         const amount = Number(payload.amount) || 10000;
         resetShadowBalance(amount);
         sendJson(res, 200, { ok: true, state: getShadowState() });
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/history/events") {
+        const events = getAnalyzedEvents(100);
+        sendJson(res, 200, { ok: true, events });
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/history/events/check") {
+        const payload = await readBody(req);
+        const eventId = payload.id;
+        const marketId = payload.market_id;
+        const prediction = payload.prediction;
+
+        if (!eventId || !marketId) {
+          sendJson(res, 400, { ok: false, error: "Missing id or market_id" });
+          return;
+        }
+
+        try {
+          const market = await getMarketById(marketId);
+          
+          let winnerIndex = -1;
+          for (let i = 0; i < market.outcomePrices.length; i++) {
+            if (Number(market.outcomePrices[i]) >= 0.95) {
+              winnerIndex = i;
+              break;
+            }
+          }
+
+          if (market.closed || !market.active || winnerIndex !== -1) {
+            let status = 'selesai';
+            let result = 'menunggu hasil';
+            
+            if (winnerIndex === -1 && market.closed) {
+               let maxPrice = -1;
+               for (let i = 0; i < market.outcomePrices.length; i++) {
+                 if (Number(market.outcomePrices[i]) > maxPrice) {
+                   maxPrice = Number(market.outcomePrices[i]);
+                   winnerIndex = i;
+                 }
+               }
+            }
+            
+            if (winnerIndex !== -1) {
+              const winningOutcome = market.outcomes[winnerIndex];
+              if (prediction && winningOutcome && prediction.toLowerCase() === winningOutcome.toLowerCase()) {
+                result = 'menang';
+              } else {
+                result = 'kalah';
+              }
+            }
+            
+            updateAnalyzedEventStatus(eventId, status, result);
+            sendJson(res, 200, { ok: true, status, result });
+          } else {
+            sendJson(res, 200, { ok: true, status: 'belum selesai', result: null, message: "Market is still active" });
+          }
+        } catch (error) {
+          sendJson(res, 500, { ok: false, error: "Failed to check market status: " + error.message });
+        }
         return;
       }
 

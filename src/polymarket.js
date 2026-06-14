@@ -166,6 +166,12 @@ async function fetchTopMarketRows(modeConfig, limit) {
   return fetchJson(url.toString());
 }
 
+export async function getMarketById(id) {
+  const url = new URL(`/markets/${id}`, config.gammaUrl);
+  const data = await fetchJson(url.toString());
+  return normalizeMarket(data);
+}
+
 export async function listTopMarkets({ mode = "volume", limit = 10 } = {}) {
   const modeConfig = topMarketMode(mode);
   const eventsData = await fetchTopEvents(modeConfig, limit);

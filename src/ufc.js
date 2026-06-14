@@ -6,6 +6,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let fightersMap = new Map();
+let lastNameMap = new Map();
 let isInitialized = false;
 
 // We use a super fast custom CSV parser to prevent lag
@@ -51,7 +52,18 @@ export function initUfcData() {
       }
 
       // Store in map using lower case for O(1) case-insensitive lookup
-      fightersMap.set(fighterName.toLowerCase(), stats);
+      const lowerName = fighterName.toLowerCase();
+      stats._name = lowerName;
+      fightersMap.set(lowerName, stats);
+      
+      const parts = lowerName.split(/\s+/);
+      if (parts.length > 1) {
+        const lastName = parts[parts.length - 1];
+        if (lastName.length > 3) {
+          if (!lastNameMap.has(lastName)) lastNameMap.set(lastName, []);
+          lastNameMap.get(lastName).push(stats);
+        }
+      }
       count++;
     }
     
@@ -78,30 +90,52 @@ export function detectUfcFighters(text) {
   
   // Quick heuristic: does the text even relate to sports/ufc?
   // Polymarket UFC events usually have "vs", "fight", "ufc", "beat", "win"
-  if (!/(vs|ufc|fight|beat|win|mma|bout|championship)/i.test(lowerText)) {
-      // It might still be a fighter's name directly, but let's be careful.
-      // We will still scan, but just to be safe.
-  }
+  const isCombatSport = /(vs|ufc|fight|beat|win|mma|bout|championship)/i.test(lowerText);
 
   const foundFighters = [];
-  // Since some fighter names are 2 words (e.g. "Jon Jones"), we check all known fighters
-  // This is very fast in V8 engine because the map is in memory.
+  const foundNames = new Set();
+  
+  // 1. Full name match
   for (const [lowerName, stats] of fightersMap.entries()) {
-    // Only match full words to avoid partial matches (e.g. finding 'Al' in 'Always')
-    // We use a simple indexOf + boundary check which is faster than creating 3000 regexes
     const idx = lowerText.indexOf(lowerName);
     if (idx !== -1) {
-      // Check boundaries
       const prevChar = idx === 0 ? " " : lowerText[idx - 1];
       const nextChar = idx + lowerName.length === lowerText.length ? " " : lowerText[idx + lowerName.length];
       
       if (/[^a-z]/.test(prevChar) && /[^a-z]/.test(nextChar)) {
         foundFighters.push(stats);
+        foundNames.add(lowerName);
       }
     }
   }
   
-  return foundFighters;
+  // 2. Last name fallback (ONLY if it looks like a combat sport market)
+  // This prevents false positives like "Harris" (Walt Harris) triggering on "Kamala Harris" politics markets.
+  if (foundFighters.length < 2 && isCombatSport) {
+    for (const [lastName, statsArray] of lastNameMap.entries()) {
+      const idx = lowerText.indexOf(lastName);
+      if (idx !== -1) {
+        const prevChar = idx === 0 ? " " : lowerText[idx - 1];
+        const nextChar = idx + lastName.length === lowerText.length ? " " : lowerText[idx + lastName.length];
+        
+        if (/[^a-z]/.test(prevChar) && /[^a-z]/.test(nextChar)) {
+          // If we found a last name, add max 2 fighters with this last name
+          for (const stats of statsArray.slice(0, 2)) {
+            if (!foundNames.has(stats._name)) {
+              foundFighters.push(stats);
+              foundNames.add(stats._name);
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  // Clean up private _name prop from results and limit
+  return foundFighters.slice(0, 4).map(s => {
+    const { _name, ...rest } = s;
+    return rest;
+  });
 }
 
 

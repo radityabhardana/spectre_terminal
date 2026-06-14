@@ -13,14 +13,20 @@ export class TelegramBot {
       console.error("setMyCommands error:", error.message);
     });
     console.log("Telegram bot polling started.");
-    while (true) {
+    this.stopped = false;
+    while (!this.stopped) {
       try {
         await this.pollOnce();
       } catch (error) {
+        if (this.stopped) break;
         console.error("Polling error:", error.message);
         await sleep(3000);
       }
     }
+  }
+
+  stop() {
+    this.stopped = true;
   }
 
   async pollOnce() {

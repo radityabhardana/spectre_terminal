@@ -912,11 +912,20 @@ export async function handleCommand(text, message, ctx) {
   }
 }
 
+let activeBot = null;
+
 export function startTelegramBot() {
   assertConfig();
-  const bot = new TelegramBot(config.telegramToken, handleCommand);
-  bot.start();
-  return bot;
+  activeBot = new TelegramBot(config.telegramToken, handleCommand);
+  activeBot.start();
+  return activeBot;
+}
+
+export function stopTelegramBot() {
+  if (activeBot) {
+    activeBot.stop();
+    activeBot = null;
+  }
 }
 
 const isMainModule =

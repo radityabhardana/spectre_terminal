@@ -28,7 +28,7 @@ function daysUntil(value) {
   return Math.round((time - Date.now()) / 86400000);
 }
 
-function compactOrderBook(book, levels = 12) {
+function compactOrderBook(book, levels = 5) {
   const bids = Array.isArray(book?.bids) ? book.bids : [];
   const asks = Array.isArray(book?.asks) ? book.asks : [];
 
@@ -339,9 +339,21 @@ function researchBlock(researchContext) {
     ].join("\n");
   }
 
+  // Compress the context to make API calls highly efficient while preserving the best analysis data
+  const compressedContext = {
+    provider: researchContext.provider,
+    type: researchContext.type,
+    summary: researchContext.summary,
+    sentiment: researchContext.sentimentSummary,
+    fundamental: researchContext.fundamentalSummary,
+    news: researchContext.newsSummary,
+    fighterConditions: researchContext.fighterConditions,
+    limitations: researchContext.limitations
+  };
+
   return [
-    "EXTERNAL RESEARCH CONTEXT:",
-    JSON.stringify(researchContext, null, 2),
+    "EXTERNAL RESEARCH CONTEXT (COMPRESSED):",
+    JSON.stringify(compressedContext, null, 2),
   ].join("\n");
 }
 
@@ -396,7 +408,7 @@ ${sharedContext}
 
 Aturan:
 - Jangan mengarang data eksternal.
-- Jika ada statistik UFC (Kaggle dataset), bandingkan keunggulan fisik (height/reach) dan teknis (striking/takedown defense) petarung, tapi periksa juga GDELT untuk momentum/cedera terbaru.
+- Jika ada statistik UFC dan kondisi fisik/mental (fighterConditions dari DDG Scraper), evaluasi momentum (training camp, cedera, perilaku) dan keunggulan teknis.
 - Tugasmu hanya membuat brief pendek untuk analis berikutnya.
 - Balas hanya JSON valid.
 
@@ -439,9 +451,9 @@ FAST SCOUT RESULT:
 ${JSON.stringify(promptSafe(scout), null, 2)}
 
 Aturan:
-- Jangan mengarang data eksternal seperti FedWatch, dot plot, polling, CPI, berita, on-chain, funding, atau riset bank jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
-- Jika ada statistik UFC (Kaggle dataset), jadikan sebagai analisis data-driven utama. Bandingkan keunggulan fisik (height/reach) dan teknis (striking/takedown defense) petarung, tapi periksa juga GDELT untuk momentum/cedera terbaru.
-- Kalau memakai pengetahuan umum, labeli sebagai asumsi umum, bukan fakta aktual.
+- Jangan mengarang data eksternal jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
+- Jika ada statistik UFC dan data 'fighterConditions' (Scraper), jadikan sebagai analisis data-driven utama. Analisis kondisi fisik, mental, training camp, atau cedera terbaru dari cuplikan artikel tersebut.
+- Kalau memakai pengetahuan umum, labeli sebagai asumsi umum.
 - Fokus pada aturan resolusi, risiko, missing data, dan bull/bear case.
 - Balas hanya JSON valid.
 
@@ -493,9 +505,9 @@ ANALYST REVIEW:
 ${JSON.stringify(promptSafe(analyst), null, 2)}
 
 Aturan wajib:
-- Jangan mengarang data eksternal seperti FedWatch, dot plot, polling, CPI, berita, on-chain, funding, atau riset bank jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
-- Jika ada statistik UFC (Kaggle dataset), evaluasi apakah statistik historis sejalan dengan probabilitas market atau ada value. Gabungkan dengan data GDELT terbaru.
-- Jika memakai pengetahuan umum, labeli sebagai asumsi umum, bukan fakta aktual.
+- Jangan mengarang data eksternal jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
+- Jika ada data kondisi fisik/mental petarung (fighterConditions), berikan bobot lebih pada psikologi, cedera, dan kesiapan (camp) mereka.
+- Jangan ragu memberikan verdict "HIGH RISK UNDERDOG" jika harga saham murah (probabilitas ≤35%) tapi data fisik/mental menunjukkan keunggulan atau potensi kejutan yang diremehkan pasar.
 - Estimated fair probability dari bot saat ini sama dengan market implied probability, jadi edge mekanis 0 kecuali ada alasan kuat dan diberi label estimasi.
 - Verdict adalah status ENTRY/TRADABILITY, bukan prediksi arah outcome utama/lawan. Jika arah market jelas tapi entry buruk, verdict tetap SKIP atau WATCHLIST.
 - Summary wajib membedakan arah market dari kelayakan entry.
@@ -586,7 +598,166 @@ Format JSON wajib:
   };
 }
 
+export async function askQwenShadow({ market, score, orderBook, researchContext = null, signal = null }) {
+  throwIfAborted(signal);
+  const marketData = JSON.stringify({
+    question: market.question,
+    liquidity: market.liquidity,
+    volume: market.volume,
+    outcomes: market.outcomes,
+    outcomePrices: market.outcomePrices,
+  }, null, 2);
+
+  const shadowContext = `
+MARKET:
+${marketData}
+
+ORDERBOOK:
+${JSON.stringify(compactOrderBook(orderBook), null, 2).slice(0, 1000)}
+
+SCORING BOT:
+${JSON.stringify({
+  spreadPercent: score.spreadPercent,
+  confidenceScore: score.confidenceScore,
+  underdogScore: score.underdogScore,
+  liquidityRisk: score.liquidityRisk,
+  blockers: score.blockers
+}, null, 2)}
+`.trim();
+
+  const shadowPrompt = `
+Kamu adalah bot trading otomatis (Shadow Bot). Evaluasi cepat market ini untuk melihat apakah layak dibeli.
+
+${shadowContext}
+
+ATURAN UTAMA:
+1. Prioritaskan market dengan NARASI POPULER (Politik, Kripto besar, Macro) dan pastikan liquidity atau volume sangat sehat (> $10000).
+2. Jika market punya likuiditas > $10000, spread < 5%, dan "blockers" kosong, berikan "VALUE CANDIDATE".
+3. Jika likuiditas > $10000 dan salah satu sisi punya harga murah (<30c) dengan alasan kemenangan yang logis (underdogScore bagus), berikan "HIGH RISK UNDERDOG".
+4. Berikan "SKIP" jika liquidity di bawah $10000, narasinya tidak populer/terlalu niche, atau spread sangat buruk (>10%).
+5. Balas dengan JSON valid.
+
+Format JSON:
+{
+  "verdict": "VALUE CANDIDATE" | "HIGH RISK UNDERDOG" | "SKIP" | "WATCHLIST",
+  "reason": "Alasan singkat kenapa dibeli atau di-skip"
+}
+`.trim();
+
+  const payload = {
+    model: config.qwenAnalystModel || "qwen-plus",
+    messages: [
+      { role: "system", content: "Kamu bot eksekutor trading agresif. Jangan banyak skip, cari peluang!" },
+      { role: "user", content: shadowPrompt }
+    ],
+    temperature: 0.4,
+    max_tokens: 150,
+    response_format: { type: "json_object" }
+  };
+
+  const json = await callQwenJson(payload, signal);
+  let analysis;
+  try {
+    const obj = extractJsonObject(json.text);
+    const v = String(obj.verdict || "").toUpperCase();
+    analysis = {
+      verdict: VALID_VERDICTS.has(v) ? v : "SKIP",
+      finalReason: obj.reason || "",
+      rawText: json.text
+    };
+  } catch {
+    analysis = { verdict: "SKIP", finalReason: "JSON error", rawText: json.text };
+  }
+
+  return { analysis, usage: json.usage };
+}
+
+export async function askQwenBtcShortTerm({ market, score, orderBook, researchContext, signal = null }) {
+  throwIfAborted(signal);
+
+  const st = researchContext;
+  const candles  = st?.candles;
+  const futures  = st?.futures;
+  const bybit    = st?.bybit;
+  const interp   = st?.interpretation;
+
+  const derivativesBlock = st?.summary
+    ? `\nDATA DERIVATIVES REAL-TIME:\n${st.summary}`
+    : "\nDATA DERIVATIVES: tidak tersedia.";
+
+  const marketBlock = JSON.stringify({
+    question: market.question,
+    liquidity: market.liquidity,
+    volume: market.volume,
+    outcomePrices: market.outcomePrices,
+    outcomes: market.outcomes,
+  }, null, 2);
+
+  const prompt = `
+Kamu adalah analis khusus Polymarket untuk market BTC JANGKA SANGAT PENDEK (5-15 menit).
+
+MARKET:
+${marketBlock}
+
+SCORING MEKANIS:
+${JSON.stringify({
+  spreadPercent: score.spreadPercent,
+  confidenceScore: score.confidenceScore,
+  liquidityRisk: score.liquidityRisk,
+  blockers: score.blockers,
+}, null, 2)}
+${derivativesBlock}
+
+INSTRUKSI WAJIB:
+1. Ini adalah prediksi harga SANGAT jangka pendek (menit) — JANGAN analisis fundamental makro.
+2. Fokuslah HANYA pada: momentum 5m, long/short imbalance, funding rate, OI delta, volume spike.
+3. Jika long_ratio > 60%: pasar terlalu banyak long → risiko dump → pertimbangkan sisi NO/DOWN.
+4. Jika long_ratio < 40%: banyak short → potensi squeeze → pertimbangkan sisi YES/UP.
+5. Jika consensus dari interpretation adalah "bearish_bias" atau "strong_bearish" → lebih mungkin harga turun.
+6. Jika consensus "bullish_bias" atau "strong_bullish" → lebih mungkin harga naik.
+7. Jika tidak ada data derivatives → berikan "WATCHLIST" (jangan SKIP karena data cukup dari orderbook).
+8. Berikan "VALUE CANDIDATE" jika ada setidaknya 2 sinyal yang konsisten satu arah.
+9. Balas hanya JSON valid.
+
+Format JSON:
+{
+  "verdict": "VALUE CANDIDATE" | "HIGH RISK UNDERDOG" | "WATCHLIST" | "SKIP",
+  "preferred_side": "YES" | "NO" | null,
+  "reason": "Alasan singkat berdasarkan data derivatives"
+}
+`.trim();
+
+  const payload = {
+    model: config.qwenAnalystModel || "qwen-plus",
+    messages: [
+      { role: "system", content: "Kamu analis short-term trading crypto untuk prediksi 5 menit. Fokus pada microstructure, bukan makro." },
+      { role: "user", content: prompt },
+    ],
+    temperature: 0.2,
+    max_tokens: 180,
+    response_format: { type: "json_object" },
+  };
+
+  const json = await callQwenJson(payload, signal);
+  let analysis;
+  try {
+    const obj = extractJsonObject(json.text);
+    const v = String(obj.verdict || "").toUpperCase();
+    analysis = {
+      verdict: VALID_VERDICTS.has(v) ? v : "WATCHLIST",
+      preferredSide: obj.preferred_side || null,
+      finalReason: obj.reason || "",
+      rawText: json.text,
+    };
+  } catch {
+    analysis = { verdict: "WATCHLIST", finalReason: "JSON parse error", rawText: json.text };
+  }
+
+  return { analysis, usage: json.usage };
+}
+
 export async function askQwenEvent({ event, analyzedMarkets, researchContext = null, signal = null }) {
+
   throwIfAborted(signal);
   const compactMarkets = analyzedMarkets.map(({ market, score }) => ({
     market_id: market.id,

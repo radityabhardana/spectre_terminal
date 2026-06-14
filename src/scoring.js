@@ -122,8 +122,6 @@ export function scoreMarket({ market, yesBook }) {
     verdict = "VALUE CANDIDATE";
   }
   if (
-    edgeScore != null &&
-    edgeScore > 0 &&
     marketProbability != null &&
     marketProbability <= 25 &&
     confidenceScore >= 55 &&

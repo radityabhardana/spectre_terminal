@@ -6,6 +6,8 @@ import { config } from "./config.js";
 import { handleCommand } from "./index.js";
 import { getCooldownState } from "./rate-limit.js";
 import { SEARCH_ENGINE_VERSION } from "./polymarket.js";
+import { getAnalysisLogs } from "./storage.js";
+import { getShadowState, configureShadow, startShadow, stopShadow, resetShadowBalance } from "./shadow.js";
 
 const modulePath = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(modulePath);
@@ -213,12 +215,42 @@ async function serveStatic(req, res) {
   }
 }
 
+function checkAuth(req, res) {
+  if (!config.webPassword) return true;
+  
+  const auth = req.headers.authorization;
+  if (!auth) {
+    res.writeHead(401, {
+      "WWW-Authenticate": 'Basic realm="MVPM Terminal"',
+      "content-type": "text/plain; charset=utf-8"
+    });
+    res.end("Unauthorized");
+    return false;
+  }
+  
+  const b64auth = (auth.split(' ')[1] || '');
+  const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+  
+  if (password === config.webPassword || login === config.webPassword) {
+    return true;
+  }
+  
+  res.writeHead(401, {
+    "WWW-Authenticate": 'Basic realm="MVPM Terminal"',
+    "content-type": "text/plain; charset=utf-8"
+  });
+  res.end("Unauthorized");
+  return false;
+}
+
 export function startWebServer(options = {}) {
   const webPort = Number(options.port || port);
   const webHost = options.host || host;
 
   const server = http.createServer(async (req, res) => {
     try {
+      if (!checkAuth(req, res)) return;
+
       if (req.method === "GET" && req.url === "/api/health") {
         sendJson(res, 200, {
           ok: true,
@@ -231,6 +263,46 @@ export function startWebServer(options = {}) {
 
       if (req.method === "POST" && req.url === "/api/command") {
         await handleApiCommand(req, res);
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/history") {
+        const logs = getAnalysisLogs(50);
+        sendJson(res, 200, { ok: true, history: logs });
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/api/shadow/status") {
+        sendJson(res, 200, { ok: true, state: getShadowState() });
+        return;
+      }
+      
+      if (req.method === "POST" && req.url === "/api/shadow/start") {
+        const payload = await readBody(req);
+        if (payload.config) configureShadow(payload.config);
+        const success = startShadow();
+        sendJson(res, success ? 200 : 400, { ok: success, state: getShadowState() });
+        return;
+      }
+      
+      if (req.method === "POST" && req.url === "/api/shadow/stop") {
+        const success = stopShadow();
+        sendJson(res, 200, { ok: success, state: getShadowState() });
+        return;
+      }
+      
+      if (req.method === "POST" && req.url === "/api/shadow/settings") {
+        const payload = await readBody(req);
+        const success = configureShadow(payload);
+        sendJson(res, success ? 200 : 400, { ok: success, state: getShadowState() });
+        return;
+      }
+      
+      if (req.method === "POST" && req.url === "/api/shadow/reset") {
+        const payload = await readBody(req);
+        const amount = Number(payload.amount) || 10000;
+        resetShadowBalance(amount);
+        sendJson(res, 200, { ok: true, state: getShadowState() });
         return;
       }
 

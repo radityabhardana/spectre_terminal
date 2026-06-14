@@ -36,6 +36,7 @@ CRYPTO_CACHE_TTL_SECONDS=10
 FUNDAMENTAL_CACHE_TTL_SECONDS=900
 NEWS_CACHE_TTL_SECONDS=900
 RESEARCH_FETCH_TIMEOUT_MS=8000
+WEB_PASSWORD=rahasia
 ```
 
 Jalankan Telegram bot dan website sekaligus:
@@ -65,6 +66,11 @@ http://localhost:8787
 
 Kalau port 8787 sudah dipakai, ubah `WEB_PORT` di `.env`.
 Default host adalah `127.0.0.1` supaya UI hanya lokal di komputer sendiri.
+Untuk mengamankan Web UI dengan Basic Auth, isi variabel `WEB_PASSWORD` di `.env`.
+
+## UFC Ultra-Fast Lookup
+Sistem ini menggunakan parser CSV kustom super cepat untuk memuat `data/ufc_dataset.csv` langsung ke RAM dalam hitungan milidetik.
+Jika input dari Polymarket menyebutkan nama petarung yang cocok dengan data di CSV (contoh: "Jon Jones"), bot otomatis mendeteksinya (O(1) lookup) dan meneruskan riwayat statistik tersebut ke Qwen. Tidak diperlukan perintah khusus, pencarian berjalan otomatis di latar belakang untuk market kategori MMA/UFC.
 
 ## Command Telegram
 

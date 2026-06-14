@@ -72,6 +72,7 @@ export const config = {
   commandCooldownMs: nonNegativeInt(process.env.COMMAND_COOLDOWN_MS, 3000),
   qwenCommandCooldownMs: nonNegativeInt(process.env.QWEN_COMMAND_COOLDOWN_MS, 45000),
   duplicateCommandCooldownMs: nonNegativeInt(process.env.DUPLICATE_COMMAND_COOLDOWN_MS, 15000),
+  webPassword: process.env.WEB_PASSWORD || "",
 };
 
 export function assertConfig() {

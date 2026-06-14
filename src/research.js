@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 import { getCache, setCache } from "./storage.js";
 import { initUfcData, detectUfcFighters } from "./ufc.js";
+import { buildBtcShortTermContext, isBtcShortTermMarket } from "./btc-short-term.js";
 
 // Initialize UFC data at startup
 initUfcData();
@@ -674,28 +675,119 @@ function researchSummary(pairs) {
     .join("; ");
 }
 
+async function fetchFighterCondition(fighterName) {
+  try {
+    const query = `site:mmafighting.com OR site:sherdog.com OR site:espn.com/mma "${fighterName}" (training OR camp OR injury OR mental OR weight OR condition)`;
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    
+    const key = `ddg:${query}`;
+    const cached = getCache(key, 900);
+    if (cached) return cached;
+    
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+      }
+    });
+    
+    if (!res.ok) return [];
+    const html = await res.text();
+    
+    const snippets = [];
+    const regex = /<a class="result__snippet[^>]*>(.*?)<\/a>/gs;
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+      const clean = match[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/&\w+;/g, " ").replace(/\s+/g, " ").trim();
+      if (clean) snippets.push(clean);
+    }
+    
+    const results = snippets.slice(0, 3);
+    setCache(key, results);
+    return results;
+  } catch (error) {
+    console.error(`Error scraping conditions for ${fighterName}:`, error.message);
+    return [];
+  }
+}
+
+async function fetchPremiumNews(queryStr) {
+  if (!queryStr) return [];
+  try {
+    const query = `(site:nytimes.com OR site:pubity.com OR site:wsj.com OR site:bloomberg.com OR site:cryptoslate.com OR site:coinbureau.com OR site:coindesk.com OR site:cointelegraph.com) ${queryStr}`;
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    
+    const key = `ddg_premium:${query}`;
+    const cached = getCache(key, 900);
+    if (cached) return cached;
+    
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+      }
+    });
+    
+    if (!res.ok) return [];
+    const html = await res.text();
+    
+    const snippets = [];
+    const regex = /<a class="result__snippet[^>]*>(.*?)<\/a>/gs;
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+      const clean = match[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/&\w+;/g, " ").replace(/\s+/g, " ").trim();
+      if (clean) snippets.push(clean);
+    }
+    
+    const results = snippets.slice(0, 3);
+    setCache(key, results);
+    return results;
+  } catch (error) {
+    console.error(`Error scraping premium news for ${queryStr}:`, error.message);
+    return [];
+  }
+}
+
 export async function buildResearchContext({ market, event, markets } = {}) {
   const text = marketText({ market, event, markets });
   const primaryText = primaryAssetText({ market, event, markets });
-  
+
+  // ── BTC SHORT-TERM DERIVATIVES: Deteksi market jenis "Will BTC go up/down X% in 5 min?"
+  if (isBtcShortTermMarket(text)) {
+    try {
+      const ctx = await buildBtcShortTermContext();
+      return ctx;
+    } catch (err) {
+      console.error("[btc-short-term] Error, falling back to standard research:", err.message);
+    }
+  }
+
   const detectedUfcFighters = detectUfcFighters(primaryText).length ? detectUfcFighters(primaryText) : detectUfcFighters(text);
   
   if (detectedUfcFighters.length > 0) {
-    const newsResult = await fetchGdeltNews({ uniqueAssets: [], text }); // We can pass fighters later
+    const newsResult = await fetchGdeltNews({ uniqueAssets: [], text }); 
+    
+    // Fetch physical/mental conditions via scraper
+    const fighterConditions = {};
+    for (const f of detectedUfcFighters.slice(0, 2)) {
+      const name = f.fighter || f.name || f.Fighter;
+      if (name) {
+        fighterConditions[name] = await fetchFighterCondition(name);
+      }
+    }
     
     return {
       type: "sports_ufc",
       status: "ok",
-      provider: "Kaggle Dataset + GDELT",
+      provider: "Kaggle Dataset + GDELT + DDG Scraper",
       fetchedAt: new Date().toISOString(),
       fighters: detectedUfcFighters,
-      summary: `Terdeteksi ${detectedUfcFighters.length} petarung UFC. Statistik: ${JSON.stringify(detectedUfcFighters)}`,
+      fighterConditions,
+      summary: `Terdeteksi ${detectedUfcFighters.length} petarung UFC.`,
       newsSummary: newsSummary(newsResult),
       news: newsResult,
       errors: newsResult.status === "error" ? [newsResult.error] : [],
       limitations: [
-        "Data base statistik petarung (Kaggle) adalah data s/d tahun 2025.",
-        "Momentum terbaru/cedera mengandalkan headline berita GDELT.",
+        "Data base statistik petarung (Kaggle) adalah data historis.",
+        "Kondisi fisik/mental (DDG Scraper) dari artikel MMA.",
         "Statistik tidak selalu menjamin hasil pertarungan."
       ]
     };
@@ -707,18 +799,21 @@ export async function buildResearchContext({ market, event, markets } = {}) {
   // If no crypto assets, we do a "general" news-only research context
   if (!detectedAssets.length) {
     const newsResult = await fetchGdeltNews({ uniqueAssets: [], text });
+    const premiumSnippets = await fetchPremiumNews(newsQueryFor([], text));
+    const premiumNewsText = premiumSnippets.length ? premiumSnippets.join("; ") : "";
+    const finalNewsSummary = [newsSummary(newsResult), premiumNewsText ? `PREMIUM NEWS: ${premiumNewsText}` : ""].filter(Boolean).join(" | ");
     
     return {
       type: "general",
       status: newsResult.status === "ok" ? "ok" : "partial",
-      provider: "GDELT 2.1 DOC",
+      provider: "GDELT 2.1 DOC + DDG Premium News",
       gdeltSourceUrl: config.gdeltDocUrl,
       fetchedAt: new Date().toISOString(),
       detectedAssets: [],
       summary: "Non-crypto event. No market data available.",
       sentimentSummary: "n/a",
       fundamentalSummary: "n/a",
-      newsSummary: newsSummary(newsResult),
+      newsSummary: finalNewsSummary,
       pairs: [],
       sentiment: null,
       defi: null,
@@ -757,10 +852,11 @@ export async function buildResearchContext({ market, event, markets } = {}) {
     })
   );
   const okCount = pairs.filter((pair) => pair.status === "ok").length;
-  const [sentimentResult, defiResult, newsResult] = await Promise.allSettled([
+  const [sentimentResult, defiResult, newsResult, premiumSnippetsResult] = await Promise.allSettled([
     fetchFearGreed(),
     buildDefiLlamaContext(uniqueAssets),
     fetchGdeltNews({ uniqueAssets, text }),
+    fetchPremiumNews(newsQueryFor(uniqueAssets, text)),
   ]);
 
   const sentiment = unwrapResult(
@@ -769,6 +865,10 @@ export async function buildResearchContext({ market, event, markets } = {}) {
   );
   const defi = unwrapResult(defiResult, providerError("DefiLlama", defiResult.reason));
   const news = unwrapResult(newsResult, providerError("GDELT 2.1 DOC", newsResult.reason));
+  
+  const pSnippets = premiumSnippetsResult.status === "fulfilled" ? premiumSnippetsResult.value : [];
+  const premiumNewsText = pSnippets.length ? pSnippets.join("; ") : "";
+  const finalNewsSummary = [newsSummary(news), premiumNewsText ? `PREMIUM NEWS: ${premiumNewsText}` : ""].filter(Boolean).join(" | ");
 
   const extraOk = [sentiment, defi, news].some(
     (item) => item?.status === "ok" || item?.status === "partial"
@@ -794,7 +894,7 @@ export async function buildResearchContext({ market, event, markets } = {}) {
     summary: researchSummary(pairs),
     sentimentSummary: fearGreedSummary(sentiment),
     fundamentalSummary: defiLlamaSummary(defi),
-    newsSummary: newsSummary(news),
+    newsSummary: finalNewsSummary,
     pairs,
     sentiment,
     defi,

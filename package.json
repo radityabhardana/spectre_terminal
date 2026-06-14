@@ -9,7 +9,8 @@
     "telegram": "node src/index.js",
     "web": "node src/web.js",
     "check": "node --check src/index.js && node --check src/web.js && node --check src/start-all.js && node --check public/app.js",
-    "search": "node src/cli-search.js"
+    "search": "node src/cli-search.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"

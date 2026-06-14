@@ -33,7 +33,127 @@
           <span id="clockTime">--:--:--</span>
         </div>
 
-        <div class="status-row">
+        <div class="status-row" style="position:relative;">
+          <!-- PnL indicator -->
+          <span class="status-pill" id="shadowPnlPill" style="display:none; margin-right:4px; font-size:10px;"></span>
+          
+          <!-- Balance Display -->
+          <span class="status-pill" id="shadowBalance" style="color: var(--neon-green); border-color: rgba(0,255,136,0.3); margin-right: 4px; font-weight: bold; cursor:pointer;" title="Click to open Shadow Bot">
+            $10,000.00
+          </span>
+          
+          <button id="toggleShadowPanelBtn" class="action-chip" style="height:24px; border-color:rgba(188,140,255,0.3); color:var(--neon-purple); background:rgba(188,140,255,0.05); margin-right: 8px;">
+            <i data-lucide="bot" style="width:12px; height:12px; margin-right:4px;"></i> Shadow Bot
+          </button>
+          
+          <!-- Shadow Bot Dropdown Panel -->
+          <div id="shadowBotPanel" style="display:none; position:absolute; top:32px; right:0; width:340px; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index:100; text-align:left; overflow:hidden;">
+            
+            <!-- Panel Header -->
+            <div style="padding:10px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); background:rgba(188,140,255,0.03);">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span class="section-icon ai-icon" style="background:var(--neon-purple);box-shadow:0 0 8px rgba(188,140,255,0.4);"></span>
+                <span class="section-label" style="font-size:12px;">Shadow Bot</span>
+              </div>
+              <span id="shadowBadge" style="display:none; font-size:8px; padding:2px 6px; border-radius:8px; background:rgba(255,184,0,0.15); border:1px solid rgba(255,184,0,0.3); color:var(--neon-amber); font-weight:700; letter-spacing:0.05em;">UJI COBA</span>
+            </div>
+            
+            <!-- Stats Dashboard -->
+            <div id="shadowStatsRow" style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:0; border-bottom:1px solid var(--border); padding:0;">
+              <div style="padding:8px 10px; text-align:center; border-right:1px solid var(--border);">
+                <div style="font-size:9px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.05em;">Win Rate</div>
+                <div id="statWinRate" style="font-size:14px; font-weight:700; color:var(--neon-green); font-family:'JetBrains Mono',monospace;">0%</div>
+              </div>
+              <div style="padding:8px 10px; text-align:center; border-right:1px solid var(--border);">
+                <div style="font-size:9px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.05em;">PnL</div>
+                <div id="statPnl" style="font-size:14px; font-weight:700; color:var(--text-secondary); font-family:'JetBrains Mono',monospace;">$0</div>
+              </div>
+              <div style="padding:8px 10px; text-align:center; border-right:1px solid var(--border);">
+                <div style="font-size:9px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.05em;">ROI</div>
+                <div id="statRoi" style="font-size:14px; font-weight:700; color:var(--text-secondary); font-family:'JetBrains Mono',monospace;">0%</div>
+              </div>
+              <div style="padding:8px 10px; text-align:center;">
+                <div style="font-size:9px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.05em;">W / L</div>
+                <div id="statWL" style="font-size:14px; font-weight:700; color:var(--text-secondary); font-family:'JetBrains Mono',monospace;">0/0</div>
+              </div>
+            </div>
+            
+            <!-- Tab Navigation -->
+            <div style="display:flex; border-bottom:1px solid var(--border);">
+              <button type="button" class="shadow-tab active" data-shadow-tab="config" style="flex:1; padding:6px; font-size:10px; background:none; border:none; border-bottom:2px solid var(--neon-purple); color:var(--neon-purple); cursor:pointer; font-family:'JetBrains Mono',monospace; font-weight:600;">⚙ Config</button>
+              <button type="button" class="shadow-tab" data-shadow-tab="bets" style="flex:1; padding:6px; font-size:10px; background:none; border:none; border-bottom:2px solid transparent; color:var(--text-tertiary); cursor:pointer; font-family:'JetBrains Mono',monospace;">📋 Bets</button>
+              <button type="button" class="shadow-tab" data-shadow-tab="logs" style="flex:1; padding:6px; font-size:10px; background:none; border:none; border-bottom:2px solid transparent; color:var(--text-tertiary); cursor:pointer; font-family:'JetBrains Mono',monospace;">📜 Logs</button>
+            </div>
+            
+            <!-- Tab: Config -->
+            <div id="shadowTabConfig" class="shadow-tab-content" style="padding:10px 14px;">
+              <div style="margin-bottom: 8px;">
+                <label style="font-size:10px; color:var(--text-secondary); display:block; margin-bottom:4px;">Strategy Preset:</label>
+                <div class="action-row" style="flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px;">
+                  <button type="button" class="action-chip selected" id="btnPresetCustom" style="font-size:9px; padding:0 8px; height:24px;">Custom</button>
+                  <button type="button" class="action-chip" id="btnPresetSafe" style="font-size:9px; padding:0 8px; height:24px;">Safe 1%</button>
+                  <button type="button" class="action-chip" id="btnPresetAggro" style="font-size:9px; padding:0 8px; height:24px;">Aggro 5%</button>
+                  <button type="button" class="action-chip" id="btnPresetHighRisk" style="font-size:9px; padding:0 8px; height:24px; border-color:rgba(255,71,87,0.4); color:var(--neon-red); font-weight:bold;">High Risk</button>
+                </div>
+              </div>
+              
+              <div class="shadow-bot-controls">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px;">
+                   <label style="font-size:10px; color:var(--text-secondary)">Capital ($)</label>
+                   <input type="number" id="shadowCapital" value="10000" style="width: 80px; background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); font-size:11px; padding:3px 6px; border-radius:4px; outline:none; text-align:right; font-family:'JetBrains Mono',monospace;">
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px;">
+                   <label style="font-size:10px; color:var(--text-secondary)">Target Bets</label>
+                   <input type="number" id="shadowTarget" value="20" style="width: 80px; background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); font-size:11px; padding:3px 6px; border-radius:4px; outline:none; text-align:right; font-family:'JetBrains Mono',monospace;">
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 5px;">
+                   <label style="font-size:10px; color:var(--text-secondary)">Duration (Hours)</label>
+                   <input type="number" id="shadowDuration" value="2" style="width: 80px; background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); font-size:11px; padding:3px 6px; border-radius:4px; outline:none; text-align:right; font-family:'JetBrains Mono',monospace;">
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                   <label style="font-size:10px; color:var(--text-secondary)">Bet Size</label>
+                   <div style="display:flex; gap: 4px;">
+                     <select id="shadowMM" style="background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); font-size:10px; padding:3px; border-radius:4px; outline:none;">
+                       <option value="fixed">Fixed $</option>
+                       <option value="percentage">% Bal</option>
+                     </select>
+                     <input type="number" id="shadowSize" value="100" style="width: 55px; background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); font-size:11px; padding:3px 6px; border-radius:4px; outline:none; text-align:right; font-family:'JetBrains Mono',monospace;">
+                   </div>
+                </div>
+                
+                <div style="display:flex; gap:6px; margin-top: 8px;">
+                  <button type="button" class="action-chip primary" id="btnStartShadow" style="flex:1; justify-content:center; height:34px;">
+                    <i data-lucide="play" class="chip-icon"></i> <span style="font-weight:bold;">Start Autopilot</span>
+                  </button>
+                  <button type="button" class="action-chip" id="btnStopShadow" style="flex:1; justify-content:center; height:34px; display:none; border-color:rgba(255,71,87,0.5); color:var(--neon-red); background:rgba(255,71,87,0.08);">
+                    <i data-lucide="square" class="chip-icon"></i> <span>Stop Bot</span>
+                  </button>
+                  <button type="button" class="action-chip" id="btnResetShadow" style="height:34px; border-color:rgba(255,184,0,0.3); color:var(--neon-amber); font-size:10px;" title="Reset balance to capital">
+                    <i data-lucide="refresh-cw" style="width:12px; height:12px;"></i>
+                  </button>
+                </div>
+                
+                <div id="shadowStatusBox" style="margin-top: 8px; font-size: 10px; color: var(--text-tertiary); display:none; background:rgba(0,212,255,0.04); padding:6px 8px; border-radius:4px; border:1px solid rgba(0,212,255,0.15);">
+                  <span id="shadowStateLabel" style="color:var(--neon-cyan); font-weight:600;">Running</span> · <span id="shadowRuntime" style="color:var(--text-secondary); margin-right:4px;">0m 0s</span> · <span id="shadowProgress" style="color:var(--text-primary);">0/20 bets</span>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Tab: Active Bets -->
+            <div id="shadowTabBets" class="shadow-tab-content" style="padding:10px 14px; display:none; max-height:280px; overflow-y:auto;">
+              <div id="shadowBetsList" style="font-size:10px; color:var(--text-secondary);">
+                <div style="text-align:center; padding:20px; color:var(--text-tertiary);">No bets yet. Start the bot!</div>
+              </div>
+            </div>
+            
+            <!-- Tab: Logs -->
+            <div id="shadowTabLogs" class="shadow-tab-content" style="padding:10px 14px; display:none; max-height:280px; overflow-y:auto;">
+              <div id="shadowLogsList" style="font-size:9px; font-family:'JetBrains Mono',monospace; color:var(--text-tertiary); line-height:1.6;">
+                <div style="text-align:center; padding:20px;">Waiting for activity...</div>
+              </div>
+            </div>
+          </div>
+          
           <span class="status-pill">Gamma</span>
           <span class="status-pill">CLOB</span>
           <span id="qwenStatus" class="status-pill ai">Qwen</span>
@@ -68,6 +188,10 @@
               <button type="button" class="action-chip" data-command="/top ending">
                 <i data-lucide="clock" class="chip-icon"></i>
                 <span>Ending Soon</span>
+              </button>
+              <button type="button" class="action-chip" id="btnHistory">
+                <i data-lucide="history" class="chip-icon"></i>
+                <span>History Logs</span>
               </button>
             </div>
           </div>
@@ -168,8 +292,7 @@
             </div>
           </div>
 
-          <!-- Divider -->
-          <div class="panel-divider"></div>
+
 
           <!-- Section 3: Guard Rail (compact) -->
           <div class="panel-section">

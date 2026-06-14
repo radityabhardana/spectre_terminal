@@ -134,7 +134,23 @@ QWEN_COMMAND_COOLDOWN_MS -> jeda khusus command AI/Qwen seperti /analyze, /analy
 
 Default-nya command umum 3 detik, command sama 15 detik, dan Qwen 45 detik. Kalau terlalu ketat atau terlalu longgar, ubah nilainya di `.env`.
 
-Pipeline Qwen:
+### Fitur Web UI Tambahan
+
+**1. Riwayat Analisis & Pengecekan Status**
+Setiap market yang dianalisis secara mendalam (`/analyze` atau `/analyzebest`) akan otomatis tersimpan ke dalam database lokal (SQLite).
+Kamu bisa melihat daftar riwayat ini dengan menekan tombol **History Logs** bergambar jam yang ada di pojok kanan bawah *Status Bar* Web UI.
+- Modal riwayat menampilkan daftar market, tebakan AI (prediksi dominan), serta statistik Win Rate.
+- Terdapat tombol **Periksa** untuk mengecek langsung ke Polymarket API apakah event sudah selesai (berdasarkan harga outcome yang menyentuh >= 0.95 atau status market yang sudah tutup).
+- Jika sudah selesai, sistem akan otomatis mencocokkan prediksi dengan hasil nyata dan menandainya sebagai **Menang** atau **Kalah**. Pengecekan ini 100% gratis dan tidak memakan token API Qwen.
+
+**2. Shadow Bot (Simulasi Trading / Paper Trading)**
+Tersedia mode simulasi trading otomatis (Shadow Bot) yang bisa diakses lewat tombol di kanan atas Web UI.
+- Bot akan berjalan di *background* untuk mengecek market secara berkala (misal mencari market yang hampir *closing*).
+- Jika Qwen memberikan sinyal *verdict* yang kuat, bot akan melakukan simulasi *bet* (paper trade) dengan data harga saat itu.
+- Dilengkapi pengaturan *Modal Awal (Capital)*, *Target Jumlah Bet*, *Durasi*, dan *Ukuran Bet (Bet Size)* per entry.
+- Fitur ini sangat berguna untuk melakukan *forward testing* dan melihat metrik Win Rate serta PnL secara real-time tanpa resiko finansial.
+
+## Arsitektur & Cache
 
 ```text
 QWEN_FAST_MODEL    -> fast scout, klasifikasi event/market dan risiko awal

@@ -839,6 +839,38 @@ export async function handleCommand(text, message, ctx) {
     return menuAnswer(output);
   }
 
+  if (command === "/analyzequeue") {
+    if (!arg) return menuAnswer("Format: /analyzequeue <url1>,<url2>...");
+    
+    const urls = arg.split(",").map(s => s.trim()).filter(Boolean);
+    if (!urls.length) return menuAnswer("Tidak ada URL/ID market yang dikirim.");
+
+    return runWithProgress(
+      ctx,
+      `Menganalisis ${urls.length} market dari antrian`,
+      async (setStep, signal) => {
+        let results = [];
+        for (let i = 0; i < urls.length; i++) {
+          throwIfAborted(signal);
+          const url = urls[i];
+          setStep(`[Queue ${i + 1}/${urls.length}] Resolving market...`);
+          try {
+            const target = await resolveAnalyzeInput(url);
+            if (target.kind === "market" && !target.market) throw new Error("Market tidak ditemukan.");
+            
+            setStep(`[Queue ${i + 1}/${urls.length}] Analyzing: ${target.market.question}`);
+            await deepAnalyzeMarket({ market: target.market, query: url, setStep, signal });
+            results.push(`✅ Selesai: ${target.market.question}`);
+          } catch (err) {
+            results.push(`❌ Gagal (${url.slice(-15)}...): ${err.message}`);
+          }
+        }
+        return `✅ Antrian Selesai Diproses!\n\n${results.join("\\n")}`;
+      },
+      { estimateSeconds: urls.length * 20, mode: "deep" }
+    );
+  }
+
   if (command === "/analyze") {
     if (!arg) {
       return menuAnswer(

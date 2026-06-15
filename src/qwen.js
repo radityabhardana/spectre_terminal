@@ -474,7 +474,7 @@ Format JSON:
   "preliminary_verdict": "SKIP/WATCHLIST/VALUE CANDIDATE/HIGH RISK UNDERDOG",
   "confidence": 65
 }
-\`.trim();
+`.trim();
 
   const analystPayload = {
     model: config.qwenAnalystModel,
@@ -540,7 +540,7 @@ Format JSON wajib:
   },
   "final_reason": "Alasan final verdict (Sebutkan nilai EV dan Imbalance secara angka dalam penjelasan ini)."
 }
-\`.trim();
+`.trim();
 
   const payload = {
     model: config.qwenFinalModel,

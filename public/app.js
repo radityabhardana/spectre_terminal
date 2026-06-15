@@ -879,6 +879,208 @@ if (btnBtc5m && btc5mPanel) {
   // Tidak ada event listener document click untuk menutup otomatis.
 }
 
+/* --- Queue Panel Logic --- */
+const btnToggleQueue = document.querySelector("#btnToggleQueue");
+const queuePanel = document.querySelector("#queuePanel");
+const btnClearQueue = document.querySelector("#btnClearQueue");
+const btnRunQueue = document.querySelector("#btnRunQueue");
+const queueDropzone = document.querySelector("#queueDropzone");
+const queueEmpty = document.querySelector("#queueEmpty");
+
+let analysisQueue = [];
+let isSniperActive = false;
+let sniperInterval = null;
+
+if (btnToggleQueue && queuePanel) {
+  btnToggleQueue.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isHidden = queuePanel.style.display === "none";
+    queuePanel.style.display = isHidden ? "block" : "none";
+  });
+}
+
+window.handleDragStart = function(event, element) {
+  const id = element.getAttribute("data-id");
+  const url = element.getAttribute("data-url");
+  const question = element.getAttribute("data-question");
+  event.dataTransfer.setData("text/plain", JSON.stringify({ id, url, question }));
+  element.style.opacity = "0.5";
+};
+
+window.handleDragEnd = function(event) {
+  event.currentTarget.style.opacity = "1";
+};
+
+if (queueDropzone) {
+  queueDropzone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    queueDropzone.style.borderColor = "var(--neon-green)";
+  });
+
+  queueDropzone.addEventListener("dragleave", (event) => {
+    event.preventDefault();
+    queueDropzone.style.borderColor = "transparent";
+  });
+
+  queueDropzone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    queueDropzone.style.borderColor = "transparent";
+    try {
+      const data = JSON.parse(event.dataTransfer.getData("text/plain"));
+      if (data && data.id) addToQueue(data);
+    } catch (e) {
+      console.error("Invalid drop data");
+    }
+  });
+}
+
+function addToQueue(marketData) {
+  if (analysisQueue.some(m => m.id === marketData.id)) return;
+  if (analysisQueue.length >= 10) {
+    showCustomAlert("Antrian maksimal 10 market.");
+    return;
+  }
+  
+  // Ambil data market penuh dari list kalau ada, supaya bisa render jam
+  const fullMarket = currentBtcMarkets.find(m => m.id === marketData.id);
+  const queueItem = fullMarket || marketData;
+  
+  analysisQueue.push(queueItem);
+  renderQueue();
+}
+
+function renderQueue() {
+  if (!queueDropzone || !queueEmpty) return;
+  if (analysisQueue.length === 0) {
+    queueDropzone.innerHTML = "";
+    queueDropzone.appendChild(queueEmpty);
+    queueEmpty.style.display = "block";
+    return;
+  }
+
+  queueEmpty.style.display = "none";
+  let html = "";
+  analysisQueue.forEach((m, index) => {
+    let timeHtml = "";
+    if (m.endDate) {
+      const timeToClose = new Date(m.endDate).getTime() - Date.now();
+      const isClosingSoon = timeToClose > 0 && timeToClose < 2 * 60 * 1000;
+      const isClosed = timeToClose <= 0;
+      let timeColor = isClosed ? "var(--text-tertiary)" : (isClosingSoon ? "var(--neon-amber)" : "var(--neon-green)");
+      let timeText = isClosed ? "Closed" : Math.floor(timeToClose / 60000) + "m " + Math.floor((timeToClose % 60000) / 1000) + "s";
+      
+      const pYes = m.outcomePrices && m.outcomePrices[0] ? Math.round(m.outcomePrices[0] * 100) : 0;
+      const pNo = m.outcomePrices && m.outcomePrices[1] ? Math.round(m.outcomePrices[1] * 100) : 0;
+      const lYes = m.outcomes && m.outcomes[0] ? m.outcomes[0] : "UP";
+      const lNo = m.outcomes && m.outcomes[1] ? m.outcomes[1] : "DOWN";
+
+      timeHtml = `<span class="btc5m-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${lYes}" data-l-no="${lNo}" style="color:${timeColor}; font-weight:bold; font-size:9px; margin-left:8px; flex-shrink:0;">${timeText}</span>`;
+    }
+
+    let sniperStatus = "";
+    if (isSniperActive && !m.snipeFired) {
+      sniperStatus = `<span style="color:var(--neon-amber); font-size:9px; border:1px solid var(--neon-amber); border-radius:2px; padding:1px 4px; margin-left:6px;">Wait</span>`;
+    } else if (m.snipeFired) {
+      sniperStatus = `<span style="color:var(--neon-green); font-size:9px; border:1px solid var(--neon-green); border-radius:2px; padding:1px 4px; margin-left:6px;">Fired</span>`;
+    }
+
+    html += `
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:rgba(0,0,0,0.2); border:1px solid rgba(16,185,129,0.2); border-radius:4px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex:1; overflow:hidden;">
+          <span style="font-size:10px; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">[${index+1}] ${m.question}</span>
+          ${sniperStatus}
+          ${timeHtml}
+        </div>
+        <button type="button" onclick="removeFromQueue('${m.id}')" style="background:none; border:none; color:var(--neon-red); cursor:pointer; padding:2px; margin-left:8px;"><i data-lucide="x" style="width:10px; height:10px;"></i></button>
+      </div>
+    `;
+  });
+  queueDropzone.innerHTML = html;
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+window.removeFromQueue = function(id) {
+  analysisQueue = analysisQueue.filter(m => String(m.id) !== String(id));
+  renderQueue();
+};
+
+if (btnClearQueue) {
+  btnClearQueue.addEventListener("click", () => {
+    analysisQueue = [];
+    if (isSniperActive) toggleSniper();
+    renderQueue();
+  });
+}
+
+let sniperExecutionQueue = [];
+
+function startSniper() {
+  if (sniperInterval) clearInterval(sniperInterval);
+  sniperInterval = setInterval(() => {
+    let triggered = false;
+    
+    // 1. Cek market mana saja yang sudah masuk sweet spot
+    analysisQueue.forEach(m => {
+      if (!m.snipeFired && m.endDate) {
+        const timeToClose = new Date(m.endDate).getTime() - Date.now();
+        const durationLimit = m.duration_type === '15m' ? 15 * 60 * 1000 : 5 * 60 * 1000;
+        // Fire when time is exactly at limit (300k ms for 5m, 900k ms for 15m) atau kurang, dan belum ditutup
+        if (timeToClose > 0 && timeToClose <= durationLimit) {
+          m.snipeFired = true;
+          sniperExecutionQueue.push(m.url);
+          triggered = true;
+        }
+      }
+    });
+
+    if (triggered) renderQueue();
+
+    // 2. Eksekusi tembakan jika UI tidak sedang sibuk
+    if (!busy && sniperExecutionQueue.length > 0) {
+      // Ambil maksimal 10 tembakan sekaligus
+      const urlsToShoot = sniperExecutionQueue.splice(0, 10);
+      const commandStr = urlsToShoot.length === 1 
+        ? "/analyze " + urlsToShoot[0]
+        : "/analyzequeue " + urlsToShoot.join(",");
+        
+      executeCommand(commandStr);
+    }
+  }, 1000);
+}
+
+function stopSniper() {
+  if (sniperInterval) clearInterval(sniperInterval);
+  sniperInterval = null;
+}
+
+function toggleSniper() {
+  isSniperActive = !isSniperActive;
+  if (isSniperActive) {
+    btnRunQueue.innerHTML = `<i data-lucide="crosshair" class="btn-icon"></i> Sniper Active`;
+    btnRunQueue.style.background = "rgba(245, 158, 11, 0.5)";
+    btnRunQueue.style.color = "#fff";
+    startSniper();
+  } else {
+    btnRunQueue.innerHTML = `<i data-lucide="crosshair" class="btn-icon"></i> Activate Sniper`;
+    btnRunQueue.style.background = "rgba(245, 158, 11, 0.2)";
+    btnRunQueue.style.color = "var(--neon-amber)";
+    stopSniper();
+  }
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+  renderQueue();
+}
+
+if (btnRunQueue) {
+  btnRunQueue.addEventListener("click", () => {
+    if (analysisQueue.length === 0 && !isSniperActive) {
+      showCustomAlert("Antrian masih kosong. Drag & Drop market ke sini dulu.");
+      return;
+    }
+    toggleSniper();
+  });
+}
+
+
 let currentBtcMarkets = [];
 let activeBtcTab = '5m';
 
@@ -973,7 +1175,7 @@ function renderBtc5mMarkets(markets) {
     }
 
     return `
-      <div class="btc5m-card" style="padding:8px 10px; border:1px solid rgba(255,255,255,0.05); border-radius:4px; background:rgba(0,0,0,0.15); cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='rgba(245,158,11,0.3)';" onmouseout="this.style.background='rgba(0,0,0,0.15)'; this.style.borderColor='rgba(255,255,255,0.05)';" onclick="analyzeBtc5m('${m.id}', '${m.url}')">
+      <div class="btc5m-card" draggable="true" data-id="${m.id}" data-url="${m.url}" data-question="${(m.question || '').replace(/"/g, '&quot;')}" ondragstart="handleDragStart(event, this)" ondragend="handleDragEnd(event)" style="padding:8px 10px; border:1px solid rgba(255,255,255,0.05); border-radius:4px; background:rgba(0,0,0,0.15); cursor:grab; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='rgba(245,158,11,0.3)';" onmouseout="this.style.background='rgba(0,0,0,0.15)'; this.style.borderColor='rgba(255,255,255,0.05)';" onclick="analyzeBtc5m('${m.id}', '${m.url}')">
         <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
           <span style="font-weight:600; color:var(--text-primary); font-size:11px;">${m.groupItemTitle || m.question.replace(/Bitcoin Up or Down -? ?/i, '').trim()}</span>
           <span class="btc5m-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${labelYes}" data-l-no="${labelNo}" style="color:${timeColor}; font-weight:700; font-size:10px;">${timeText}</span>

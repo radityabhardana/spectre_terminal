@@ -242,9 +242,19 @@ async function fetchBinanceFutures(asset) {
 
   const premiumUrl = binanceFuturesUrl("/fapi/v1/premiumIndex", asset.pair);
   const openInterestUrl = binanceFuturesUrl("/fapi/v1/openInterest", asset.pair);
-  const [premiumResult, openInterestResult] = await Promise.allSettled([
+  const longShortUrl = binanceFuturesUrl("/fapi/v1/globalLongShortAccountRatio", asset.pair);
+  longShortUrl.searchParams.set("period", "5m");
+  longShortUrl.searchParams.set("limit", "1");
+  
+  const klinesUrl = binanceFuturesUrl("/fapi/v1/klines", asset.pair);
+  klinesUrl.searchParams.set("interval", "5m");
+  klinesUrl.searchParams.set("limit", "6");
+
+  const [premiumResult, openInterestResult, longShortResult, klinesResult] = await Promise.allSettled([
     fetchJson(premiumUrl.toString()),
     fetchJson(openInterestUrl.toString()),
+    fetchJson(longShortUrl.toString()),
+    fetchJson(klinesUrl.toString()),
   ]);
 
   if (premiumResult.status === "rejected" && openInterestResult.status === "rejected") {
@@ -260,6 +270,17 @@ async function fetchBinanceFutures(asset) {
   const premium = premiumResult.status === "fulfilled" ? premiumResult.value : {};
   const openInterest =
     openInterestResult.status === "fulfilled" ? openInterestResult.value : {};
+  const longShortData = longShortResult.status === "fulfilled" && Array.isArray(longShortResult.value) ? longShortResult.value[0] : {};
+  const klines = klinesResult.status === "fulfilled" && Array.isArray(klinesResult.value) ? klinesResult.value : [];
+
+  const klinesSummary = klines.map(k => ({
+    time: isoFromMs(k[0]),
+    open: num(k[1]),
+    high: num(k[2]),
+    low: num(k[3]),
+    close: num(k[4]),
+    volume: num(k[5])
+  }));
 
   return {
     futures_status:
@@ -271,13 +292,15 @@ async function fetchBinanceFutures(asset) {
     futures_last_funding_rate: num(premium.lastFundingRate),
     futures_next_funding_time: isoFromMs(premium.nextFundingTime),
     futures_open_interest: num(openInterest.openInterest),
+    futures_long_short_ratio: num(longShortData?.longShortRatio),
+    futures_long_account_pct: num(longShortData?.longAccount),
+    futures_short_account_pct: num(longShortData?.shortAccount),
+    futures_klines_5m: klinesSummary,
     futures_time: isoFromMs(premium.time || openInterest.time),
     futures_error:
       premiumResult.status === "rejected"
         ? `premium ${errorMessage(premiumResult.reason)}`
-        : openInterestResult.status === "rejected"
-          ? `openInterest ${errorMessage(openInterestResult.reason)}`
-          : null,
+        : null,
   };
 }
 

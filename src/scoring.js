@@ -16,7 +16,21 @@ function bestBidAsk(book) {
     .filter((x) => x != null)
     .sort((a, b) => a - b)[0];
 
-  return { bestBid, bestAsk };
+  let totalBidVolume = 0;
+  for (const b of bids) {
+    totalBidVolume += (Number(b.price) || 0) * (Number(b.size) || 0);
+  }
+
+  let totalAskVolume = 0;
+  for (const a of asks) {
+    totalAskVolume += (Number(a.price) || 0) * (Number(a.size) || 0);
+  }
+
+  const orderbookImbalance = (totalBidVolume + totalAskVolume > 0)
+    ? (totalBidVolume / (totalBidVolume + totalAskVolume)) * 100
+    : 50; // default neutral 50%
+
+  return { bestBid, bestAsk, orderbookImbalance, totalBidVolume, totalAskVolume };
 }
 
 function clamp(value, min, max) {
@@ -30,7 +44,7 @@ function riskFromScore(score) {
 }
 
 export function scoreMarket({ market, yesBook }) {
-  const { bestBid, bestAsk } = bestBidAsk(yesBook);
+  const { bestBid, bestAsk, orderbookImbalance, totalBidVolume, totalAskVolume } = bestBidAsk(yesBook);
   const hasTwoSidedBook = bestBid != null && bestAsk != null;
   const midpoint =
     hasTwoSidedBook
@@ -142,6 +156,9 @@ export function scoreMarket({ market, yesBook }) {
     edgeScore,
     confidenceScore,
     underdogScore,
+    orderbookImbalance,
+    totalBidVolume,
+    totalAskVolume,
     liquidityRisk,
     spreadRisk,
     resolutionRisk,

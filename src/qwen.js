@@ -451,16 +451,16 @@ FAST SCOUT RESULT:
 ${JSON.stringify(promptSafe(scout), null, 2)}
 
 Aturan:
-- Jangan mengarang data eksternal jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
-- Jika ada statistik UFC dan data 'fighterConditions' (Scraper), jadikan sebagai analisis data-driven utama. Analisis kondisi fisik, mental, training camp, atau cedera terbaru dari cuplikan artikel tersebut.
-- Kalau memakai pengetahuan umum, labeli sebagai asumsi umum.
-- Fokus pada aturan resolusi, risiko, missing data, dan bull/bear case.
+- Jangan mengarang data eksternal. Gunakan DATA MARKET dan EXTERNAL RESEARCH CONTEXT.
+- Khusus market Crypto 5-Min & 15-Min: Abaikan berita (GDELT). Fokus HANYA pada 'futures_klines_5m' (Chart Momentum Binance), 'futures_long_short_ratio', dan 'orderbookImbalance' (di bagian SCORING AWAL).
+- Jika orderbookImbalance > 65%, itu indikasi kuat tekanan Paus (Whales) untuk BUY/UP. Jika < 35%, tekanan kuat SELL/DOWN.
+- Bandingkan arah Klines (Momentum) dengan orderbookImbalance. Jika berlawanan, catat sebagai jebakan likuiditas (Risiko Tinggi).
 - Balas hanya JSON valid.
 
 Format JSON:
 {
-  "rules_summary": "ringkasan aturan resolusi dan hal yang menentukan outcome utama/lawan",
-  "data_quality": "kualitas data yang tersedia dan batasannya",
+  "rules_summary": "ringkasan aturan resolusi",
+  "data_quality": "kualitas data yang tersedia",
   "bullish_case": ["maks 3 poin"],
   "bearish_case": ["maks 3 poin"],
   "risks": {
@@ -469,11 +469,12 @@ Format JSON:
     "resolution": "Low/Medium/High + alasan pendek",
     "catalyst": "Ada/tidak ada catalyst + alasan pendek"
   },
+  "technical_momentum": "Arah tren chart Klines dan Long/Short Ratio",
   "missing_data": ["maks 4 data yang masih kurang"],
   "preliminary_verdict": "SKIP/WATCHLIST/VALUE CANDIDATE/HIGH RISK UNDERDOG",
   "confidence": 65
 }
-`.trim();
+\`.trim();
 
   const analystPayload = {
     model: config.qwenAnalystModel,
@@ -506,21 +507,20 @@ ${JSON.stringify(promptSafe(analyst), null, 2)}
 
 Aturan wajib:
 - Jangan mengarang data eksternal jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
-- Jika ada data kondisi fisik/mental petarung (fighterConditions), berikan bobot lebih pada psikologi, cedera, dan kesiapan (camp) mereka.
-- Jangan ragu memberikan verdict "HIGH RISK UNDERDOG" jika harga saham murah (probabilitas ≤35%) tapi data fisik/mental menunjukkan keunggulan atau potensi kejutan yang diremehkan pasar.
-- Estimated fair probability dari bot saat ini sama dengan market implied probability, jadi edge mekanis 0 kecuali ada alasan kuat dan diberi label estimasi.
-- Verdict adalah status ENTRY/TRADABILITY, bukan prediksi arah outcome utama/lawan. Jika arah market jelas tapi entry buruk, verdict tetap SKIP atau WATCHLIST.
-- Summary wajib membedakan arah market dari kelayakan entry.
-- Jadikan analyst review sebagai bahan kritik, bukan keputusan otomatis.
-- Jangan berikan markdown. Balas hanya JSON valid.
+- Tentukan 'estimated_fair_probability' murni dari intuisimu (0-100%).
+- Hitung secara EKSTREM 'expected_value_cents' (EV). Rumus matematika: EV = (estimated_fair_probability / 100) - (marketProbability di SCORING AWAL / 100).
+- MATEMATIKA MUTLAK: Jika EV bernilai NEGATIF (atau nol), verdict kamu WAJIB "SKIP". Ini artinya harga sudah kemahalan dan menjebak. Dilarang memberikan verdict VALUE CANDIDATE jika EV negatif.
+- MATEMATIKA MUTLAK 2: Jika Klines Momentum (tren harga) berlawanan tajam dengan orderbookImbalance (misal tren turun drastis tapi imbalance Beli sangat tinggi), verdict WAJIB "SKIP" karena risiko anomali likuiditas.
+- Verdict adalah status ENTRY/TRADABILITY. Jangan berikan markdown. Balas hanya JSON valid.
 - Verdict hanya salah satu: SKIP, WATCHLIST, VALUE CANDIDATE, HIGH RISK UNDERDOG.
-- Confidence wajib angka 1-100 tentang keyakinanmu pada kualitas analisis/verdict. Jangan salin angka contoh mentah.
 
 Format JSON wajib:
 {
   "verdict": "SKIP",
   "confidence": 65,
-  "summary": "1-2 kalimat inti market dan kondisi entry.",
+  "estimated_fair_probability": 60,
+  "expected_value_cents": 10,
+  "summary": "1-2 kalimat inti market dan hasil hitung EV.",
   "data_quality": "Kualitas data yang tersedia dan batasannya.",
   "bullish_case": ["maks 3 poin"],
   "bearish_case": ["maks 3 poin"],
@@ -538,9 +538,9 @@ Format JSON wajib:
     "edge": false,
     "catalyst": false
   },
-  "final_reason": "Alasan final verdict dalam 1-2 kalimat."
+  "final_reason": "Alasan final verdict (Sebutkan nilai EV dan Imbalance secara angka dalam penjelasan ini)."
 }
-`.trim();
+\`.trim();
 
   const payload = {
     model: config.qwenFinalModel,

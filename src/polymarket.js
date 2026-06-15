@@ -1,9 +1,11 @@
 import { config } from "./config.js";
 import { getCache, setCache } from "./storage.js";
 
-async function fetchJson(url) {
-  const cached = getCache(url);
-  if (cached) return cached;
+async function fetchJson(url, forceRefresh = false) {
+  if (!forceRefresh) {
+    const cached = getCache(url);
+    if (cached) return cached;
+  }
 
   const response = await fetch(url, {
     headers: {
@@ -322,9 +324,56 @@ export async function searchMarkets(keyword, limit = 5) {
   return sortMarkets(scored, keyword).slice(0, limit);
 }
 
-export async function getMarketById(marketId) {
+export async function getBtcShortTermMarkets() {
+  const url5m = new URL("/events", config.gammaUrl);
+  url5m.searchParams.set("series_slug", "btc-up-or-down-5m");
+  url5m.searchParams.set("active", "true");
+  url5m.searchParams.set("closed", "false");
+  url5m.searchParams.set("limit", "100");
+
+  const url15m = new URL("/events", config.gammaUrl);
+  url15m.searchParams.set("series_slug", "btc-up-or-down-15m");
+  url15m.searchParams.set("active", "true");
+  url15m.searchParams.set("closed", "false");
+  url15m.searchParams.set("limit", "100");
+
+  const [events5m, events15m] = await Promise.all([
+    fetchJson(url5m.toString()),
+    fetchJson(url15m.toString())
+  ]);
+
+  const now = Date.now();
+  const btcMarkets = [];
+
+  const processEvents = (events, durationType) => {
+    if (!Array.isArray(events)) return;
+    for (const event of events) {
+      if (!event.markets || !event.markets.length) continue;
+      // Gunakan market pertama dari event ini
+      const rawMarket = event.markets[0];
+      const m = normalizeMarket(rawMarket, event);
+      m.duration_type = durationType;
+      
+      const endTime = new Date(m.endDate).getTime();
+      if (now - endTime <= 24 * 60 * 60 * 1000) {
+        btcMarkets.push(m);
+      }
+    }
+  };
+
+  processEvents(events5m, "5m");
+  processEvents(events15m, "15m");
+  
+  return btcMarkets.sort((a, b) => {
+    const timeA = new Date(a.endDate).getTime();
+    const timeB = new Date(b.endDate).getTime();
+    return timeA - timeB;
+  });
+}
+
+export async function getMarketById(marketId, forceRefresh = false) {
   const url = new URL(`/markets/${marketId}`, config.gammaUrl);
-  const data = await fetchJson(url.toString());
+  const data = await fetchJson(url.toString(), forceRefresh);
   return normalizeMarket(data);
 }
 

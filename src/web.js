@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { handleCommand } from "./index.js";
 import { getCooldownState } from "./rate-limit.js";
-import { SEARCH_ENGINE_VERSION, getMarketById } from "./polymarket.js";
+import { SEARCH_ENGINE_VERSION, getMarketById, getBtcShortTermMarkets } from "./polymarket.js";
 import { getAnalysisLogs, getAnalyzedEvents, updateAnalyzedEventStatus } from "./storage.js";
 
 const modulePath = fileURLToPath(import.meta.url);
@@ -253,10 +253,20 @@ export function startWebServer(options = {}) {
       if (req.method === "GET" && req.url === "/api/health") {
         sendJson(res, 200, {
           ok: true,
-          version: SEARCH_ENGINE_VERSION,
-          ...qwenHealth(),
-          ...rateLimitHealth(),
+          qwen: qwenHealth(),
+          engine: SEARCH_ENGINE_VERSION,
+          cooldown: getCooldownState(),
         });
+        return;
+      }
+      
+      if (req.method === "GET" && req.url === "/api/btc-short-term") {
+        try {
+          const markets = await getBtcShortTermMarkets();
+          sendJson(res, 200, { ok: true, markets });
+        } catch (error) {
+          sendJson(res, 500, { ok: false, error: String(error.message) });
+        }
         return;
       }
 
@@ -289,19 +299,26 @@ export function startWebServer(options = {}) {
         }
 
         try {
-          const market = await getMarketById(marketId);
+          const market = await getMarketById(marketId, true);
           
           let winnerIndex = -1;
           for (let i = 0; i < market.outcomePrices.length; i++) {
-            if (Number(market.outcomePrices[i]) >= 0.95) {
+            if (Number(market.outcomePrices[i]) >= 0.90) {
               winnerIndex = i;
               break;
             }
           }
+          
+          let isTimeClosed = false;
+          if (market.endDate) {
+             const timeToClose = new Date(market.endDate).getTime() - Date.now();
+             if (timeToClose <= 0) isTimeClosed = true;
+          }
 
-          if (market.closed || !market.active || winnerIndex !== -1) {
+          if (market.closed || !market.active || winnerIndex !== -1 || isTimeClosed) {
             let status = 'selesai';
             let result = 'menunggu hasil';
+            let actualOutcome = null;
             
             if (winnerIndex === -1 && market.closed) {
                let maxPrice = -1;
@@ -315,15 +332,18 @@ export function startWebServer(options = {}) {
             
             if (winnerIndex !== -1) {
               const winningOutcome = market.outcomes[winnerIndex];
+              actualOutcome = winningOutcome; // Set actual outcome
               if (prediction && winningOutcome && prediction.toLowerCase() === winningOutcome.toLowerCase()) {
                 result = 'menang';
               } else {
                 result = 'kalah';
               }
+            } else if (isTimeClosed && !market.closed) {
+              status = 'resolving';
             }
             
-            updateAnalyzedEventStatus(eventId, status, result);
-            sendJson(res, 200, { ok: true, status, result });
+            updateAnalyzedEventStatus(eventId, status, result, actualOutcome);
+            sendJson(res, 200, { ok: true, status, result, actualOutcome });
           } else {
             sendJson(res, 200, { ok: true, status: 'belum selesai', result: null, message: "Market is still active" });
           }

@@ -11,6 +11,7 @@ import {
   formatMarketBubble,
   formatSearchResults,
   formatTopMarkets,
+  directionSignal,
 } from "./format.js";
 import {
   getMarketFromPolymarketLink,
@@ -472,12 +473,19 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
     },
   });
 
-  addAnalyzedEvent({
-    market_id: scored.market.id,
-    question: scored.market.question,
-    url: scored.market.url,
-    prediction: scored.score.primaryOutcomeLabel || "YES"
-  });
+  const direction = directionSignal(scored.score);
+  let finalPrediction = direction.side;
+  if (finalPrediction === "NETRAL") finalPrediction = "=";
+
+  if (!signal?.aborted) {
+    addAnalyzedEvent({
+      market_id: scored.market.id,
+      question: scored.market.question,
+      url: scored.market.url,
+      prediction: finalPrediction,
+      analysis_conclusion: qwenResult?.analysis?.conclusion || qwenResult?.analysis?.summary || ""
+    });
+  }
 
   return formatAnalysis({ market: scored.market, score: scored.score, qwenResult });
 }
@@ -575,12 +583,19 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
     },
   });
 
-  addAnalyzedEvent({
-    market_id: best.market.id,
-    question: best.market.question,
-    url: best.market.url,
-    prediction: best.score.primaryOutcomeLabel || "YES"
-  });
+  const bestDirection = directionSignal(best.score);
+  let bestFinalPrediction = bestDirection.side;
+  if (bestFinalPrediction === "NETRAL") bestFinalPrediction = "=";
+
+  if (!signal?.aborted) {
+    addAnalyzedEvent({
+      market_id: best.market.id,
+      question: best.market.question,
+      url: best.market.url,
+      prediction: bestFinalPrediction,
+      analysis_conclusion: bestQwen?.analysis?.conclusion || bestQwen?.analysis?.summary || ""
+    });
+  }
 
   return [
     "AI BEST FROM EVENT",

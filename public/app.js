@@ -735,21 +735,31 @@ async function loadHealth() {
 
     const serverOutdated = data.version && data.version !== CLIENT_VERSION;
 
-    qwenStatus.textContent = serverOutdated ? "Server old" : data.qwenLabel || "Qwen ?";
-    qwenStatus.classList.toggle("warn", !data.qwenConfigured || serverOutdated);
-    qwenStatus.classList.toggle("ai", data.qwenConfigured && !serverOutdated);
+    const qwenLabel = data.qwen?.qwenLabel;
+    const qwenConfigured = data.qwen?.qwenConfigured;
+
+    qwenStatus.classList.toggle("warn", !qwenConfigured || serverOutdated);
+    qwenStatus.classList.toggle("ai", qwenConfigured && !serverOutdated);
+    
+    const isError = !qwenConfigured || serverOutdated;
+    const baseText = serverOutdated ? "Server old" : qwenLabel || "Qwen ?";
+    qwenStatus.innerHTML = isError ? `<span style="display:flex; align-items:center; gap:4px; cursor:pointer;" title="Click to reconnect"><i data-lucide="refresh-cw" style="width:10px; height:10px;"></i> ${baseText}</span>` : baseText;
+    if (isError && typeof lucide !== 'undefined') lucide.createIcons();
+    qwenStatus.style.cursor = isError ? "pointer" : "default";
 
     if (connDot) connDot.className = "status-bar-dot";
     if (connLabel) connLabel.textContent = "Connected";
     if (sbEngine) sbEngine.textContent = `Engine: ${shortLabel(version, 40)}`;
     if (sbLatency) sbLatency.textContent = `${latency}ms`;
-    if (sbQwenDot) sbQwenDot.className = data.qwenConfigured ? "status-bar-dot ai" : "status-bar-dot warn";
-    if (sbQwenLabel) sbQwenLabel.textContent = data.qwenConfigured ? "Qwen: ✓ loaded" : "Qwen: ✗ missing";
+    if (sbQwenDot) sbQwenDot.className = qwenConfigured ? "status-bar-dot ai" : "status-bar-dot warn";
+    if (sbQwenLabel) sbQwenLabel.textContent = qwenConfigured ? "Qwen: ✓ loaded" : "Qwen: ✗ missing";
   } catch {
     versionText.textContent = "Engine offline";
-    qwenStatus.textContent = "Offline";
     qwenStatus.classList.add("warn");
     qwenStatus.classList.remove("ai");
+    qwenStatus.innerHTML = `<span style="display:flex; align-items:center; gap:4px; cursor:pointer;" title="Click to reconnect"><i data-lucide="refresh-cw" style="width:10px; height:10px;"></i> Offline</span>`;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+    qwenStatus.style.cursor = "pointer";
     if (connDot) connDot.className = "status-bar-dot error";
     if (connLabel) connLabel.textContent = "Disconnected";
     if (sbEngine) sbEngine.textContent = "Engine: offline";
@@ -760,6 +770,16 @@ async function loadHealth() {
 }
 
 /* --- Event Listeners --- */
+
+if (qwenStatus) {
+  qwenStatus.addEventListener("click", () => {
+    if (qwenStatus.classList.contains("warn")) {
+      qwenStatus.innerHTML = `<span style="display:flex; align-items:center; gap:4px;"><i data-lucide="refresh-cw" style="width:10px; height:10px;"></i> Reconnecting...</span>`;
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+      loadHealth();
+    }
+  });
+}
 
 // Run button
 runButton.addEventListener("click", () => {
@@ -834,6 +854,224 @@ if (togglePolyBtn) {
 
 
 
+/* --- BTC 5m Live Logic --- */
+const btnBtc5m = document.querySelector("#btnBtc5m");
+const btc5mPanel = document.querySelector("#btc5mPanel");
+const btnRefreshBtc5m = document.querySelector("#btnRefreshBtc5m");
+const btc5mList = document.querySelector("#btc5mList");
+const btc5mStatus = document.querySelector("#btc5mStatus");
+
+let btc5mTimer = null;
+
+if (btnBtc5m && btc5mPanel) {
+  btnBtc5m.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isHidden = btc5mPanel.style.display === "none";
+    btc5mPanel.style.display = isHidden ? "block" : "none";
+    if (isHidden) {
+      fetchBtc5mMarkets();
+      startBtc5mRealtimeTimer();
+    } else {
+      stopBtc5mRealtimeTimer();
+    }
+  });
+  // Panel akan tetap terbuka sampai tombol diklik lagi
+  // Tidak ada event listener document click untuk menutup otomatis.
+}
+
+let currentBtcMarkets = [];
+let activeBtcTab = '5m';
+
+const tabBtc5m = document.querySelector("#tabBtc5m");
+const tabBtc15m = document.querySelector("#tabBtc15m");
+
+if (tabBtc5m && tabBtc15m) {
+  tabBtc5m.addEventListener("click", () => {
+    activeBtcTab = '5m';
+    tabBtc5m.style.borderBottomColor = 'var(--neon-amber)';
+    tabBtc5m.style.color = 'var(--text-primary)';
+    tabBtc15m.style.borderBottomColor = 'transparent';
+    tabBtc15m.style.color = 'var(--text-tertiary)';
+    renderBtc5mMarkets(currentBtcMarkets);
+  });
+  
+  tabBtc15m.addEventListener("click", () => {
+    activeBtcTab = '15m';
+    tabBtc15m.style.borderBottomColor = 'var(--neon-amber)';
+    tabBtc15m.style.color = 'var(--text-primary)';
+    tabBtc5m.style.borderBottomColor = 'transparent';
+    tabBtc5m.style.color = 'var(--text-tertiary)';
+    renderBtc5mMarkets(currentBtcMarkets);
+  });
+}
+
+if (btnRefreshBtc5m) {
+  btnRefreshBtc5m.addEventListener("click", () => {
+    fetchBtc5mMarkets();
+  });
+}
+
+async function fetchBtc5mMarkets() {
+  if (btc5mStatus) btc5mStatus.textContent = "Updating...";
+  try {
+    const res = await fetch("/api/btc-short-term");
+    const data = await res.json();
+    if (data.ok) {
+      currentBtcMarkets = data.markets || [];
+      renderBtc5mMarkets(currentBtcMarkets);
+      if (btc5mStatus) {
+        const now = new Date();
+        btc5mStatus.textContent = `Last update: ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+      }
+    } else {
+      if (btc5mStatus) btc5mStatus.textContent = "Error updating";
+    }
+  } catch (error) {
+    console.error("Failed to fetch BTC 5m markets:", error);
+    if (btc5mStatus) btc5mStatus.textContent = "Network error";
+  }
+
+  // Auto refresh if panel is open
+  if (btc5mPanel && btc5mPanel.style.display === "block") {
+    if (btc5mTimer) clearTimeout(btc5mTimer);
+    btc5mTimer = setTimeout(fetchBtc5mMarkets, 5000); // 5 detik
+  }
+}
+
+function renderBtc5mMarkets(markets) {
+  if (!btc5mList) return;
+  if (!markets || !markets.length) {
+    btc5mList.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-tertiary);">No active BTC markets found right now.</div>';
+    return;
+  }
+
+  const renderCard = (m) => {
+    const timeToClose = new Date(m.endDate).getTime() - Date.now();
+    const isClosingSoon = timeToClose > 0 && timeToClose < 2 * 60 * 1000;
+    const isClosed = timeToClose <= 0;
+    
+    const pYes = m.outcomePrices[0] ? Math.round(m.outcomePrices[0] * 100) : 0;
+    const pNo = m.outcomePrices[1] ? Math.round(m.outcomePrices[1] * 100) : 0;
+    
+    const labelYes = m.outcomes[0] || "Up";
+    const labelNo = m.outcomes[1] || "Down";
+
+    let timeColor = isClosed ? "var(--text-tertiary)" : (isClosingSoon ? "var(--neon-amber)" : "var(--neon-green)");
+    let timeText = isClosed ? "Closed" : Math.floor(timeToClose / 60000) + "m " + Math.floor((timeToClose % 60000) / 1000) + "s";
+    
+    if (isClosed) {
+      if (pYes >= 90) {
+        timeText = `Won: ${labelYes.toUpperCase()} 📈`;
+        timeColor = "var(--neon-green)";
+      } else if (pNo >= 90) {
+        timeText = `Won: ${labelNo.toUpperCase()} 📉`;
+        timeColor = "var(--neon-red)";
+      } else {
+        timeText = "Resolving ⏳";
+        timeColor = "var(--neon-cyan)";
+      }
+    }
+
+    return `
+      <div class="btc5m-card" style="padding:8px 10px; border:1px solid rgba(255,255,255,0.05); border-radius:4px; background:rgba(0,0,0,0.15); cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='rgba(245,158,11,0.3)';" onmouseout="this.style.background='rgba(0,0,0,0.15)'; this.style.borderColor='rgba(255,255,255,0.05)';" onclick="analyzeBtc5m('${m.id}', '${m.url}')">
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+          <span style="font-weight:600; color:var(--text-primary); font-size:11px;">${m.groupItemTitle || m.question.replace(/Bitcoin Up or Down -? ?/i, '').trim()}</span>
+          <span class="btc5m-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${labelYes}" data-l-no="${labelNo}" style="color:${timeColor}; font-weight:700; font-size:10px;">${timeText}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="display:flex; gap:8px;">
+            <span style="color:var(--neon-green); font-size:10px;">${labelYes}: ${pYes}c</span>
+            <span style="color:var(--neon-red); font-size:10px;">${labelNo}: ${pNo}c</span>
+          </div>
+          <span style="color:var(--text-tertiary); font-size:9px;">Vol: $${Math.round(m.volume || 0).toLocaleString()}</span>
+        </div>
+      </div>
+    `;
+  };
+
+  let targetMarkets = [];
+  if (activeBtcTab === '5m') {
+    targetMarkets = markets.filter(m => m.duration_type === '5m' || !m.duration_type);
+  } else {
+    targetMarkets = markets.filter(m => m.duration_type === '15m');
+  }
+
+  let html = "";
+  
+  if (targetMarkets.length) {
+    html += targetMarkets.map(renderCard).join("");
+  } else {
+    html = `<div style="text-align:center; padding:20px; color:var(--text-tertiary);">No active BTC ${activeBtcTab} markets right now.</div>`;
+  }
+
+  btc5mList.innerHTML = html;
+}
+
+let btc5mRealtimeInterval = null;
+
+function startBtc5mRealtimeTimer() {
+  if (btc5mRealtimeInterval) clearInterval(btc5mRealtimeInterval);
+  btc5mRealtimeInterval = setInterval(() => {
+    document.querySelectorAll(".btc5m-timer").forEach(el => {
+      const endDate = el.getAttribute("data-end-date");
+      if (!endDate) return;
+      
+      const timeToClose = new Date(endDate).getTime() - Date.now();
+      const isClosingSoon = timeToClose > 0 && timeToClose < 2 * 60 * 1000;
+      const isClosed = timeToClose <= 0;
+      
+      let timeColor = isClosed ? "var(--text-tertiary)" : (isClosingSoon ? "var(--neon-amber)" : "var(--neon-green)");
+      let timeText = isClosed ? "Closed" : Math.floor(timeToClose / 60000) + "m " + Math.floor((timeToClose % 60000) / 1000) + "s";
+      
+      if (isClosed) {
+        const pYes = parseInt(el.getAttribute("data-p-yes")) || 0;
+        const pNo = parseInt(el.getAttribute("data-p-no")) || 0;
+        const lYes = el.getAttribute("data-l-yes") || "UP";
+        const lNo = el.getAttribute("data-l-no") || "DOWN";
+        
+        if (pYes >= 90) {
+          timeText = `Won: ${lYes.toUpperCase()} 📈`;
+          timeColor = "var(--neon-green)";
+        } else if (pNo >= 90) {
+          timeText = `Won: ${lNo.toUpperCase()} 📉`;
+          timeColor = "var(--neon-red)";
+        } else {
+          timeText = "Resolving ⏳";
+          timeColor = "var(--neon-cyan)";
+        }
+      }
+      
+      el.style.color = timeColor;
+      el.textContent = timeText;
+    });
+  }, 1000);
+}
+
+function stopBtc5mRealtimeTimer() {
+  if (btc5mRealtimeInterval) {
+    clearInterval(btc5mRealtimeInterval);
+    btc5mRealtimeInterval = null;
+  }
+}
+
+window.analyzeBtc5m = function(marketId, url) {
+  if (btc5mPanel) btc5mPanel.style.display = "none";
+  if (btc5mTimer) clearTimeout(btc5mTimer);
+  stopBtc5mRealtimeTimer();
+  
+  const input = document.querySelector("#commandInput");
+  if (input) {
+    input.value = url || marketId;
+    // Set action to analyze and trigger click
+    const btnAnalyze = document.querySelector("#btnAnalyze");
+    if (btnAnalyze) {
+      btnAnalyze.click();
+      const btnRun = document.querySelector("#runButton");
+      if (btnRun) btnRun.click();
+    }
+  }
+};
+
 /* --- Analyzed Events History --- */
 const historyModal = document.querySelector("#historyModal");
 const btnHistory = document.querySelector("#btnHistory");
@@ -879,14 +1117,18 @@ function renderHistoryEvents(events) {
     
     html += `
       <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-        <td style="padding:10px 0;"><a href="${event.url}" target="_blank" style="color:var(--text-primary); text-decoration:none;">${event.question}</a></td>
+        <td style="padding:10px 0;">
+          <a href="${event.url}" target="_blank" style="color:var(--text-primary); text-decoration:none;">${event.question}</a>
+        </td>
         <td style="padding:10px 0; color:var(--text-secondary); font-weight:bold;">${event.prediction || '-'}</td>
         <td style="padding:10px 0; color:var(--text-tertiary); text-transform:capitalize;">${event.status}</td>
-        <td style="padding:10px 0; color:${statusColor}; font-weight:bold; text-transform:capitalize;">${event.result || '-'}</td>
+        <td style="padding:10px 0; color:${statusColor}; font-weight:bold; text-transform:capitalize;">
+          ${event.result || '-'} 
+        </td>
         <td style="padding:10px 0; text-align:right;">
-          <button class="action-chip" style="height:24px; font-size:10px; padding:0 8px; ${event.status === 'selesai' ? 'opacity:0.5; cursor:not-allowed;' : ''}" 
+          <button class="action-chip" style="height:24px; font-size:10px; padding:0 8px; ${event.status === 'selesai' && event.result !== 'menunggu hasil' ? 'opacity:0.5; cursor:not-allowed;' : ''}" 
                   onclick="checkHistoryEvent(${event.id}, '${event.market_id}', '${event.prediction}')"
-                  ${event.status === 'selesai' ? 'disabled' : ''}>
+                  ${event.status === 'selesai' && event.result !== 'menunggu hasil' ? 'disabled' : ''}>
             Periksa
           </button>
         </td>
@@ -938,7 +1180,9 @@ window.checkHistoryEvent = async function(id, marketId, prediction) {
     const data = await res.json();
     if (data.ok) {
       if (data.status === 'belum selesai') {
-        showCustomAlert("Event belum selesai");
+        showCustomAlert("Event belum selesai (Market masih aktif).");
+      } else if (data.status === 'resolving') {
+        showCustomAlert("Waktu event sudah habis, namun hasil resmi (oracle) Polymarket belum keluar. Silakan periksa lagi sebentar.");
       }
       fetchHistoryEvents(); // refresh list
     } else {
@@ -960,4 +1204,3 @@ renderMessages();
 updateInputDetection();
 loadHealth();
 setInterval(loadHealth, 30000);
-

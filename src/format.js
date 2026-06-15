@@ -191,7 +191,7 @@ function entryVerdictMeaning(verdict) {
   return "SKIP ENTRY - arah boleh dibaca, tapi kondisi entry ditolak.";
 }
 
-function directionSignal(score) {
+export function directionSignal(score) {
   const p = Number(score?.marketProbability);
   const primaryLabel = String(score?.primaryOutcomeLabel || "YES").toUpperCase();
   const secondaryLabel = String(score?.secondaryOutcomeLabel || "NO").toUpperCase();
@@ -515,6 +515,10 @@ export function formatAnalysis({ market, score, qwenResult }) {
     `Mechanical: ${score.verdict} | Qwen: ${qwen.verdict || "n/a"}`,
     modelLine(qwenResult),
     usageLine(qwenResult),
+    "",
+    "KESIMPULAN AKHIR",
+    `Hasil Arah: ${direction.side === 'NETRAL' ? '=' : direction.side}`,
+    `Kesimpulan Analisis: ${qwen.summary || "n/a"}`,
     "",
     "Disclaimer: Analisis ini bukan financial advice dan tidak menjamin hasil.",
   ]

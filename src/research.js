@@ -1,7 +1,6 @@
 import { config } from "./config.js";
 import { getCache, setCache } from "./storage.js";
 import { initUfcData, detectUfcFighters } from "./ufc.js";
-import { buildBtcShortTermContext, isBtcShortTermMarket } from "./btc-short-term.js";
 
 // Initialize UFC data at startup
 initUfcData();
@@ -749,16 +748,6 @@ async function fetchPremiumNews(queryStr) {
 export async function buildResearchContext({ market, event, markets } = {}) {
   const text = marketText({ market, event, markets });
   const primaryText = primaryAssetText({ market, event, markets });
-
-  // ── BTC SHORT-TERM DERIVATIVES: Deteksi market jenis "Will BTC go up/down X% in 5 min?"
-  if (isBtcShortTermMarket(text)) {
-    try {
-      const ctx = await buildBtcShortTermContext();
-      return ctx;
-    } catch (err) {
-      console.error("[btc-short-term] Error, falling back to standard research:", err.message);
-    }
-  }
 
   const detectedUfcFighters = detectUfcFighters(primaryText).length ? detectUfcFighters(primaryText) : detectUfcFighters(text);
   

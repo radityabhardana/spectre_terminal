@@ -32,7 +32,7 @@
           <span class="clock-label">Local</span>
           <span id="clockTime">--:--:--</span>
         </div>
-
+        <div class="top-status">
           <span class="status-pill">Gamma</span>
           <span class="status-pill">CLOB</span>
           <span id="qwenStatus" class="status-pill ai">Qwen</span>
@@ -186,10 +186,35 @@
               <span class="panel-kicker">Analysis Console</span>
               <h2>Market Intelligence</h2>
             </div>
-            <div class="console-actions">
+            <div class="console-actions" style="position:relative; display:flex; gap:8px; align-items:center;">
+              <button id="btnBtc5m" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px; border-color: rgba(245, 158, 11, 0.3);">
+                <i data-lucide="zap" class="btn-icon" style="width:12px; height:12px; color:var(--neon-amber);"></i> BTC Short
+              </button>
               <button id="togglePolyBtn" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px;">
                 <i data-lucide="eye" class="btn-icon" style="width:12px; height:12px;"></i> Polymarket
               </button>
+              
+              <!-- Floating Panel for BTC 5m -->
+              <div id="btc5mPanel" style="display:none; position:absolute; top:32px; right:0; width:320px; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index:100; text-align:left;">
+                <div style="padding:10px 12px; border-bottom:1px solid var(--border); background:rgba(245,158,11,0.05); display:flex; justify-content:space-between; align-items:center;">
+                  <span style="font-size:11px; font-weight:600; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+                    <i data-lucide="activity" style="width:14px; height:14px; color:var(--neon-amber);"></i>Live BTC Short-Term
+                  </span>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <span id="btc5mStatus" style="font-size:9px; color:var(--text-tertiary);">Updating...</span>
+                    <button type="button" id="btnRefreshBtc5m" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Refresh">
+                      <i data-lucide="refresh-cw" style="width:12px; height:12px;"></i>
+                    </button>
+                  </div>
+                </div>
+                <div style="display:flex; border-bottom:1px solid var(--border); padding:0 8px;">
+                  <button type="button" id="tabBtc5m" style="background:none; border:none; border-bottom:2px solid var(--neon-amber); color:var(--text-primary); padding:8px 12px; font-size:10px; font-weight:600; cursor:pointer; transition:all 0.2s;">5-Min</button>
+                  <button type="button" id="tabBtc15m" style="background:none; border:none; border-bottom:2px solid transparent; color:var(--text-tertiary); padding:8px 12px; font-size:10px; font-weight:600; cursor:pointer; transition:all 0.2s;">15-Min</button>
+                </div>
+                <div id="btc5mList" style="max-height:280px; overflow-y:auto; padding:8px; font-size:10px; display:flex; flex-direction:column; gap:6px;">
+                  <div style="text-align:center; padding:20px; color:var(--text-tertiary);">Loading markets...</div>
+                </div>
+              </div>
             </div>
           </div>
 

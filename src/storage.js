@@ -41,6 +41,17 @@ db.exec(`
   );
 `);
 
+try {
+  db.prepare("ALTER TABLE analyzed_events ADD COLUMN analysis_conclusion TEXT").run();
+} catch (e) {
+  // column might already exist
+}
+
+try {
+  db.prepare("ALTER TABLE analyzed_events ADD COLUMN actual_outcome TEXT").run();
+} catch (e) {
+  // column might already exist
+}
 export function getCache(key, ttlSeconds = config.cacheTtlSeconds) {
   try {
     const row = db.prepare('SELECT value, saved_at FROM cache WHERE key = ?').get(key);
@@ -101,9 +112,9 @@ export function addAnalyzedEvent(event) {
   try {
     const createdAt = new Date().toISOString();
     const info = db.prepare(`
-      INSERT INTO analyzed_events (market_id, question, url, prediction, status, created_at)
-      VALUES (?, ?, ?, ?, 'belum selesai', ?)
-    `).run(event.market_id, event.question, event.url, event.prediction, createdAt);
+      INSERT INTO analyzed_events (market_id, question, url, prediction, status, analysis_conclusion, created_at)
+      VALUES (?, ?, ?, ?, 'belum selesai', ?, ?)
+    `).run(event.market_id, event.question, event.url, event.prediction, event.analysis_conclusion, createdAt);
     return info.lastInsertRowid;
   } catch (error) {
     console.error("[Storage] addAnalyzedEvent error:", error.message);
@@ -120,11 +131,11 @@ export function getAnalyzedEvents(limit = 100) {
   }
 }
 
-export function updateAnalyzedEventStatus(id, status, result) {
+export function updateAnalyzedEventStatus(id, status, result, actualOutcome) {
   try {
     const resolvedAt = new Date().toISOString();
-    db.prepare('UPDATE analyzed_events SET status = ?, result = ?, resolved_at = ? WHERE id = ?')
-      .run(status, result, resolvedAt, id);
+    db.prepare('UPDATE analyzed_events SET status = ?, result = ?, actual_outcome = ?, resolved_at = ? WHERE id = ?')
+      .run(status, result, actualOutcome, resolvedAt, id);
     return true;
   } catch (error) {
     console.error("[Storage] updateAnalyzedEventStatus error:", error.message);

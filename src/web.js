@@ -7,7 +7,6 @@ import { handleCommand } from "./index.js";
 import { getCooldownState } from "./rate-limit.js";
 import { SEARCH_ENGINE_VERSION, getMarketById } from "./polymarket.js";
 import { getAnalysisLogs, getAnalyzedEvents, updateAnalyzedEventStatus } from "./storage.js";
-import { getShadowState, configureShadow, startShadow, stopShadow, resetShadowBalance } from "./shadow.js";
 
 const modulePath = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(modulePath);
@@ -269,40 +268,6 @@ export function startWebServer(options = {}) {
       if (req.method === "GET" && req.url === "/api/history") {
         const logs = getAnalysisLogs(50);
         sendJson(res, 200, { ok: true, history: logs });
-        return;
-      }
-
-      if (req.method === "GET" && req.url === "/api/shadow/status") {
-        sendJson(res, 200, { ok: true, state: getShadowState() });
-        return;
-      }
-      
-      if (req.method === "POST" && req.url === "/api/shadow/start") {
-        const payload = await readBody(req);
-        if (payload.config) configureShadow(payload.config);
-        const success = startShadow();
-        sendJson(res, success ? 200 : 400, { ok: success, state: getShadowState() });
-        return;
-      }
-      
-      if (req.method === "POST" && req.url === "/api/shadow/stop") {
-        const success = stopShadow();
-        sendJson(res, 200, { ok: success, state: getShadowState() });
-        return;
-      }
-      
-      if (req.method === "POST" && req.url === "/api/shadow/settings") {
-        const payload = await readBody(req);
-        const success = configureShadow(payload);
-        sendJson(res, success ? 200 : 400, { ok: success, state: getShadowState() });
-        return;
-      }
-      
-      if (req.method === "POST" && req.url === "/api/shadow/reset") {
-        const payload = await readBody(req);
-        const amount = Number(payload.amount) || 10000;
-        resetShadowBalance(amount);
-        sendJson(res, 200, { ok: true, state: getShadowState() });
         return;
       }
 

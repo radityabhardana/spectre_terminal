@@ -1077,6 +1077,8 @@ const historyModal = document.querySelector("#historyModal");
 const btnHistory = document.querySelector("#btnHistory");
 const closeHistoryModal = document.querySelector("#closeHistoryModal");
 const historyTableBody = document.querySelector("#historyTableBody");
+let allHistoryEvents = [];
+let currentHistoryFilter = "all";
 
 if (btnHistory && historyModal && closeHistoryModal) {
   btnHistory.addEventListener("click", () => {
@@ -1089,12 +1091,40 @@ if (btnHistory && historyModal && closeHistoryModal) {
   });
 }
 
+document.querySelectorAll(".history-tab-btn").forEach(btn => {
+  btn.addEventListener("click", (e) => {
+    document.querySelectorAll(".history-tab-btn").forEach(b => {
+      b.classList.remove("active");
+      b.style.color = "var(--text-tertiary)";
+      b.style.borderBottom = "2px solid transparent";
+    });
+    const target = e.currentTarget;
+    target.classList.add("active");
+    target.style.color = "var(--text-primary)";
+    target.style.borderBottom = "2px solid var(--neon-purple)";
+    
+    currentHistoryFilter = target.getAttribute("data-filter");
+    applyHistoryFilter();
+  });
+});
+
+function applyHistoryFilter() {
+  let filtered = allHistoryEvents;
+  if (currentHistoryFilter === "5m") {
+    filtered = allHistoryEvents.filter(e => e.url.includes("5m") || e.question.toLowerCase().includes("5 min"));
+  } else if (currentHistoryFilter === "15m") {
+    filtered = allHistoryEvents.filter(e => e.url.includes("15m") || e.question.toLowerCase().includes("15 min"));
+  }
+  renderHistoryEvents(filtered);
+}
+
 async function fetchHistoryEvents() {
   try {
     const res = await fetch("/api/history/events");
     const data = await res.json();
     if (data.ok) {
-      renderHistoryEvents(data.events);
+      allHistoryEvents = data.events;
+      applyHistoryFilter();
     }
   } catch (error) {
     console.error("Failed to fetch history events:", error);

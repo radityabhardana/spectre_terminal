@@ -298,6 +298,11 @@
               <i data-lucide="x" style="width:20px; height:20px;"></i>
             </button>
           </div>
+          <div style="display:flex; border-bottom:1px solid var(--border);">
+            <button class="history-tab-btn active" data-filter="all" style="flex:1; padding:12px; background:none; border:none; color:var(--text-primary); font-weight:bold; cursor:pointer; border-bottom:2px solid var(--neon-purple);">Semua Event</button>
+            <button class="history-tab-btn" data-filter="5m" style="flex:1; padding:12px; background:none; border:none; color:var(--text-tertiary); font-weight:bold; cursor:pointer; border-bottom:2px solid transparent;">BTC 5-Min</button>
+            <button class="history-tab-btn" data-filter="15m" style="flex:1; padding:12px; background:none; border:none; color:var(--text-tertiary); font-weight:bold; cursor:pointer; border-bottom:2px solid transparent;">BTC 15-Min</button>
+          </div>
           <div style="padding:16px 20px; display:flex; gap:20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.2);">
             <div>Win Rate Analisis: <span id="historyWinRate" style="color:var(--neon-green); font-weight:bold; font-size:16px;">0%</span></div>
             <div>Total Analisis: <span id="historyTotal">0</span></div>

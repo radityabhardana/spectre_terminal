@@ -477,17 +477,19 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
   let finalPrediction = direction.side;
   if (finalPrediction === "NETRAL") finalPrediction = "=";
 
+  const fullAnalysisMarkdown = formatAnalysis({ market: scored.market, score: scored.score, qwenResult });
+
   if (!signal?.aborted) {
     addAnalyzedEvent({
       market_id: scored.market.id,
       question: scored.market.question,
       url: scored.market.url,
       prediction: finalPrediction,
-      analysis_conclusion: qwenResult?.analysis?.conclusion || qwenResult?.analysis?.summary || ""
+      analysis_conclusion: fullAnalysisMarkdown
     });
   }
 
-  return formatAnalysis({ market: scored.market, score: scored.score, qwenResult });
+  return fullAnalysisMarkdown;
 }
 
 async function quickScanEvent({ result, query, setStep, limit = 8, signal = null }) {
@@ -587,13 +589,15 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
   let bestFinalPrediction = bestDirection.side;
   if (bestFinalPrediction === "NETRAL") bestFinalPrediction = "=";
 
+  const fullAnalysisMarkdownBest = formatAnalysis({ market: best.market, score: best.score, qwenResult: bestQwen });
+
   if (!signal?.aborted) {
     addAnalyzedEvent({
       market_id: best.market.id,
       question: best.market.question,
       url: best.market.url,
       prediction: bestFinalPrediction,
-      analysis_conclusion: bestQwen?.analysis?.conclusion || bestQwen?.analysis?.summary || ""
+      analysis_conclusion: fullAnalysisMarkdownBest
     });
   }
 
@@ -603,11 +607,7 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
     `Selected Market ID: ${best.market.id}`,
     eventQwen.analysis?.bestReason ? `Event reason: ${eventQwen.analysis.bestReason}` : null,
     "",
-    formatAnalysis({
-      market: best.market,
-      score: best.score,
-      qwenResult: bestQwen,
-    }),
+    fullAnalysisMarkdownBest
   ]
     .filter((line) => line != null && line !== false)
     .join("\n");

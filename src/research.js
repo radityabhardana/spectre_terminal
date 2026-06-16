@@ -160,8 +160,8 @@ function binanceUrl(path, symbol) {
 
 function binanceKlinesUrl(symbol) {
   const url = binanceUrl("/api/v3/klines", symbol);
-  url.searchParams.set("interval", "1d");
-  url.searchParams.set("limit", "31");
+  url.searchParams.set("interval", "15m");
+  url.searchParams.set("limit", "96"); // 96 * 15m = 24 hours
   return url;
 }
 
@@ -200,21 +200,99 @@ function pctChange(from, to) {
 function trendFromKlines(klines) {
   if (!Array.isArray(klines)) {
     return {
-      price_change_7d_pct: null,
-      price_change_30d_pct: null,
+      price_change_4h_pct: null,
+      price_change_24h_pct: null,
       daily_closes_count: 0,
+      rsi_14: null,
+      sma_7: null,
+      sma_30: null,
+      support_24h: null,
+      resistance_24h: null,
+      ta_trend: null,
+      volume_spike: null,
     };
   }
 
   const closes = klines.map((row) => num(row?.[4])).filter((value) => value != null);
+  const highs = klines.map((row) => num(row?.[2])).filter((value) => value != null);
+  const lows = klines.map((row) => num(row?.[3])).filter((value) => value != null);
+  const volumes = klines.map((row) => num(row?.[5])).filter((value) => value != null);
+  
+  if (closes.length === 0) return { daily_closes_count: 0 };
+
   const latest = closes.at(-1);
-  const sevenAgo = closes.length >= 8 ? closes[closes.length - 8] : null;
-  const thirtyAgo = closes.length >= 31 ? closes[0] : null;
+  const fourHoursAgo = closes.length >= 16 ? closes[closes.length - 16] : null; // 16 * 15m = 4h
+  const twentyFourHoursAgo = closes.length >= 96 ? closes[0] : null;
+
+  // SMA
+  const sma7 = closes.length >= 7 ? closes.slice(-7).reduce((a, b) => a + b, 0) / 7 : null;
+  const sma30 = closes.length >= 30 ? closes.slice(-30).reduce((a, b) => a + b, 0) / 30 : null;
+
+  // RSI 14
+  let rsi14 = null;
+  if (closes.length > 14) {
+    let gains = 0, losses = 0;
+    for (let i = closes.length - 14; i < closes.length; i++) {
+      const diff = closes[i] - closes[i - 1];
+      if (diff >= 0) gains += diff;
+      else losses -= diff;
+    }
+    const avgGain = gains / 14;
+    const avgLoss = losses / 14;
+    if (avgLoss === 0) rsi14 = 100;
+    else {
+      const rs = avgGain / avgLoss;
+      rsi14 = 100 - (100 / (1 + rs));
+    }
+  }
+
+  // Support / Resistance (24h / 96 bars)
+  const support_24h = lows.length > 0 ? Math.min(...lows) : null;
+  const resistance_24h = highs.length > 0 ? Math.max(...highs) : null;
+
+  // Volume Breakout
+  let volume_spike = null;
+  if (volumes.length > 5) {
+    const avgVol = volumes.slice(0, -1).reduce((a, b) => a + b, 0) / (volumes.length - 1);
+    const latestVol = volumes.at(-1);
+    if (avgVol > 0 && latestVol > avgVol * 1.5) {
+      volume_spike = `${(latestVol / avgVol).toFixed(1)}x`;
+    }
+  }
+
+  // Price Action Trend (HH/HL)
+  let ta_trend = "Neutral";
+  if (highs.length >= 14 && lows.length >= 14) {
+    const recentHighs = highs.slice(-7);
+    const prevHighs = highs.slice(-14, -7);
+    const recentLows = lows.slice(-7);
+    const prevLows = lows.slice(-14, -7);
+
+    const avgRecentHigh = recentHighs.reduce((a, b) => a + b, 0) / 7;
+    const avgPrevHigh = prevHighs.reduce((a, b) => a + b, 0) / 7;
+    const avgRecentLow = recentLows.reduce((a, b) => a + b, 0) / 7;
+    const avgPrevLow = prevLows.reduce((a, b) => a + b, 0) / 7;
+
+    if (avgRecentHigh > avgPrevHigh && avgRecentLow > avgPrevLow) {
+      ta_trend = "Bullish";
+    } else if (avgRecentHigh < avgPrevHigh && avgRecentLow < avgPrevLow) {
+      ta_trend = "Bearish";
+    } else {
+      ta_trend = "Sideways";
+    }
+  }
 
   return {
-    price_change_7d_pct: pctChange(sevenAgo, latest),
-    price_change_30d_pct: pctChange(thirtyAgo, latest),
+    price_change_4h_pct: pctChange(fourHoursAgo, latest),
+    price_change_24h_pct: pctChange(twentyFourHoursAgo, latest),
     daily_closes_count: closes.length,
+    rsi_14: rsi14,
+    sma_7: sma7,
+    sma_30: sma30,
+    support_24h,
+    resistance_24h,
+    ta_trend,
+    volume_spike,
   };
 }
 
@@ -675,24 +753,26 @@ function researchSummary(pairs) {
   return okPairs
     .map((pair) => {
       const price = pair.last_price_usdt == null ? "n/a" : `${pair.last_price_usdt} USDT`;
-      const change24h =
-        pair.price_change_24h_pct == null ? "n/a" : `${pair.price_change_24h_pct.toFixed(2)}%`;
-      const change7d =
-        pair.price_change_7d_pct == null ? "n/a" : `${pair.price_change_7d_pct.toFixed(2)}%`;
-      const change30d =
-        pair.price_change_30d_pct == null ? "n/a" : `${pair.price_change_30d_pct.toFixed(2)}%`;
-      const spread =
-        pair.best_bid != null && pair.best_ask != null
-          ? `${(pair.best_ask - pair.best_bid).toFixed(8)} USDT`
-          : "n/a";
-      const funding =
-        pair.futures_last_funding_rate == null
-          ? "n/a"
-          : `${(pair.futures_last_funding_rate * 100).toFixed(4)}%`;
-      const openInterest =
-        pair.futures_open_interest == null ? "n/a" : `${pair.futures_open_interest}`;
+      const change4h = pair.price_change_4h_pct == null ? "n/a" : `${pair.price_change_4h_pct.toFixed(2)}%`;
+      const change24h = pair.price_change_24h_pct == null ? "n/a" : `${pair.price_change_24h_pct.toFixed(2)}%`;
+      const spread = pair.best_bid != null && pair.best_ask != null ? `${(pair.best_ask - pair.best_bid).toFixed(8)} USDT` : "n/a";
+      const funding = pair.futures_last_funding_rate == null ? "n/a" : `${(pair.futures_last_funding_rate * 100).toFixed(4)}%`;
+      
+      const rsi = pair.rsi_14 != null ? `RSI(14): ${pair.rsi_14.toFixed(1)}` : "";
+      const sma7 = pair.sma_7 != null ? `SMA(7): ${pair.sma_7.toFixed(2)}` : "";
+      const sma30 = pair.sma_30 != null ? `SMA(30): ${pair.sma_30.toFixed(2)}` : "";
+      const ta = [rsi, sma7, sma30].filter(Boolean).join(", ");
+      
+      const trend = pair.ta_trend ? `Trend: ${pair.ta_trend}` : "";
+      const sr = (pair.support_24h != null && pair.resistance_24h != null) ? `24h S/R: [${pair.support_24h} - ${pair.resistance_24h}]` : "";
+      const volSpike = pair.volume_spike ? `Vol Spike: ${pair.volume_spike}` : "";
+      const paStr = [trend, sr, volSpike].filter(Boolean).join(", ");
+
+      const extraStr = [ta, paStr].filter(Boolean).join(" | ");
+      const finalExtra = extraStr ? ` | TA: ${extraStr}` : "";
+
       const proxyNote = pair.proxy_note ? `, note ${pair.proxy_note}` : "";
-      return `${pair.pair}: last ${price}, 24h ${change24h}, 7d ${change7d}, 30d ${change30d}, book spread ${spread}, futures funding ${funding}, futures OI ${openInterest}${proxyNote}`;
+      return `${pair.pair}: last ${price}, 4h ${change4h}, 24h ${change24h}, book spread ${spread}, futures funding ${funding}${finalExtra}${proxyNote}`;
     })
     .join("; ");
 }

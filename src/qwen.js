@@ -452,7 +452,7 @@ ${JSON.stringify(promptSafe(scout), null, 2)}
 
 Aturan:
 - Jangan mengarang data eksternal. Gunakan DATA MARKET dan EXTERNAL RESEARCH CONTEXT.
-- Khusus market Crypto 5-Min & 15-Min: Abaikan berita (GDELT). Fokus HANYA pada 'futures_klines_5m' (Chart Momentum Binance), 'futures_long_short_ratio', dan 'orderbookImbalance' (di bagian SCORING AWAL).
+- Khusus market Crypto 5-Min & 15-Min: Abaikan berita (GDELT). Fokus HANYA pada 'futures_klines_5m' (Chart Momentum Binance), indikator TA (RSI, SMA), 'futures_long_short_ratio', dan 'orderbookImbalance' (di bagian SCORING AWAL).
 - Jika orderbookImbalance > 65%, itu indikasi kuat tekanan Paus (Whales) untuk BUY/UP. Jika < 35%, tekanan kuat SELL/DOWN.
 - Bandingkan arah Klines (Momentum) dengan orderbookImbalance. Jika berlawanan, catat sebagai jebakan likuiditas (Risiko Tinggi).
 - Balas hanya JSON valid.
@@ -520,7 +520,7 @@ Format JSON wajib:
   "confidence": 65,
   "estimated_fair_probability": 60,
   "expected_value_cents": 10,
-  "summary": "1-2 kalimat inti market dan hasil hitung EV.",
+  "summary": "Ringkasan tajam ala manajer hedge fund kuantitatif (profesional, berbobot, berbasis data).",
   "data_quality": "Kualitas data yang tersedia dan batasannya.",
   "bullish_case": ["maks 3 poin"],
   "bearish_case": ["maks 3 poin"],
@@ -538,7 +538,7 @@ Format JSON wajib:
     "edge": false,
     "catalyst": false
   },
-  "final_reason": "Alasan final verdict (Sebutkan nilai EV dan Imbalance secara angka dalam penjelasan ini)."
+  "final_reason": "Penjelasan komprehensif dan tajam ala analis institusi veteran. Bedah secara matematis (sebut angka EV, Imbalance, RSI, Trend, S/R) mengapa verdict ini mutlak diambil."
 }
 `.trim();
 
@@ -547,8 +547,7 @@ Format JSON wajib:
     messages: [
       {
         role: "system",
-        content:
-          "Kamu final judge prediction market yang konservatif. Kamu bukan financial advisor. Kamu menyatukan scout + analyst review menjadi keputusan akhir yang jelas.",
+        content: "Kamu adalah agen AI analis kuantitatif elit (top-tier hedge fund) yang telah dilatih bertahun-tahun. Keputusanmu sangat ditunggu oleh trader institusi. Kamu menyatukan scout + analyst review menjadi keputusan akhir yang tajam, dingin, dan sangat logis berdasarkan probabilitas, sentimen, fundamental, Price Action (Trend HH/HL, S/R, Volume Spike), indikator TA (RSI, SMA), dan arus uang.",
       },
       { role: "user", content: finalPrompt },
     ],
@@ -675,8 +674,7 @@ Format JSON:
     messages: [
       {
         role: "system",
-        content:
-          "Kamu model fast scout. Tugasmu membaca event multi-market cepat dan memberi brief ringkas tanpa memilih final secara agresif.",
+        content: "Kamu model fast scout. Tugasmu membaca event multi-market cepat dan memberi brief ringkas tanpa memilih final secara agresif.",
       },
       { role: "user", content: scoutPrompt },
     ],

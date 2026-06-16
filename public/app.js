@@ -76,17 +76,23 @@ function saveState() {
 function loadState() {
   try {
     const saved = localStorage.getItem("mvpm_state_v2");
-    if (!saved) return;
-    const { activeTabId: savedActiveId, tabsData } = JSON.parse(saved);
-    if (tabsData) {
-      outputTabs.clear();
-      for (const tab of tabsData) outputTabs.set(tab.id, tab);
+    if (saved) {
+      const { activeTabId: savedActiveId, tabsData } = JSON.parse(saved);
+      if (tabsData) {
+        outputTabs.clear();
+        for (const tab of tabsData) outputTabs.set(tab.id, tab);
+      }
+      if (savedActiveId && outputTabs.has(savedActiveId)) {
+        activeTabId = savedActiveId;
+      } else if (outputTabs.size > 0) {
+        activeTabId = outputTabs.keys().next().value;
+      }
     }
-    if (savedActiveId && outputTabs.has(savedActiveId)) {
-      activeTabId = savedActiveId;
-    } else if (outputTabs.size > 0) {
-      activeTabId = outputTabs.keys().next().value;
-    }
+    // Pastikan base tabs selalu ada
+    if (!outputTabs.has("cmd:console")) outputTabs.set("cmd:console", { id: "cmd:console", label: "Console", messages: [], hidden: false });
+    if (!outputTabs.has("history-archive")) outputTabs.set("history-archive", { id: "history-archive", label: "History Archive", messages: [], hidden: false });
+    
+    if (!activeTabId) activeTabId = "cmd:console";
   } catch (e) {
     console.warn("Failed to load state", e);
   }
@@ -301,7 +307,7 @@ function renderTabs() {
     labelSpan.textContent = tab.label;
     button.appendChild(labelSpan);
 
-    if (tab.id !== "cmd:console") {
+    if (tab.id !== "cmd:console" && tab.id !== "history-archive") {
       const closeSpan = document.createElement("span");
       closeSpan.textContent = "×";
       closeSpan.className = "tab-close";
@@ -332,6 +338,33 @@ function setActiveTab(tabInfo, options = {}) {
   renderTabs();
   renderMessages();
   saveState();
+
+  // Toggle Right Panel: polyPanelContainer vs historyListPanel
+  const polyPanelContainer = document.querySelector("#polyPanelContainer");
+  const historyListPanel = document.querySelector("#historyListPanel");
+  const consoleBody = document.querySelector(".console-body");
+  
+  if (activeTabId === "history-archive") {
+    if (polyPanelContainer) polyPanelContainer.style.display = "none";
+    if (historyListPanel) {
+      historyListPanel.style.display = "flex";
+      renderHistoryListPanel();
+    }
+    if (consoleBody) consoleBody.classList.add("has-embed");
+  } else {
+    if (polyPanelContainer) polyPanelContainer.style.display = "";
+    if (historyListPanel) historyListPanel.style.display = "none";
+    
+    if (consoleBody) {
+      // Return has-embed to its natural state for console tab based on iframe
+      const polyFrame = document.querySelector("#polyFrame");
+      if (polyFrame && !polyFrame.classList.contains("hidden")) {
+        consoleBody.classList.add("has-embed");
+      } else {
+        consoleBody.classList.remove("has-embed");
+      }
+    }
+  }
 }
 
 function setBusy(nextBusy) {
@@ -587,6 +620,30 @@ function appendMessageElement(message) {
   messagesEl.append(wrapper);
 }
 
+let isAudioMuted = false;
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playAlertSound() {
+  if (isAudioMuted) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  
+  const osc = audioCtx.createOscillator();
+  const gainNode = audioCtx.createGain();
+  
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(880, audioCtx.currentTime); // High pitch (A5)
+  osc.frequency.exponentialRampToValueAtTime(110, audioCtx.currentTime + 0.5); // Drop pitch like an alert
+  
+  gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
+  gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+  
+  osc.connect(gainNode);
+  gainNode.connect(audioCtx.destination);
+  
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.5);
+}
+
 function addMessage(message, tabId = activeTabId) {
   const tab = ensureTab(tabId ? outputTabs.get(tabId) || { id: tabId, label: "Console" } : { id: "console", label: "Console" });
   if (!activeTabId) activeTabId = tab.id;
@@ -600,6 +657,12 @@ function addMessage(message, tabId = activeTabId) {
       requestAnimationFrame(() => { messagesEl.scrollTop = 0; });
     }
     syncPolymarketEmbedFromText(message.text, "From result");
+  }
+  
+  if (message.role === "assistant" || message.role === "system") {
+    if (message.text && (message.text.includes('"verdict": "VALUE CANDIDATE"') || message.text.includes('"verdict": "HIGH RISK UNDERDOG"'))) {
+      playAlertSound();
+    }
   }
   
   saveState();
@@ -883,6 +946,7 @@ if (btnBtc5m && btc5mPanel) {
 const btnToggleQueue = document.querySelector("#btnToggleQueue");
 const queuePanel = document.querySelector("#queuePanel");
 const btnClearQueue = document.querySelector("#btnClearQueue");
+const btnCloseQueue = document.querySelector("#btnCloseQueue");
 const btnRunQueue = document.querySelector("#btnRunQueue");
 const queueDropzone = document.querySelector("#queueDropzone");
 const queueEmpty = document.querySelector("#queueEmpty");
@@ -896,6 +960,111 @@ if (btnToggleQueue && queuePanel) {
     e.stopPropagation();
     const isHidden = queuePanel.style.display === "none";
     queuePanel.style.display = isHidden ? "block" : "none";
+  });
+}
+
+if (btnCloseQueue && queuePanel) {
+  btnCloseQueue.addEventListener("click", () => {
+    queuePanel.style.display = "none";
+  });
+}
+
+// Draggable Panel
+const queuePanelHeader = document.querySelector("#queuePanelHeader");
+if (queuePanel && queuePanelHeader) {
+  let isDragging = false;
+  let offsetX, offsetY;
+
+  queuePanelHeader.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    offsetX = e.clientX - queuePanel.getBoundingClientRect().left;
+    offsetY = e.clientY - queuePanel.getBoundingClientRect().top;
+    queuePanelHeader.style.cursor = "grabbing";
+    document.body.style.userSelect = "none";
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    
+    // Karena panel berada di dalam container dengan position: relative, 
+    // koordinat clientX/Y harus dikurangi dengan posisi offsetParent.
+    let parentLeft = 0;
+    let parentTop = 0;
+    if (queuePanel.offsetParent) {
+      const parentRect = queuePanel.offsetParent.getBoundingClientRect();
+      parentLeft = parentRect.left;
+      parentTop = parentRect.top;
+    }
+
+    queuePanel.style.left = `${e.clientX - parentLeft - offsetX}px`;
+    queuePanel.style.top = `${e.clientY - parentTop - offsetY}px`;
+    queuePanel.style.right = "auto";
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (isDragging) {
+      isDragging = false;
+      queuePanelHeader.style.cursor = "grab";
+      document.body.style.userSelect = "";
+    }
+  });
+}
+
+// Resizable Panel (Bottom-Left)
+const queueResizeHandleSW = document.querySelector("#queueResizeHandleSW");
+if (queuePanel && queueResizeHandleSW) {
+  let isResizing = false;
+  let startX, startY, startWidth, startHeight, startLeft;
+
+  queueResizeHandleSW.addEventListener("mousedown", (e) => {
+    isResizing = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    
+    const rect = queuePanel.getBoundingClientRect();
+    startWidth = rect.width;
+    startHeight = rect.height;
+    
+    if (queuePanel.style.left && queuePanel.style.left !== "auto") {
+      startLeft = parseFloat(queuePanel.style.left) || 0;
+    }
+
+    document.body.style.cursor = "sw-resize";
+    document.body.style.userSelect = "none";
+    e.stopPropagation();
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isResizing) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    let newWidth = startWidth - dx;
+    let newHeight = startHeight + dy;
+    
+    if (newWidth < 300) newWidth = 300;
+    if (newWidth > 800) newWidth = 800;
+    
+    if (newHeight >= 200) {
+      queuePanel.style.height = `${newHeight}px`;
+    }
+    
+    if (queuePanel.style.left && queuePanel.style.left !== "auto") {
+      const actualDx = startWidth - newWidth;
+      queuePanel.style.width = `${newWidth}px`;
+      queuePanel.style.left = `${startLeft + actualDx}px`;
+    } else {
+      queuePanel.style.width = `${newWidth}px`;
+    }
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = "default";
+      document.body.style.userSelect = "";
+    }
   });
 }
 
@@ -979,9 +1148,30 @@ function renderQueue() {
 
     let sniperStatus = "";
     if (isSniperActive && !m.snipeFired) {
-      sniperStatus = `<span style="color:var(--neon-amber); font-size:9px; border:1px solid var(--neon-amber); border-radius:2px; padding:1px 4px; margin-left:6px;">Wait</span>`;
+      sniperStatus = `<span style="color:var(--neon-amber); font-size:9px; border:1px solid var(--neon-amber); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Wait</span>`;
     } else if (m.snipeFired) {
-      sniperStatus = `<span style="color:var(--neon-green); font-size:9px; border:1px solid var(--neon-green); border-radius:2px; padding:1px 4px; margin-left:6px;">Fired</span>`;
+      sniperStatus = `<span style="color:var(--text-tertiary); font-size:9px; border:1px solid var(--border-bright); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Fired</span>`;
+    }
+
+    // Ambil hasil dari history jika ada
+    const historyItem = allHistoryEvents ? allHistoryEvents.find(e => e.market_id === m.id) : null;
+    let predictionBadge = "";
+    let resultBadge = "";
+    if (historyItem) {
+      if (historyItem.prediction) {
+        const p = historyItem.prediction.toUpperCase();
+        const pColor = (p === 'UP' || p === 'YES') ? 'var(--neon-green)' : ((p === 'DOWN' || p === 'NO') ? 'var(--neon-red)' : 'var(--text-tertiary)');
+        predictionBadge = `<span title="Prediksi AI" style="color:${pColor}; font-weight:bold; font-size:9px; border:1px solid ${pColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="bot" style="width:10px; height:10px; margin-right:4px;"></i> ${p}</span>`;
+      }
+      if (historyItem.result && historyItem.result !== 'menunggu hasil') {
+        const r = historyItem.result.toUpperCase();
+        const rColor = (r === 'MENANG') ? 'var(--neon-green)' : ((r === 'KALAH') ? 'var(--neon-red)' : 'var(--text-tertiary)');
+        resultBadge = `<span title="Hasil Aktual" style="color:${rColor}; font-weight:bold; font-size:9px; border:1px solid ${rColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="flag" style="width:10px; height:10px; margin-right:4px;"></i> ${r}</span>`;
+        // Jika sudah ada hasil, timer tidak perlu muncul lagi
+        timeHtml = "";
+      }
+      // Sembunyikan status Fired kalau hasil analisis sudah keluar agar tidak penuh
+      if (predictionBadge) sniperStatus = "";
     }
 
     html += `
@@ -989,6 +1179,8 @@ function renderQueue() {
         <div style="display:flex; justify-content:space-between; align-items:center; flex:1; overflow:hidden;">
           <span style="font-size:10px; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">[${index+1}] ${m.question}</span>
           ${sniperStatus}
+          ${predictionBadge}
+          ${resultBadge}
           ${timeHtml}
         </div>
         <button type="button" onclick="removeFromQueue('${m.id}')" style="background:none; border:none; color:var(--neon-red); cursor:pointer; padding:2px; margin-left:8px;"><i data-lucide="x" style="width:10px; height:10px;"></i></button>
@@ -1012,19 +1204,77 @@ if (btnClearQueue) {
   });
 }
 
+// Resizer logic
+const queueResizer = document.querySelector("#queueResizer");
+if (queueResizer && queuePanel) {
+  let isResizingQueue = false;
+  
+  queueResizer.addEventListener("mousedown", (e) => {
+    isResizingQueue = true;
+    e.preventDefault();
+  });
+  
+  document.addEventListener("mousemove", (e) => {
+    if (!isResizingQueue) return;
+    const rect = queuePanel.getBoundingClientRect();
+    // Lebar = posisi tepi kanan panel - posisi kursor mouse
+    const newWidth = rect.right - e.clientX;
+    if (newWidth > 300 && newWidth < 800) {
+      queuePanel.style.width = newWidth + "px";
+    }
+  });
+  
+  document.addEventListener("mouseup", () => {
+    isResizingQueue = false;
+  });
+}
+
 let sniperExecutionQueue = [];
+
+const btnSniperSettings = document.querySelector("#btnSniperSettings");
+const sniperSettingsPanel = document.querySelector("#sniperSettingsPanel");
+const btnMuteAudio = document.querySelector("#btnMuteAudio");
+const iconMute = document.querySelector("#iconMute");
+
+if (btnSniperSettings && sniperSettingsPanel) {
+  btnSniperSettings.addEventListener("click", () => {
+    sniperSettingsPanel.style.display = sniperSettingsPanel.style.display === "none" ? "block" : "none";
+  });
+}
+
+if (btnMuteAudio && iconMute) {
+  btnMuteAudio.addEventListener("click", () => {
+    isAudioMuted = !isAudioMuted;
+    if (isAudioMuted) {
+      iconMute.setAttribute("data-lucide", "volume-x");
+      btnMuteAudio.style.color = "var(--neon-red)";
+    } else {
+      iconMute.setAttribute("data-lucide", "volume-2");
+      btnMuteAudio.style.color = "var(--text-secondary)";
+    }
+    lucide.createIcons();
+  });
+}
 
 function startSniper() {
   if (sniperInterval) clearInterval(sniperInterval);
   sniperInterval = setInterval(() => {
     let triggered = false;
     
+    const min5 = document.querySelector("#sniper5mMin");
+    const sec5 = document.querySelector("#sniper5mSec");
+    const min15 = document.querySelector("#sniper15mMin");
+    const sec15 = document.querySelector("#sniper15mSec");
+    
+    const val5m = ((min5 && min5.value ? parseInt(min5.value) : 3) * 60) + (sec5 && sec5.value ? parseInt(sec5.value) : 30);
+    const val15m = ((min15 && min15.value ? parseInt(min15.value) : 7) * 60) + (sec15 && sec15.value ? parseInt(sec15.value) : 0);
+    
     // 1. Cek market mana saja yang sudah masuk sweet spot
     analysisQueue.forEach(m => {
       if (!m.snipeFired && m.endDate) {
         const timeToClose = new Date(m.endDate).getTime() - Date.now();
-        const durationLimit = m.duration_type === '15m' ? 15 * 60 * 1000 : 5 * 60 * 1000;
-        // Fire when time is exactly at limit (300k ms for 5m, 900k ms for 15m) atau kurang, dan belum ditutup
+        const durationLimit = m.duration_type === '15m' ? val15m * 1000 : val5m * 1000;
+        // Fire when time is exactly at limit atau kurang, dan belum ditutup
         if (timeToClose > 0 && timeToClose <= durationLimit) {
           m.snipeFired = true;
           sniperExecutionQueue.push(m.url);
@@ -1281,6 +1531,15 @@ const closeHistoryModal = document.querySelector("#closeHistoryModal");
 const historyTableBody = document.querySelector("#historyTableBody");
 let allHistoryEvents = [];
 let currentHistoryFilter = "all";
+let excludeNeutralFilter = false;
+
+const excludeNeutralBtn = document.querySelector("#excludeNeutralBtn");
+if (excludeNeutralBtn) {
+  excludeNeutralBtn.addEventListener("change", (e) => {
+    excludeNeutralFilter = e.target.checked;
+    applyHistoryFilter();
+  });
+}
 
 if (btnHistory && historyModal && closeHistoryModal) {
   btnHistory.addEventListener("click", () => {
@@ -1317,6 +1576,15 @@ function applyHistoryFilter() {
   } else if (currentHistoryFilter === "15m") {
     filtered = allHistoryEvents.filter(e => e.url.includes("15m") || e.question.toLowerCase().includes("15 min"));
   }
+  
+  if (excludeNeutralFilter) {
+    filtered = filtered.filter(e => {
+      if (!e.prediction) return true;
+      const p = e.prediction.toUpperCase();
+      return p !== 'SKIP' && p !== 'WATCHLIST' && p !== 'NETRAL' && p !== '=';
+    });
+  }
+  
   renderHistoryEvents(filtered);
 }
 
@@ -1327,9 +1595,77 @@ async function fetchHistoryEvents() {
     if (data.ok) {
       allHistoryEvents = data.events;
       applyHistoryFilter();
+      renderQueue(); // Refresh queue badges
+      if (activeTabId === "history-archive") renderHistoryListPanel();
     }
   } catch (error) {
     console.error("Failed to fetch history events:", error);
+  }
+}
+
+function renderHistoryListPanel() {
+  const container = document.querySelector("#historyListContainer");
+  if (!container || !allHistoryEvents) return;
+  
+  if (allHistoryEvents.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-tertiary);">Belum ada riwayat analisis.</div>';
+    return;
+  }
+
+  let html = "";
+  for (const event of allHistoryEvents) {
+    const d = new Date(event.created_at);
+    const timeStr = d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+    const dateStr = d.toLocaleDateString("id-ID", { month: "short", day: "numeric" });
+    
+    let resultBadge = "";
+    if (event.result && event.result !== "menunggu hasil") {
+      const r = event.result.toUpperCase();
+      const rColor = (r === 'MENANG') ? 'var(--neon-green)' : ((r === 'KALAH') ? 'var(--neon-red)' : 'var(--text-tertiary)');
+      resultBadge = `<span title="Hasil Aktual" style="color:${rColor}; font-weight:bold; font-size:9px; border:1px solid ${rColor}; border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;"><i data-lucide="flag" style="width:10px; height:10px; margin-right:4px;"></i> ${r}</span>`;
+    }
+
+    const pColor = (event.prediction === 'UP' || event.prediction === 'YES') ? 'var(--neon-green)' : ((event.prediction === 'DOWN' || event.prediction === 'NO') ? 'var(--neon-red)' : 'var(--text-tertiary)');
+    const predBadge = `<span title="Prediksi AI" style="color:${pColor}; font-weight:bold; font-size:9px; border:1px solid ${pColor}; border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;"><i data-lucide="bot" style="width:10px; height:10px; margin-right:4px;"></i> ${event.prediction || '?'}</span>`;
+
+    html += `
+      <div onclick="showHistoryChat(${event.id})" style="padding:10px; border:1px solid rgba(255,255,255,0.05); border-radius:6px; background:rgba(0,0,0,0.2); cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='var(--neon-purple)';" onmouseout="this.style.background='rgba(0,0,0,0.2)'; this.style.borderColor='rgba(255,255,255,0.05)';">
+        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+          <span style="font-size:10px; color:var(--text-tertiary);">${dateStr} ${timeStr}</span>
+          <div style="display:flex; gap:4px;">${predBadge} ${resultBadge}</div>
+        </div>
+        <div style="font-size:11px; font-weight:600; color:var(--text-primary); line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
+          ${event.question}
+        </div>
+      </div>
+    `;
+  }
+  container.innerHTML = html;
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+window.showHistoryChat = function(eventId) {
+  const event = allHistoryEvents.find(e => e.id === eventId);
+  if (!event) return;
+  
+  // Set tab history-archive message log to this event's conclusion
+  const tab = outputTabs.get("history-archive");
+  if (tab) {
+    tab.messages = []; // Clear
+    // Tambahkan user prompt
+    tab.messages.push({ role: "user", text: `Analyze Market: ${event.question}\nURL: ${event.url}` });
+    
+    // Tambahkan AI response
+    let aiText = event.analysis_conclusion || "No detailed conclusion available.";
+    
+    // Karena kita tidak menyimpan text mentah full dari data.messages yang dikirim Qwen saat itu,
+    // kita akan mem-formatting ulang conclusion agar terlihat proper seperti chat
+    let formattedText = `## 🤖 ARCHIVED ANALYSIS\n\n**Market:** [${event.question}](${event.url})\n**Prediction:** ${event.prediction}\n**Result:** ${event.result}\n\n---\n\n${aiText}`;
+    
+    tab.messages.push({ role: "assistant", text: formattedText });
+    
+    renderMessages();
+    saveState();
   }
 }
 
@@ -1431,8 +1767,18 @@ if (typeof lucide !== "undefined") {
   lucide.createIcons();
 }
 loadState();
-renderTabs();
-renderMessages();
+
+// Panggil fetchHistoryEvents untuk mengambil data histori dari database di awal
+fetchHistoryEvents();
+
+// Gunakan setActiveTab untuk memastikan state panel dan UI disinkronkan di awal
+if (activeTabId) {
+  setActiveTab(activeTabId);
+} else {
+  renderTabs();
+  renderMessages();
+}
+
 updateInputDetection();
 loadHealth();
 setInterval(loadHealth, 30000);

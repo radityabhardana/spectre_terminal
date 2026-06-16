@@ -739,7 +739,7 @@ textarea:focus {
 }
 
 .console-body.has-embed {
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 36%);
+  grid-template-columns: minmax(0, 1fr) minmax(400px, 36%);
 }
 
 .console-feed {
@@ -994,7 +994,12 @@ textarea:focus {
   background: var(--bg-surface);
 }
 
+.console-body:not(.has-embed) .poly-panel {
+  display: none !important;
+}
+
 .console-body.has-embed .poly-panel {
+  /* Di-override oleh inline style JS (flex/none), fallback-nya grid */
   display: grid;
 }
 

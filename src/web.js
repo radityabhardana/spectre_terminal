@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { handleCommand } from "./index.js";
 import { getCooldownState } from "./rate-limit.js";
-import { SEARCH_ENGINE_VERSION, getMarketById, getBtcShortTermMarkets } from "./polymarket.js";
+import { SEARCH_ENGINE_VERSION, getMarketById, getShortTermMarkets } from "./polymarket.js";
 import { getAnalysisLogs, getAnalyzedEvents, updateAnalyzedEventStatus } from "./storage.js";
 
 const modulePath = fileURLToPath(import.meta.url);
@@ -260,9 +260,11 @@ export function startWebServer(options = {}) {
         return;
       }
       
-      if (req.method === "GET" && req.url === "/api/btc-short-term") {
+      if (req.method === "GET" && req.url.startsWith("/api/short-term")) {
         try {
-          const markets = await getBtcShortTermMarkets();
+          const urlObj = new URL(req.url, `http://${req.headers.host}`);
+          const asset = urlObj.searchParams.get("asset") || "btc";
+          const markets = await getShortTermMarkets(asset);
           sendJson(res, 200, { ok: true, markets });
         } catch (error) {
           sendJson(res, 500, { ok: false, error: String(error.message) });

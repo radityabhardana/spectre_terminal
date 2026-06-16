@@ -88,9 +88,14 @@ export function detectUfcFighters(text) {
   
   const lowerText = String(text || "").toLowerCase();
   
+  // If it's clearly crypto/politics, don't fallback to last name matching
+  if (/(bitcoin|btc|ethereum|eth|crypto|president|election)/i.test(lowerText)) {
+    return [];
+  }
+  
   // Quick heuristic: does the text even relate to sports/ufc?
-  // Polymarket UFC events usually have "vs", "fight", "ufc", "beat", "win"
-  const isCombatSport = /(vs|ufc|fight|beat|win|mma|bout|championship)/i.test(lowerText);
+  // Removed "beat", "win", "vs" because they cause false positives in politics and crypto
+  const isCombatSport = /(ufc|fight|mma|bout|championship|knockout|submission)/i.test(lowerText);
 
   const foundFighters = [];
   const foundNames = new Set();

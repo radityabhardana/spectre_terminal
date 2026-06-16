@@ -578,11 +578,16 @@ function appendMessageElement(message) {
       if (/^[A-Z0-9 \-&/]{3,}$/.test(line.trim())) {
         html += `<div class="msg-header">${line}</div>`;
       } 
-      // Key-value pairs (e.g. Market ID: 12345)
       else if (/^([^:]+):(.*)$/.test(line)) {
         const match = line.match(/^([^:]+):(.*)$/);
         const key = match[1];
         let val = match[2];
+
+        if (key === "Realtime Ticker" && val.trim().length > 0) {
+          const payload = val.trim();
+          html += `<div class="msg-kv" style="flex-direction:column; align-items:flex-start; margin-top:8px; background:rgba(0,0,0,0.2); padding:8px; border-radius:6px; border:1px solid var(--border);"><span class="live-ticker" data-tokens="${payload}" style="width:100%; display:flex; flex-direction:column; gap:6px;">⏳ Syncing CLOB & Crypto Feed...</span></div>`;
+          continue;
+        }
         
         // Highlight percentages and money
         val = val.replace(/(\$[\d,]+(\.\d+)?|\d+(\.\d+)?%)/g, '<span class="hl-val">$1</span>');
@@ -644,6 +649,209 @@ function playAlertSound() {
   osc.stop(audioCtx.currentTime + 0.5);
 }
 
+function playQueueDoneSound() {
+  if (isAudioMuted) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  
+  const osc = audioCtx.createOscillator();
+  const gainNode = audioCtx.createGain();
+  
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(600, audioCtx.currentTime); 
+  osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1); 
+  
+  gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+  gainNode.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.05);
+  gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+  
+  osc.connect(gainNode);
+  gainNode.connect(audioCtx.destination);
+  
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.3);
+}
+
+// Real-time polling for live tickers
+setInterval(async () => {
+  const tickers = document.querySelectorAll('.live-ticker');
+  if (!tickers.length) return;
+  
+  const tokenSet = new Set();
+  tickers.forEach(t => tokenSet.add(t.getAttribute('data-tokens')));
+  
+  for (const payload of tokenSet) {
+    if (!payload) continue;
+    try {
+      const parts = payload.split('|');
+      const primaryToken = parts[0];
+      const secondaryToken = parts[1];
+      const primaryLabel = parts[2] || "Yes";
+      const secondaryLabel = parts[3] || "No";
+      const question = (parts[4] || "").toLowerCase();
+      const endDateStr = parts[5] || "";
+      
+      let cryptoPrice = null;
+      let cryptoOpen = null;
+      let cryptoSymbol = "";
+      if (question.includes("bitcoin") || question.includes("btc")) {
+        cryptoSymbol = "BTC";
+      } else if (question.includes("ethereum") || question.includes("eth")) {
+        cryptoSymbol = "ETH";
+      } else if (question.includes("dogecoin") || question.includes("doge")) {
+        cryptoSymbol = "DOGE";
+      }
+      
+      let klineInterval = "1h";
+      let intervalLabel = "1H";
+      let msInterval = 60 * 60 * 1000;
+      if (question.includes("5m") || question.includes("5 min") || question.includes("5-min")) {
+        klineInterval = "5m";
+        intervalLabel = "5M";
+        msInterval = 5 * 60 * 1000;
+      } else if (question.includes("15m") || question.includes("15 min") || question.includes("15-min")) {
+        klineInterval = "15m";
+        intervalLabel = "15M";
+        msInterval = 15 * 60 * 1000;
+      } else if (question.includes("30m") || question.includes("30 min") || question.includes("30-min")) {
+        klineInterval = "30m";
+        intervalLabel = "30M";
+        msInterval = 30 * 60 * 1000;
+      }
+      
+      if (cryptoSymbol) {
+        try {
+          const pythIds = {
+            BTC: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+            ETH: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+            DOGE: "dcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c"
+          };
+          const pid = pythIds[cryptoSymbol];
+          
+          if (pid) {
+            // Fetch exact Pyth Oracle current price
+            const pRes = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${pid}&_t=${Date.now()}`, { cache: 'no-store' });
+            if (pRes.ok) {
+              const pData = await pRes.json();
+              const pInfo = pData.parsed?.[0]?.price;
+              if (pInfo) {
+                cryptoPrice = parseFloat(pInfo.price) * Math.pow(10, pInfo.expo);
+              }
+            }
+            
+            // Fetch the exact Pyth Oracle price at the exact start of the candle
+            const startTs = Math.floor((Math.floor(Date.now() / msInterval) * msInterval) / 1000);
+            let kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs}?ids[]=${pid}&_t=${Date.now()}`, { cache: 'no-store' });
+            // Retry with -5s offset if Pyth hasn't indexed the exact timestamp yet
+            if (!kRes.ok || kRes.status === 404) {
+              kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs - 5}?ids[]=${pid}&_t=${Date.now()}`, { cache: 'no-store' });
+            }
+            if (kRes.ok) {
+              try {
+                const kData = await kRes.json();
+                const kInfo = kData.parsed?.[0]?.price;
+                if (kInfo) {
+                  cryptoOpen = parseFloat(kInfo.price) * Math.pow(10, kInfo.expo);
+                }
+              } catch(e) {}
+            }
+          }
+        } catch (e) {}
+      }
+
+      const getMidpoint = async (token) => {
+        if (!token || token === "undefined") return null;
+        const res = await fetch(`https://clob.polymarket.com/book?token_id=${token}&_t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const bestBid = data.bids && data.bids.length ? Number(data.bids[0].price) : null;
+        const bestAsk = data.asks && data.asks.length ? Number(data.asks[0].price) : null;
+        if (bestBid != null && bestAsk != null) return (bestBid + bestAsk) / 2;
+        if (bestBid != null) return bestBid;
+        if (bestAsk != null) return bestAsk;
+        return null;
+      };
+
+      const [primaryMid, secondaryMid] = await Promise.all([
+        getMidpoint(primaryToken),
+        getMidpoint(secondaryToken)
+      ]);
+      
+      let displayHtml = "";
+      if (cryptoSymbol && cryptoPrice) {
+        let decimals = cryptoSymbol === "DOGE" ? 4 : 2;
+        let pBeatStr = cryptoOpen ? `$${cryptoOpen.toLocaleString('en-US', {minimumFractionDigits:decimals, maximumFractionDigits:decimals})}` : "TBD";
+        let isWinning = cryptoOpen ? cryptoPrice >= cryptoOpen : true;
+        let color = cryptoOpen ? (isWinning ? "var(--neon-green)" : "var(--neon-amber)") : "var(--text-primary)";
+        
+        let oracleTag = `<div style="font-size:10px; color:var(--text-tertiary); margin-top:2px;">*Using true Pyth Oracle matching Polymarket UI</div>`;
+        displayHtml += `<div style="font-size:13px; color:var(--text-primary); font-weight:bold; margin-bottom:4px; display:flex; flex-direction:column; gap:2px;">
+          <div style="display:flex; justify-content:space-between;">
+            <span style="color:var(--text-secondary); font-size:11px;">Price to Beat (${intervalLabel} Open):</span> 
+            <span style="color:var(--text-primary);">${pBeatStr}</span>
+          </div>
+          <div style="display:flex; justify-content:space-between;">
+            <span style="color:var(--text-secondary); font-size:11px;">Current ${cryptoSymbol} Price:</span> 
+            <span style="${color};">$${cryptoPrice.toLocaleString('en-US', {minimumFractionDigits:decimals, maximumFractionDigits:decimals})}</span>
+          </div>
+          ${oracleTag}
+        </div>`;
+      }
+      
+      displayHtml += `<div style="display:flex; justify-content:space-between; gap:10px; font-size:12px; margin-top:4px;">`;
+      if (primaryMid != null) {
+        displayHtml += `<div style="flex:1; background:var(--bg-surface); padding:6px; border-radius:4px; border:1px solid var(--border); text-align:center;">
+          <div style="color:var(--text-tertiary); font-size:10px; margin-bottom:2px;">${primaryLabel}</div>
+          <div style="color:var(--neon-cyan); font-weight:bold; font-size:14px;">${Math.round(primaryMid * 100)}¢</div>
+        </div>`;
+      }
+      if (secondaryMid != null) {
+        displayHtml += `<div style="flex:1; background:var(--bg-surface); padding:6px; border-radius:4px; border:1px solid var(--border); text-align:center;">
+          <div style="color:var(--text-tertiary); font-size:10px; margin-bottom:2px;">${secondaryLabel}</div>
+          <div style="color:var(--neon-amber); font-weight:bold; font-size:14px;">${Math.round(secondaryMid * 100)}¢</div>
+        </div>`;
+      }
+      displayHtml += `</div>`;
+      
+      document.querySelectorAll(`.live-ticker[data-tokens="${payload}"]`).forEach(el => {
+        el.innerHTML = displayHtml;
+      });
+      
+      // Update the Polymarket Embed Overlay for the LATEST payload
+      const tickersArr = Array.from(tickers);
+      const latestPayload = tickersArr[tickersArr.length - 1].getAttribute('data-tokens');
+      if (payload === latestPayload) {
+        const polyLiveTicker = document.querySelector("#polyLiveTicker");
+        const polyMidpoint = document.querySelector("#polyMidpoint");
+        const polyBestBid = document.querySelector("#polyBestBid");
+        const polyBestAsk = document.querySelector("#polyBestAsk");
+        const polyFrame = document.querySelector("#polyFrame");
+        
+        if (polyLiveTicker && polyMidpoint && polyFrame && !polyFrame.classList.contains("hidden")) {
+          polyLiveTicker.style.display = "block";
+          if (cryptoSymbol && cryptoPrice) {
+            let decimals = cryptoSymbol === "DOGE" ? 4 : 2;
+            let pBeatStr = cryptoOpen ? `$${cryptoOpen.toLocaleString('en-US', {minimumFractionDigits:decimals, maximumFractionDigits:decimals})}` : "TBD";
+            let isWinning = cryptoOpen ? cryptoPrice >= cryptoOpen : true;
+            let color = cryptoOpen ? (isWinning ? "var(--neon-green)" : "var(--neon-amber)") : "var(--text-primary)";
+            
+            polyMidpoint.innerHTML = `<div><span style="font-size:11px; color:var(--text-tertiary);">Price to Beat:</span> <span style="color:white;">${pBeatStr}</span></div>` +
+                                     `<div style="margin-top:2px;"><span style="font-size:11px; color:var(--text-tertiary);">Current:</span> <span style="${color};">$${cryptoPrice.toLocaleString('en-US', {minimumFractionDigits:decimals, maximumFractionDigits:decimals})}</span></div>`;
+          } else {
+            polyMidpoint.textContent = "Live Market Data";
+          }
+          
+          polyBestBid.innerHTML = `${primaryLabel}: <span style="color:var(--neon-cyan); font-size:16px;">${primaryMid != null ? Math.round(primaryMid*100) + '¢' : '-'}</span>`;
+          polyBestAsk.innerHTML = `${secondaryLabel}: <span style="color:var(--neon-amber); font-size:16px;">${secondaryMid != null ? Math.round(secondaryMid*100) + '¢' : '-'}</span>`;
+        } else if (polyLiveTicker) {
+          polyLiveTicker.style.display = "none";
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+}, 2000);
+
 function addMessage(message, tabId = activeTabId) {
   const tab = ensureTab(tabId ? outputTabs.get(tabId) || { id: tabId, label: "Console" } : { id: "console", label: "Console" });
   if (!activeTabId) activeTabId = tab.id;
@@ -702,7 +910,7 @@ function isQwenCommand(commandText) {
 }
 
 /* --- Execute Command --- */
-async function executeCommand(commandText) {
+async function executeCommand(commandText, isBackground = false) {
   if (busy) return;
   const text = String(commandText || "").trim();
   if (!text) return;
@@ -710,13 +918,25 @@ async function executeCommand(commandText) {
   const remMs = getCooldownRemaining(text);
   if (remMs > 0) {
     const tabInfo = tabInfoForCommand(text, "auto");
-    setActiveTab(tabInfo);
+    if (!isBackground) setActiveTab(tabInfo);
     addError(`ANTI-SPAM: Command ini masih dalam cooldown ${Math.ceil(remMs / 1000)} detik lagi.`, tabInfo.id);
     return;
   }
 
   const tabInfo = tabInfoForCommand(text, "auto");
-  setActiveTab(tabInfo, { reset: true });
+  if (!isBackground) setActiveTab(tabInfo, { reset: true });
+  
+  // CLEAR messages so only 1 analysis shows up in the tab
+  const tab = ensureTab(tabInfo.id);
+  if (tab) {
+    tab.messages = [];
+    renderMessages();
+  }
+
+  // Hide short market panel when executing a command
+  const shortMarketPanel = document.querySelector("#shortMarketPanel");
+  if (shortMarketPanel) shortMarketPanel.style.display = "none";
+
   addUserInput(text, tabInfo.id);
   syncPolymarketEmbedFromText(text, "From input");
   activeRequest = new AbortController();
@@ -755,6 +975,8 @@ async function executeCommand(commandText) {
   } finally {
     activeRequest = null;
     setBusy(false);
+    if (isBackground) playQueueDoneSound();
+    
     // Jika fetch sukses, state udah disync via syncRateLimit.
     // Jika gagal network, set local fallback cooldown.
     if (!data || !data.rateLimit) {
@@ -917,29 +1139,52 @@ if (togglePolyBtn) {
 
 
 
-/* --- BTC 5m Live Logic --- */
-const btnBtc5m = document.querySelector("#btnBtc5m");
-const btc5mPanel = document.querySelector("#btc5mPanel");
-const btnRefreshBtc5m = document.querySelector("#btnRefreshBtc5m");
-const btc5mList = document.querySelector("#btc5mList");
-const btc5mStatus = document.querySelector("#btc5mStatus");
+/* --- Short Market Logic --- */
+const btnShortMarket = document.querySelector("#btnShortMarket");
+const shortMarketPanel = document.querySelector("#shortMarketPanel");
+const btnRefreshShortMarket = document.querySelector("#btnRefreshShortMarket");
+const shortMarketList = document.querySelector("#shortMarketList");
+const shortMarketStatus = document.querySelector("#shortMarketStatus");
 
-let btc5mTimer = null;
+const tabAssetBtc = document.querySelector("#tabAssetBtc");
+const tabAssetEth = document.querySelector("#tabAssetEth");
+const tabAssetDoge = document.querySelector("#tabAssetDoge");
+const shortDurationSelect = document.querySelector("#shortDurationSelect");
 
-if (btnBtc5m && btc5mPanel) {
-  btnBtc5m.addEventListener("click", (e) => {
+let shortMarketTimer = null;
+let shortMarketRealtimeInterval = null;
+let currentShortMarkets = [];
+let activeShortAsset = 'btc';
+let activeShortDuration = '5m';
+
+function updateActiveAssetTab() {
+  if (tabAssetBtc) tabAssetBtc.style.color = activeShortAsset === 'btc' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+  if (tabAssetEth) tabAssetEth.style.color = activeShortAsset === 'eth' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+  if (tabAssetDoge) tabAssetDoge.style.color = activeShortAsset === 'doge' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+}
+
+if (btnShortMarket && shortMarketPanel) {
+  document.body.appendChild(shortMarketPanel); // Escape stacking context
+  btnShortMarket.addEventListener("click", (e) => {
     e.stopPropagation();
-    const isHidden = btc5mPanel.style.display === "none";
-    btc5mPanel.style.display = isHidden ? "block" : "none";
+    const isHidden = shortMarketPanel.style.display === "none";
     if (isHidden) {
-      fetchBtc5mMarkets();
-      startBtc5mRealtimeTimer();
+      const rect = btnShortMarket.getBoundingClientRect();
+      shortMarketPanel.style.top = (rect.bottom + 8) + "px";
+      shortMarketPanel.style.right = (window.innerWidth - rect.right) + "px";
+      shortMarketPanel.style.display = "block";
+      
+      activeShortAsset = "btc";
+      if (shortDurationSelect) {
+        shortDurationSelect.value = activeShortDuration;
+      }
+      updateActiveAssetTab();
+      fetchShortMarkets();
+      startShortRealtimeTimer();
     } else {
-      stopBtc5mRealtimeTimer();
+      stopShortRealtimeTimer();
     }
   });
-  // Panel akan tetap terbuka sampai tombol diklik lagi
-  // Tidak ada event listener document click untuk menutup otomatis.
 }
 
 /* --- Queue Panel Logic --- */
@@ -956,16 +1201,61 @@ let isSniperActive = false;
 let sniperInterval = null;
 
 if (btnToggleQueue && queuePanel) {
+  document.body.appendChild(queuePanel); // Escape stacking context
   btnToggleQueue.addEventListener("click", (e) => {
     e.stopPropagation();
     const isHidden = queuePanel.style.display === "none";
-    queuePanel.style.display = isHidden ? "block" : "none";
+    if (isHidden) {
+      // Jika belum punya left inline (belum pernah didrag), posisikan relatif ke layar
+      if (!queuePanel.style.left || queuePanel.style.left === "") {
+        const rect = btnToggleQueue.getBoundingClientRect();
+        queuePanel.style.top = (rect.bottom + 8) + "px";
+        queuePanel.style.right = (window.innerWidth - rect.right) + "px";
+      }
+      queuePanel.style.display = "flex";
+    } else {
+      queuePanel.style.display = "none";
+    }
   });
 }
 
 if (btnCloseQueue && queuePanel) {
   btnCloseQueue.addEventListener("click", () => {
+    if (isSniperActive) {
+      showCustomAlert("Tidak bisa menutup antrian saat Sniper sedang berjalan.");
+      return;
+    }
     queuePanel.style.display = "none";
+  });
+}
+
+// Minimize Panel
+const btnMinimizeQueue = document.querySelector("#btnMinimizeQueue");
+const queuePanelContent = document.querySelector("#queuePanelContent");
+const queueProgressText = document.querySelector("#queueProgressText");
+const queueResizeHandleSW = document.querySelector("#queueResizeHandleSW");
+
+if (btnMinimizeQueue && queuePanelContent) {
+  btnMinimizeQueue.addEventListener("click", () => {
+    const isMinimized = queuePanelContent.style.display === "none";
+    if (isMinimized) {
+      queuePanelContent.style.display = "flex";
+      queuePanel.style.height = queuePanel.dataset.lastHeight || "400px";
+      queuePanel.style.minHeight = queuePanel.dataset.lastMinHeight || "200px";
+      btnMinimizeQueue.innerHTML = '<i data-lucide="minus" style="width:14px; height:14px;"></i>';
+      if (queueProgressText) queueProgressText.style.display = "none";
+      if (queueResizeHandleSW) queueResizeHandleSW.style.display = "block";
+    } else {
+      queuePanel.dataset.lastHeight = queuePanel.style.height || "400px";
+      queuePanel.dataset.lastMinHeight = queuePanel.style.minHeight || "200px";
+      queuePanelContent.style.display = "none";
+      queuePanel.style.height = "auto";
+      queuePanel.style.minHeight = "0";
+      btnMinimizeQueue.innerHTML = '<i data-lucide="maximize-2" style="width:14px; height:14px;"></i>';
+      if (isSniperActive && queueProgressText) queueProgressText.style.display = "inline";
+      if (queueResizeHandleSW) queueResizeHandleSW.style.display = "none";
+    }
+    lucide.createIcons();
   });
 }
 
@@ -1011,7 +1301,7 @@ if (queuePanel && queuePanelHeader) {
 }
 
 // Resizable Panel (Bottom-Left)
-const queueResizeHandleSW = document.querySelector("#queueResizeHandleSW");
+
 if (queuePanel && queueResizeHandleSW) {
   let isResizing = false;
   let startX, startY, startWidth, startHeight, startLeft;
@@ -1111,7 +1401,7 @@ function addToQueue(marketData) {
   }
   
   // Ambil data market penuh dari list kalau ada, supaya bisa render jam
-  const fullMarket = currentBtcMarkets.find(m => m.id === marketData.id);
+  const fullMarket = currentShortMarkets.find(m => m.id === marketData.id);
   const queueItem = fullMarket || marketData;
   
   analysisQueue.push(queueItem);
@@ -1120,6 +1410,25 @@ function addToQueue(marketData) {
 
 function renderQueue() {
   if (!queueDropzone || !queueEmpty) return;
+  
+  const completed = analysisQueue.filter(m => m.snipeFired).length;
+  const queueProgressText = document.querySelector("#queueProgressText");
+  const queuePanelContent = document.querySelector("#queuePanelContent");
+  
+  if (queueProgressText) {
+    if (analysisQueue.length > 0 && isSniperActive) {
+      queueProgressText.textContent = `(${completed}/${analysisQueue.length} Selesai)`;
+    } else {
+      queueProgressText.textContent = "";
+    }
+    
+    if (isSniperActive && queuePanelContent && queuePanelContent.style.display === "none") {
+      queueProgressText.style.display = "inline";
+    } else {
+      queueProgressText.style.display = "none";
+    }
+  }
+
   if (analysisQueue.length === 0) {
     queueDropzone.innerHTML = "";
     queueDropzone.appendChild(queueEmpty);
@@ -1187,8 +1496,12 @@ function renderQueue() {
       </div>
     `;
   });
-  queueDropzone.innerHTML = html;
-  if (typeof lucide !== 'undefined') lucide.createIcons();
+  
+  if (queueDropzone.dataset.lastHtml !== html) {
+    queueDropzone.innerHTML = html;
+    queueDropzone.dataset.lastHtml = html;
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
 }
 
 window.removeFromQueue = function(id) {
@@ -1242,6 +1555,16 @@ if (btnSniperSettings && sniperSettingsPanel) {
   });
 }
 
+// Global timer to update queue countdown visually
+setInterval(() => {
+  if (analysisQueue.length > 0) {
+    // Only re-render if the panel is actually visible to save CPU
+    if (queuePanel && queuePanel.style.display !== "none") {
+      renderQueue();
+    }
+  }
+}, 1000);
+
 if (btnMuteAudio && iconMute) {
   btnMuteAudio.addEventListener("click", () => {
     isAudioMuted = !isAudioMuted;
@@ -1265,15 +1588,20 @@ function startSniper() {
     const sec5 = document.querySelector("#sniper5mSec");
     const min15 = document.querySelector("#sniper15mMin");
     const sec15 = document.querySelector("#sniper15mSec");
+    const min1h = document.querySelector("#sniper1hMin");
+    const sec1h = document.querySelector("#sniper1hSec");
     
-    const val5m = ((min5 && min5.value ? parseInt(min5.value) : 3) * 60) + (sec5 && sec5.value ? parseInt(sec5.value) : 30);
-    const val15m = ((min15 && min15.value ? parseInt(min15.value) : 7) * 60) + (sec15 && sec15.value ? parseInt(sec15.value) : 0);
+    const val5m = ((min5 && min5.value ? parseInt(min5.value) : 4) * 60) + (sec5 && sec5.value ? parseInt(sec5.value) : 30);
+    const val15m = ((min15 && min15.value ? parseInt(min15.value) : 13) * 60) + (sec15 && sec15.value ? parseInt(sec15.value) : 30);
+    const val1h = ((min1h && min1h.value ? parseInt(min1h.value) : 55) * 60) + (sec1h && sec1h.value ? parseInt(sec1h.value) : 0);
     
     // 1. Cek market mana saja yang sudah masuk sweet spot
     analysisQueue.forEach(m => {
       if (!m.snipeFired && m.endDate) {
         const timeToClose = new Date(m.endDate).getTime() - Date.now();
-        const durationLimit = m.duration_type === '15m' ? val15m * 1000 : val5m * 1000;
+        let durationLimit = val5m * 1000;
+        if (m.duration_type === '15m') durationLimit = val15m * 1000;
+        else if (m.duration_type === '1h') durationLimit = val1h * 1000;
         // Fire when time is exactly at limit atau kurang, dan belum ditutup
         if (timeToClose > 0 && timeToClose <= durationLimit) {
           m.snipeFired = true;
@@ -1293,7 +1621,15 @@ function startSniper() {
         ? "/analyze " + urlsToShoot[0]
         : "/analyzequeue " + urlsToShoot.join(",");
         
-      executeCommand(commandStr);
+      executeCommand(commandStr, true); // Eksekusi di background, jangan paksa pindah tab
+    }
+    
+    // 3. Auto-stop jika semua market di antrean sudah ditembak & dieksekusi
+    if (isSniperActive && analysisQueue.length > 0) {
+      const allFired = analysisQueue.every(m => m.snipeFired);
+      if (allFired && sniperExecutionQueue.length === 0 && !busy) {
+        toggleSniper();
+      }
     }
   }, 1000);
 }
@@ -1306,17 +1642,23 @@ function stopSniper() {
 function toggleSniper() {
   isSniperActive = !isSniperActive;
   if (isSniperActive) {
-    btnRunQueue.innerHTML = `<i data-lucide="crosshair" class="btn-icon"></i> Sniper Active`;
+    btnRunQueue.innerHTML = `<i data-lucide="square" class="btn-icon" style="width:12px; height:12px;"></i> Stop Sniper`;
     btnRunQueue.style.background = "rgba(245, 158, 11, 0.5)";
     btnRunQueue.style.color = "#fff";
     startSniper();
   } else {
-    btnRunQueue.innerHTML = `<i data-lucide="crosshair" class="btn-icon"></i> Activate Sniper`;
+    btnRunQueue.innerHTML = `<i data-lucide="play" class="btn-icon" style="width:12px; height:12px;"></i> Start Sniper & Queue`;
     btnRunQueue.style.background = "rgba(245, 158, 11, 0.2)";
     btnRunQueue.style.color = "var(--neon-amber)";
     stopSniper();
   }
   if (typeof lucide !== 'undefined') lucide.createIcons();
+  
+  if (btnCloseQueue) {
+    btnCloseQueue.style.opacity = isSniperActive ? "0.3" : "1";
+    btnCloseQueue.style.cursor = isSniperActive ? "not-allowed" : "pointer";
+  }
+  
   renderQueue();
 }
 
@@ -1331,69 +1673,54 @@ if (btnRunQueue) {
 }
 
 
-let currentBtcMarkets = [];
-let activeBtcTab = '5m';
+if (tabAssetBtc) tabAssetBtc.addEventListener("click", () => { activeShortAsset = 'btc'; updateActiveAssetTab(); fetchShortMarkets(); });
+if (tabAssetEth) tabAssetEth.addEventListener("click", () => { activeShortAsset = 'eth'; updateActiveAssetTab(); fetchShortMarkets(); });
+if (tabAssetDoge) tabAssetDoge.addEventListener("click", () => { activeShortAsset = 'doge'; updateActiveAssetTab(); fetchShortMarkets(); });
 
-const tabBtc5m = document.querySelector("#tabBtc5m");
-const tabBtc15m = document.querySelector("#tabBtc15m");
-
-if (tabBtc5m && tabBtc15m) {
-  tabBtc5m.addEventListener("click", () => {
-    activeBtcTab = '5m';
-    tabBtc5m.style.borderBottomColor = 'var(--neon-amber)';
-    tabBtc5m.style.color = 'var(--text-primary)';
-    tabBtc15m.style.borderBottomColor = 'transparent';
-    tabBtc15m.style.color = 'var(--text-tertiary)';
-    renderBtc5mMarkets(currentBtcMarkets);
-  });
-  
-  tabBtc15m.addEventListener("click", () => {
-    activeBtcTab = '15m';
-    tabBtc15m.style.borderBottomColor = 'var(--neon-amber)';
-    tabBtc15m.style.color = 'var(--text-primary)';
-    tabBtc5m.style.borderBottomColor = 'transparent';
-    tabBtc5m.style.color = 'var(--text-tertiary)';
-    renderBtc5mMarkets(currentBtcMarkets);
+if (shortDurationSelect) {
+  shortDurationSelect.addEventListener("change", (e) => {
+    activeShortDuration = e.target.value;
+    renderShortMarkets(currentShortMarkets);
   });
 }
 
-if (btnRefreshBtc5m) {
-  btnRefreshBtc5m.addEventListener("click", () => {
-    fetchBtc5mMarkets();
+if (btnRefreshShortMarket) {
+  btnRefreshShortMarket.addEventListener("click", () => {
+    fetchShortMarkets();
   });
 }
 
-async function fetchBtc5mMarkets() {
-  if (btc5mStatus) btc5mStatus.textContent = "Updating...";
+async function fetchShortMarkets() {
+  if (shortMarketStatus) shortMarketStatus.textContent = "Updating...";
   try {
-    const res = await fetch("/api/btc-short-term");
+    const res = await fetch(`/api/short-term?asset=${activeShortAsset}`);
     const data = await res.json();
     if (data.ok) {
-      currentBtcMarkets = data.markets || [];
-      renderBtc5mMarkets(currentBtcMarkets);
-      if (btc5mStatus) {
+      currentShortMarkets = data.markets || [];
+      renderShortMarkets(currentShortMarkets);
+      if (shortMarketStatus) {
         const now = new Date();
-        btc5mStatus.textContent = `Last update: ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+        shortMarketStatus.textContent = `Last update: ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
       }
     } else {
-      if (btc5mStatus) btc5mStatus.textContent = "Error updating";
+      if (shortMarketStatus) shortMarketStatus.textContent = "Error updating";
     }
   } catch (error) {
-    console.error("Failed to fetch BTC 5m markets:", error);
-    if (btc5mStatus) btc5mStatus.textContent = "Network error";
+    console.error("Failed to fetch short markets:", error);
+    if (shortMarketStatus) shortMarketStatus.textContent = "Network error";
   }
 
   // Auto refresh if panel is open
-  if (btc5mPanel && btc5mPanel.style.display === "block") {
-    if (btc5mTimer) clearTimeout(btc5mTimer);
-    btc5mTimer = setTimeout(fetchBtc5mMarkets, 5000); // 5 detik
+  if (shortMarketPanel && shortMarketPanel.style.display === "block") {
+    if (shortMarketTimer) clearTimeout(shortMarketTimer);
+    shortMarketTimer = setTimeout(fetchShortMarkets, 5000); // 5 detik
   }
 }
 
-function renderBtc5mMarkets(markets) {
-  if (!btc5mList) return;
+function renderShortMarkets(markets) {
+  if (!shortMarketList) return;
   if (!markets || !markets.length) {
-    btc5mList.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-tertiary);">No active BTC markets found right now.</div>';
+    shortMarketList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-tertiary);">No active ${activeShortAsset.toUpperCase()} markets found right now.</div>`;
     return;
   }
 
@@ -1425,10 +1752,10 @@ function renderBtc5mMarkets(markets) {
     }
 
     return `
-      <div class="btc5m-card" draggable="true" data-id="${m.id}" data-url="${m.url}" data-question="${(m.question || '').replace(/"/g, '&quot;')}" ondragstart="handleDragStart(event, this)" ondragend="handleDragEnd(event)" style="padding:8px 10px; border:1px solid rgba(255,255,255,0.05); border-radius:4px; background:rgba(0,0,0,0.15); cursor:grab; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='rgba(245,158,11,0.3)';" onmouseout="this.style.background='rgba(0,0,0,0.15)'; this.style.borderColor='rgba(255,255,255,0.05)';" onclick="analyzeBtc5m('${m.id}', '${m.url}')">
-        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-          <span style="font-weight:600; color:var(--text-primary); font-size:11px;">${m.groupItemTitle || m.question.replace(/Bitcoin Up or Down -? ?/i, '').trim()}</span>
-          <span class="btc5m-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${labelYes}" data-l-no="${labelNo}" style="color:${timeColor}; font-weight:700; font-size:10px;">${timeText}</span>
+      <div class="btc5m-card" draggable="true" data-id="${m.id}" data-url="${m.url}" data-question="${(m.question || '').replace(/"/g, '&quot;')}" ondragstart="handleDragStart(event, this)" ondragend="handleDragEnd(event)" style="padding:8px 10px; border:1px solid rgba(255,255,255,0.05); border-radius:4px; background:rgba(0,0,0,0.15); cursor:grab; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='rgba(245,158,11,0.3)';" onmouseout="this.style.background='rgba(0,0,0,0.15)'; this.style.borderColor='rgba(255,255,255,0.05)';" onclick="analyzeShortMarket('${m.id}', '${m.url}')">
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px; align-items:flex-start;">
+          <span style="font-weight:600; color:var(--text-primary); font-size:11px; flex:1; min-width:0; word-wrap:break-word;">${m.groupItemTitle || m.question.replace(new RegExp(`${activeShortAsset} Up or Down -? ?`, 'i'), '').trim()}</span>
+          <span class="short-market-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${labelYes}" data-l-no="${labelNo}" style="color:${timeColor}; font-weight:700; font-size:10px; white-space:nowrap; flex-shrink:0; text-align:right; margin-left:8px;">${timeText}</span>
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <div style="display:flex; gap:8px;">
@@ -1441,11 +1768,11 @@ function renderBtc5mMarkets(markets) {
     `;
   };
 
-  let targetMarkets = [];
-  if (activeBtcTab === '5m') {
-    targetMarkets = markets.filter(m => m.duration_type === '5m' || !m.duration_type);
-  } else {
-    targetMarkets = markets.filter(m => m.duration_type === '15m');
+  let targetMarkets = markets.filter(m => m.duration_type === activeShortDuration);
+  
+  // Fallback if the active duration is '5m' but the market doesn't have duration_type explicit
+  if (activeShortDuration === '5m' && targetMarkets.length === 0) {
+     targetMarkets = markets.filter(m => m.duration_type === '5m' || !m.duration_type);
   }
 
   let html = "";
@@ -1453,18 +1780,16 @@ function renderBtc5mMarkets(markets) {
   if (targetMarkets.length) {
     html += targetMarkets.map(renderCard).join("");
   } else {
-    html = `<div style="text-align:center; padding:20px; color:var(--text-tertiary);">No active BTC ${activeBtcTab} markets right now.</div>`;
+    html = `<div style="text-align:center; padding:20px; color:var(--text-tertiary);">No active ${activeShortAsset.toUpperCase()} ${activeShortDuration} markets right now.</div>`;
   }
 
-  btc5mList.innerHTML = html;
+  shortMarketList.innerHTML = html;
 }
 
-let btc5mRealtimeInterval = null;
-
-function startBtc5mRealtimeTimer() {
-  if (btc5mRealtimeInterval) clearInterval(btc5mRealtimeInterval);
-  btc5mRealtimeInterval = setInterval(() => {
-    document.querySelectorAll(".btc5m-timer").forEach(el => {
+function startShortRealtimeTimer() {
+  if (shortMarketRealtimeInterval) clearInterval(shortMarketRealtimeInterval);
+  shortMarketRealtimeInterval = setInterval(() => {
+    document.querySelectorAll(".short-market-timer").forEach(el => {
       const endDate = el.getAttribute("data-end-date");
       if (!endDate) return;
       
@@ -1499,17 +1824,17 @@ function startBtc5mRealtimeTimer() {
   }, 1000);
 }
 
-function stopBtc5mRealtimeTimer() {
-  if (btc5mRealtimeInterval) {
-    clearInterval(btc5mRealtimeInterval);
-    btc5mRealtimeInterval = null;
+function stopShortRealtimeTimer() {
+  if (shortMarketRealtimeInterval) {
+    clearInterval(shortMarketRealtimeInterval);
+    shortMarketRealtimeInterval = null;
   }
 }
 
-window.analyzeBtc5m = function(marketId, url) {
-  if (btc5mPanel) btc5mPanel.style.display = "none";
-  if (btc5mTimer) clearTimeout(btc5mTimer);
-  stopBtc5mRealtimeTimer();
+window.analyzeShortMarket = function(marketId, url) {
+  if (shortMarketPanel) shortMarketPanel.style.display = "none";
+  if (shortMarketTimer) clearTimeout(shortMarketTimer);
+  stopShortRealtimeTimer();
   
   const input = document.querySelector("#commandInput");
   if (input) {
@@ -1530,7 +1855,8 @@ const btnHistory = document.querySelector("#btnHistory");
 const closeHistoryModal = document.querySelector("#closeHistoryModal");
 const historyTableBody = document.querySelector("#historyTableBody");
 let allHistoryEvents = [];
-let currentHistoryFilter = "all";
+let currentHistoryAsset = "all";
+let currentHistoryDuration = "all";
 let excludeNeutralFilter = false;
 
 const excludeNeutralBtn = document.querySelector("#excludeNeutralBtn");
@@ -1544,6 +1870,10 @@ if (excludeNeutralBtn) {
 if (btnHistory && historyModal && closeHistoryModal) {
   btnHistory.addEventListener("click", () => {
     historyModal.style.display = "flex";
+    const qp = document.querySelector("#queuePanel");
+    if (qp) qp.style.display = "none";
+    const smp = document.querySelector("#shortMarketPanel");
+    if (smp) smp.style.display = "none";
     fetchHistoryEvents();
   });
 
@@ -1552,31 +1882,68 @@ if (btnHistory && historyModal && closeHistoryModal) {
   });
 }
 
-document.querySelectorAll(".history-tab-btn").forEach(btn => {
+document.querySelectorAll(".history-asset-btn").forEach(btn => {
   btn.addEventListener("click", (e) => {
-    document.querySelectorAll(".history-tab-btn").forEach(b => {
+    document.querySelectorAll(".history-asset-btn").forEach(b => {
       b.classList.remove("active");
-      b.style.color = "var(--text-tertiary)";
-      b.style.borderBottom = "2px solid transparent";
+      b.style.background = "transparent";
+      b.style.color = "var(--text-secondary)";
     });
     const target = e.currentTarget;
     target.classList.add("active");
-    target.style.color = "var(--text-primary)";
-    target.style.borderBottom = "2px solid var(--neon-purple)";
+    target.style.background = "var(--neon-amber)";
+    target.style.color = "#000";
     
-    currentHistoryFilter = target.getAttribute("data-filter");
+    currentHistoryAsset = target.getAttribute("data-asset");
+    applyHistoryFilter();
+  });
+});
+
+document.querySelectorAll(".history-duration-btn").forEach(btn => {
+  btn.addEventListener("click", (e) => {
+    document.querySelectorAll(".history-duration-btn").forEach(b => {
+      b.classList.remove("active");
+      b.style.background = "transparent";
+      b.style.color = "var(--text-secondary)";
+    });
+    const target = e.currentTarget;
+    target.classList.add("active");
+    target.style.background = "var(--neon-purple)";
+    target.style.color = "#fff";
+    
+    currentHistoryDuration = target.getAttribute("data-duration");
     applyHistoryFilter();
   });
 });
 
 function applyHistoryFilter() {
   let filtered = allHistoryEvents;
-  if (currentHistoryFilter === "5m") {
-    filtered = allHistoryEvents.filter(e => e.url.includes("5m") || e.question.toLowerCase().includes("5 min"));
-  } else if (currentHistoryFilter === "15m") {
-    filtered = allHistoryEvents.filter(e => e.url.includes("15m") || e.question.toLowerCase().includes("15 min"));
+  
+  // 1. Filter by Asset
+  if (currentHistoryAsset !== "all") {
+    filtered = filtered.filter(e => {
+      const q = e.question.toLowerCase();
+      const u = e.url.toLowerCase();
+      if (currentHistoryAsset === "btc") return q.includes("bitcoin") || q.includes("btc") || u.includes("btc");
+      if (currentHistoryAsset === "eth") return q.includes("ethereum") || q.includes("eth") || u.includes("eth");
+      if (currentHistoryAsset === "doge") return q.includes("dogecoin") || q.includes("doge") || u.includes("doge");
+      return true;
+    });
+  }
+
+  // 2. Filter by Duration
+  if (currentHistoryDuration !== "all") {
+    filtered = filtered.filter(e => {
+      const q = e.question.toLowerCase();
+      const u = e.url.toLowerCase();
+      if (currentHistoryDuration === "5m") return u.includes("5m") || q.includes("5 min") || q.includes("5-min");
+      if (currentHistoryDuration === "15m") return u.includes("15m") || q.includes("15 min") || q.includes("15-min");
+      if (currentHistoryDuration === "1h") return u.includes("hourly") || u.includes("1h") || q.includes("1 hour") || q.includes("1-hour");
+      return true;
+    });
   }
   
+  // 3. Filter Neutral
   if (excludeNeutralFilter) {
     filtered = filtered.filter(e => {
       if (!e.prediction) return true;
@@ -1632,7 +1999,11 @@ function renderHistoryListPanel() {
       <div onclick="showHistoryChat(${event.id})" style="padding:10px; border:1px solid rgba(255,255,255,0.05); border-radius:6px; background:rgba(0,0,0,0.2); cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='var(--neon-purple)';" onmouseout="this.style.background='rgba(0,0,0,0.2)'; this.style.borderColor='rgba(255,255,255,0.05)';">
         <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
           <span style="font-size:10px; color:var(--text-tertiary);">${dateStr} ${timeStr}</span>
-          <div style="display:flex; gap:4px;">${predBadge} ${resultBadge}</div>
+          <div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;">
+            ${predBadge} ${resultBadge}
+            ${event.qwen_confidence ? `<span title="Qwen Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">Q: ${event.qwen_confidence}</span>` : ''}
+            ${event.data_confidence ? `<span title="Data Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">D: ${event.data_confidence}</span>` : ''}
+          </div>
         </div>
         <div style="font-size:11px; font-weight:600; color:var(--text-primary); line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
           ${event.question}
@@ -1690,8 +2061,10 @@ function renderHistoryEvents(events) {
         </td>
         <td style="padding:10px 0; color:var(--text-secondary); font-weight:bold;">${event.prediction || '-'}</td>
         <td style="padding:10px 0; color:var(--text-tertiary); text-transform:capitalize;">${event.status}</td>
-        <td style="padding:10px 0; color:${statusColor}; font-weight:bold; text-transform:capitalize;">
-          ${event.result || '-'} 
+        <td style="padding:10px 0;">
+          <span style="color:${statusColor}; font-weight:bold; text-transform:capitalize;">${event.result || '-'}</span>
+          ${event.qwen_confidence ? `<div style="font-size:9px; color:var(--text-tertiary); margin-top:4px;">Qwen Conf: ${event.qwen_confidence}/100</div>` : ''}
+          ${event.data_confidence ? `<div style="font-size:9px; color:var(--text-tertiary);">Data Conf: ${event.data_confidence}/100</div>` : ''}
         </td>
         <td style="padding:10px 0; text-align:right;">
           <button class="action-chip" style="height:24px; font-size:10px; padding:0 8px; ${event.status === 'selesai' && event.result !== 'menunggu hasil' ? 'opacity:0.5; cursor:not-allowed;' : ''}" 

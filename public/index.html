@@ -201,14 +201,14 @@
                   Jika dianalisis sebelum batas waktu ini, titik acuan harga belum dikunci oleh Polymarket.
                 </div>
               </div>
-              <button id="btnBtc5m" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px; border-color: rgba(245, 158, 11, 0.3);">
-                <i data-lucide="zap" class="btn-icon" style="width:12px; height:12px; color:var(--neon-amber);"></i> BTC Short
+              <button id="btnShortMarket" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px; border-color: rgba(245, 158, 11, 0.3);">
+                <i data-lucide="zap" class="btn-icon" style="width:12px; height:12px; color:var(--neon-amber);"></i> Short Market
               </button>
               <button id="togglePolyBtn" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px;">
                 <i data-lucide="eye" class="btn-icon" style="width:12px; height:12px;"></i> Polymarket
               </button>
               <!-- Floating Panel for Queue -->
-              <div id="queuePanel" style="display:none; position:absolute; top:32px; right:330px; width:360px; height:400px; min-width:300px; min-height:200px; max-width:800px; max-height:80vh; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index:100; text-align:left; flex-direction:column;">
+              <div id="queuePanel" style="display:none; position:absolute; top:32px; right:330px; width:360px; height:400px; min-width:300px; min-height:200px; max-width:800px; max-height:80vh; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index:150; text-align:left; flex-direction:column;">
                 <div id="queueResizeHandleSW" style="position:absolute; bottom:0; left:0; width:16px; height:16px; cursor:sw-resize; z-index:101; border-bottom-left-radius: var(--radius-md);">
                   <svg width="100%" height="100%" viewBox="0 0 16 16" style="opacity:0.3; transform: rotate(90deg);"><path d="M12 14L14 12M8 14L14 8M4 14L14 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
                 </div>
@@ -216,8 +216,12 @@
                 <div id="queuePanelHeader" style="padding:10px 12px; border-bottom:1px solid var(--border); background:rgba(16, 185, 129, 0.05); display:flex; justify-content:space-between; align-items:center; cursor:grab;">
                   <span style="font-size:11px; font-weight:600; color:var(--text-primary); display:flex; align-items:center; gap:6px; pointer-events:none;">
                     <i data-lucide="list-ordered" style="width:14px; height:14px; color:var(--neon-green);"></i>Analysis Queue
+                    <span id="queueProgressText" style="display:none; color:var(--neon-amber); font-weight:normal; font-size:10px; margin-left:4px;"></span>
                   </span>
                   <div style="display:flex; gap:8px;">
+                    <button type="button" id="btnMinimizeQueue" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Minimize Queue">
+                      <i data-lucide="minus" style="width:14px; height:14px;"></i>
+                    </button>
                     <button type="button" id="btnMuteAudio" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Toggle Audio Alerts">
                       <i data-lucide="volume-2" id="iconMute" style="width:12px; height:12px;"></i>
                     </button>
@@ -233,22 +237,30 @@
                   </div>
                 </div>
 
-                <!-- Inline Settings Panel -->
+                <div id="queuePanelContent" style="display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden;">
+                  <!-- Inline Settings Panel -->
                 <div id="sniperSettingsPanel" style="display:none; padding:12px; background:rgba(0,0,0,0.2); border-bottom:1px solid var(--border); font-size:10px; color:var(--text-secondary);">
                   <div style="margin-bottom:8px;">Menit/detik **sebelum market ditutup** untuk trigger sniper:</div>
                   <div style="display:flex; flex-direction:column; gap:6px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:6px 8px; border-radius:4px; border:1px solid var(--border);">
                       <span style="font-weight:bold; color:var(--text-primary);">5-Min Market:</span>
                       <div style="display:flex; gap:4px; align-items:center;">
-                        <input type="number" id="sniper5mMin" value="3" min="0" max="4" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">m
+                        <input type="number" id="sniper5mMin" value="4" min="0" max="4" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">m
                         <input type="number" id="sniper5mSec" value="30" min="0" max="59" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">s
                       </div>
                     </div>
                     <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:6px 8px; border-radius:4px; border:1px solid var(--border);">
                       <span style="font-weight:bold; color:var(--text-primary);">15-Min Market:</span>
                       <div style="display:flex; gap:4px; align-items:center;">
-                        <input type="number" id="sniper15mMin" value="7" min="0" max="14" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">m
-                        <input type="number" id="sniper15mSec" value="0" min="0" max="59" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">s
+                        <input type="number" id="sniper15mMin" value="13" min="0" max="14" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">m
+                        <input type="number" id="sniper15mSec" value="30" min="0" max="59" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">s
+                      </div>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:6px 8px; border-radius:4px; border:1px solid var(--border);">
+                      <span style="font-weight:bold; color:var(--text-primary);">1-Hour Market:</span>
+                      <div style="display:flex; gap:4px; align-items:center;">
+                        <input type="number" id="sniper1hMin" value="55" min="0" max="59" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">m
+                        <input type="number" id="sniper1hSec" value="0" min="0" max="59" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">s
                       </div>
                     </div>
                   </div>
@@ -261,32 +273,37 @@
                 </div>
                 <div style="padding:8px; border-top:1px solid var(--border);">
                   <button id="btnRunQueue" class="btn-primary" type="button" style="width:100%; justify-content:center; height:28px; font-size:11px; background:rgba(245, 158, 11, 0.2); color:var(--neon-amber); border:1px solid rgba(245, 158, 11, 0.5);">
-                    <i data-lucide="crosshair" class="btn-icon"></i> Activate Sniper
+                    <i data-lucide="play" class="btn-icon" style="width:12px; height:12px;"></i> Start Sniper & Queue
                   </button>
                 </div>
+                </div> <!-- End of queuePanelContent -->
               </div>
 
-              <!-- Floating Panel for BTC 5m -->
-              <div id="btc5mPanel" style="display:none; position:absolute; top:32px; right:0; width:320px; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index:100; text-align:left;">
+              <!-- Floating Panel for Short Market -->
+              <div id="shortMarketPanel" style="display:none; position:absolute; top:32px; right:0; width:390px; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index:100; text-align:left;">
                 <div style="padding:10px 12px; border-bottom:1px solid var(--border); background:rgba(245,158,11,0.05); display:flex; justify-content:space-between; align-items:center;">
-                  <span style="font-size:11px; font-weight:600; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
-                    <i data-lucide="activity" style="width:14px; height:14px; color:var(--neon-amber);"></i>Live BTC Short-Term
-                  </span>
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    <button type="button" id="tabAssetBtc" style="background:none; border:none; color:var(--neon-amber); padding:0; font-size:12px; font-weight:700; cursor:pointer; transition:all 0.2s;">BTC</button>
+                    <button type="button" id="tabAssetEth" style="background:none; border:none; color:var(--text-tertiary); padding:0; font-size:12px; font-weight:700; cursor:pointer; transition:all 0.2s;">ETH</button>
+                    <button type="button" id="tabAssetDoge" style="background:none; border:none; color:var(--text-tertiary); padding:0; font-size:12px; font-weight:700; cursor:pointer; transition:all 0.2s;">DOGE</button>
+                    
+                    <select id="shortDurationSelect" style="background:var(--bg-elevated); color:var(--text-primary); border:1px solid var(--border); font-size:10px; padding:2px 4px; border-radius:4px; outline:none; cursor:pointer;">
+                      <option value="5m">5-Min</option>
+                      <option value="15m">15-Min</option>
+                      <option value="1h">1-Hour</option>
+                    </select>
+                  </div>
                   <div style="display:flex; align-items:center; gap:8px;">
                     <button type="button" id="btnToggleQueue" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Open Analysis Queue">
                       <i data-lucide="layout-template" style="width:14px; height:14px; color:var(--neon-green);"></i>
                     </button>
-                    <span id="btc5mStatus" style="font-size:9px; color:var(--text-tertiary);">Updating...</span>
-                    <button type="button" id="btnRefreshBtc5m" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Refresh">
+                    <span id="shortMarketStatus" style="font-size:9px; color:var(--text-tertiary);">Updating...</span>
+                    <button type="button" id="btnRefreshShortMarket" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Refresh">
                       <i data-lucide="refresh-cw" style="width:12px; height:12px;"></i>
                     </button>
                   </div>
                 </div>
-                <div style="display:flex; border-bottom:1px solid var(--border); padding:0 8px;">
-                  <button type="button" id="tabBtc5m" style="background:none; border:none; border-bottom:2px solid var(--neon-amber); color:var(--text-primary); padding:8px 12px; font-size:10px; font-weight:600; cursor:pointer; transition:all 0.2s;">5-Min</button>
-                  <button type="button" id="tabBtc15m" style="background:none; border:none; border-bottom:2px solid transparent; color:var(--text-tertiary); padding:8px 12px; font-size:10px; font-weight:600; cursor:pointer; transition:all 0.2s;">15-Min</button>
-                </div>
-                <div id="btc5mList" style="max-height:280px; overflow-y:auto; padding:8px; font-size:10px; display:flex; flex-direction:column; gap:6px;">
+                <div id="shortMarketList" style="max-height:280px; overflow-y:auto; padding:8px; font-size:10px; display:flex; flex-direction:column; gap:6px;">
                   <div style="text-align:center; padding:20px; color:var(--text-tertiary);">Loading markets...</div>
                 </div>
               </div>
@@ -321,6 +338,18 @@
                   <strong id="polyTitle">Embed panel</strong>
                 </div>
                 <a id="polyOpenLink" class="poly-open disabled" href="https://polymarket.com" target="_blank" rel="noopener">Open</a>
+              </div>
+              
+              <!-- Live Ticker Overlay for Poly Panel -->
+              <div id="polyLiveTicker" style="display:none; padding:12px 16px; background:rgba(16, 185, 129, 0.05); border-bottom:1px solid var(--border); border-top:1px solid var(--border); font-size:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="color:var(--text-secondary); font-weight:600;">Live Midpoint</span>
+                  <strong id="polyMidpoint" style="color:var(--neon-cyan); font-size:18px;">-</strong>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <span style="color:var(--text-tertiary); font-size:11px;">Best Bid: <strong id="polyBestBid" style="color:var(--neon-green); font-size:13px;">-</strong></span>
+                  <span style="color:var(--text-tertiary); font-size:11px;">Best Ask: <strong id="polyBestAsk" style="color:var(--neon-red); font-size:13px;">-</strong></span>
+                </div>
               </div>
               <div id="polyEmpty" class="poly-empty">
                 <span>Paste atau pilih market Polymarket.</span>
@@ -391,33 +420,53 @@
               </button>
             </div>
           </div>
-          <div style="display:flex; border-bottom:1px solid var(--border);">
-            <button class="history-tab-btn active" data-filter="all" style="flex:1; padding:12px; background:none; border:none; color:var(--text-primary); font-weight:bold; cursor:pointer; border-bottom:2px solid var(--neon-purple);">Semua Event</button>
-            <button class="history-tab-btn" data-filter="5m" style="flex:1; padding:12px; background:none; border:none; color:var(--text-tertiary); font-weight:bold; cursor:pointer; border-bottom:2px solid transparent;">BTC 5-Min</button>
-            <button class="history-tab-btn" data-filter="15m" style="flex:1; padding:12px; background:none; border:none; color:var(--text-tertiary); font-weight:bold; cursor:pointer; border-bottom:2px solid transparent;">BTC 15-Min</button>
+          <div style="padding:16px 20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.2); display:flex; flex-wrap:wrap; gap:32px; align-items:center;">
+            <!-- Asset filter -->
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div style="color:var(--text-tertiary); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Koin Aset</div>
+              <div style="display:flex; gap:6px; background:rgba(0,0,0,0.4); padding:4px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+                <button class="history-asset-btn active" data-asset="all" style="padding:6px 16px; border-radius:6px; background:var(--neon-amber); color:#000; font-weight:bold; border:none; cursor:pointer; font-size:12px; transition:all 0.2s;">All Assets</button>
+                <button class="history-asset-btn" data-asset="btc" style="padding:6px 16px; border-radius:6px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:12px; transition:all 0.2s;">BTC</button>
+                <button class="history-asset-btn" data-asset="eth" style="padding:6px 16px; border-radius:6px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:12px; transition:all 0.2s;">ETH</button>
+                <button class="history-asset-btn" data-asset="doge" style="padding:6px 16px; border-radius:6px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:12px; transition:all 0.2s;">DOGE</button>
+              </div>
+            </div>
+
+            <!-- Duration filter -->
+            <div style="display:flex; align-items:center; gap:12px;">
+              <div style="color:var(--text-tertiary); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Durasi</div>
+              <div style="display:flex; gap:6px; background:rgba(0,0,0,0.4); padding:4px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+                <button class="history-duration-btn active" data-duration="all" style="padding:6px 16px; border-radius:6px; background:var(--neon-purple); color:#fff; font-weight:bold; border:none; cursor:pointer; font-size:12px; transition:all 0.2s;">Semua Waktu</button>
+                <button class="history-duration-btn" data-duration="5m" style="padding:6px 16px; border-radius:6px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:12px; transition:all 0.2s;">5-Min</button>
+                <button class="history-duration-btn" data-duration="15m" style="padding:6px 16px; border-radius:6px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:12px; transition:all 0.2s;">15-Min</button>
+                <button class="history-duration-btn" data-duration="1h" style="padding:6px 16px; border-radius:6px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:12px; transition:all 0.2s;">1-Hour</button>
+              </div>
+            </div>
           </div>
-          <div style="padding:16px 20px; display:flex; gap:20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.2);">
+          <div style="padding:16px 20px; display:flex; gap:20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.3);">
             <div>Win Rate Analisis: <span id="historyWinRate" style="color:var(--neon-green); font-weight:bold; font-size:16px;">0%</span></div>
             <div>Total Analisis: <span id="historyTotal">0</span></div>
             <div>Menang: <span id="historyWins" style="color:var(--neon-green);">0</span></div>
             <div>Kalah: <span id="historyLosses" style="color:var(--neon-red);">0</span></div>
             <div>Belum Selesai: <span id="historyPending" style="color:var(--text-tertiary);">0</span></div>
           </div>
-          <div style="padding:16px 20px; overflow-y:auto; flex:1;">
-            <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:left;">
-              <thead>
-                <tr style="border-bottom:1px solid var(--border); color:var(--text-tertiary);">
-                  <th style="padding:8px 0; width:45%;">Pertanyaan</th>
-                  <th style="padding:8px 0;">Prediksi</th>
-                  <th style="padding:8px 0;">Status</th>
-                  <th style="padding:8px 0;">Hasil</th>
-                  <th style="padding:8px 0; text-align:right;">Aksi</th>
-                </tr>
-              </thead>
-              <tbody id="historyTableBody">
-                <!-- Rows injected via JS -->
-              </tbody>
-            </table>
+          <div style="overflow-y:auto; flex:1;">
+            <div style="padding:16px 20px;">
+              <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:left;">
+                <thead>
+                  <tr style="border-bottom:1px solid var(--border); color:var(--text-tertiary);">
+                    <th style="padding:8px 0; width:45%;">Pertanyaan</th>
+                    <th style="padding:8px 0;">Prediksi</th>
+                    <th style="padding:8px 0;">Status</th>
+                    <th style="padding:8px 0;">Hasil</th>
+                    <th style="padding:8px 0; text-align:right;">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="historyTableBody">
+                  <!-- Rows injected via JS -->
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -436,6 +485,6 @@
       </div>
     </div>
 
-    <script src="/app.js?v=39-cooldown" type="module"></script>
+    <script src="/app.js?v=58-pyth-bugfix" type="module"></script>
   </body>
 </html>

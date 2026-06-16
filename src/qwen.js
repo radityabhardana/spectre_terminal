@@ -385,9 +385,77 @@ export async function askQwen({ market, score, orderBook, researchContext = null
     2
   );
 
+  let cryptoSymbol = "";
+  const qLower = (market.question || "").toLowerCase();
+  if (qLower.includes("bitcoin") || qLower.includes("btc")) cryptoSymbol = "BTC";
+  else if (qLower.includes("ethereum") || qLower.includes("eth")) cryptoSymbol = "ETH";
+  
+  let klineInterval = "1h";
+  let intervalLabel = "1H";
+  let msInterval = 60 * 60 * 1000;
+  if (qLower.includes("5m") || qLower.includes("5 min") || qLower.includes("5-min")) {
+    klineInterval = "5m";
+    intervalLabel = "5M";
+    msInterval = 5 * 60 * 1000;
+  } else if (qLower.includes("15m") || qLower.includes("15 min") || qLower.includes("15-min")) {
+    klineInterval = "15m";
+    intervalLabel = "15M";
+    msInterval = 15 * 60 * 1000;
+  } else if (qLower.includes("30m") || qLower.includes("30 min") || qLower.includes("30-min")) {
+    klineInterval = "30m";
+    intervalLabel = "30M";
+    msInterval = 30 * 60 * 1000;
+  }
+  
+  let cryptoContext = "";
+  if (cryptoSymbol) {
+    try {
+      const pythIds = {
+        BTC: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+        ETH: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+        DOGE: "dcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c"
+      };
+      const pid = pythIds[cryptoSymbol];
+      
+      if (pid) {
+        let currentPrice = null;
+        const pRes = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${pid}`);
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          const pInfo = pData.parsed?.[0]?.price;
+          if (pInfo) {
+            currentPrice = parseFloat(pInfo.price) * Math.pow(10, pInfo.expo);
+          }
+        }
+        
+        let priceToBeatStr = "TBD";
+        const startTs = Math.floor((Math.floor(Date.now() / msInterval) * msInterval) / 1000);
+        let kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs}?ids[]=${pid}`);
+        if (!kRes.ok) {
+          kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs - 5}?ids[]=${pid}`);
+        }
+        if (kRes.ok) {
+          try {
+            const kData = await kRes.json();
+            const kInfo = kData.parsed?.[0]?.price;
+            if (kInfo) {
+              const openPrice = parseFloat(kInfo.price) * Math.pow(10, kInfo.expo);
+              priceToBeatStr = `$${openPrice.toFixed(2)} (${intervalLabel} Oracle Open)`;
+            }
+          } catch(e) {}
+        }
+        
+        if (currentPrice !== null) {
+          cryptoContext = `\n\nREAL-TIME CRYPTO DATA (${cryptoSymbol}/USDT):\n- Price to Beat (${intervalLabel} Open): ${priceToBeatStr}\n- Current Price (Live Pyth Oracle): $${currentPrice.toFixed(2)}\n[!] CATATAN: Harga menggunakan Pyth Oracle yang sangat identik dengan Chainlink Oracle VWAP di UI Polymarket. Tidak ada proxy deviasi.`;
+        }
+      }
+    } catch(e) {}
+  }
+
   const sharedContext = `
 CURRENT DATE:
 ${nowInJakarta()} Asia/Jakarta
+${cryptoContext}
 
 DATA MARKET:
 ${marketData}
@@ -408,7 +476,7 @@ ${sharedContext}
 
 Aturan:
 - Jangan mengarang data eksternal.
-- Jika ada statistik UFC dan kondisi fisik/mental (fighterConditions dari DDG Scraper), evaluasi momentum (training camp, cedera, perilaku) dan keunggulan teknis.
+${researchContext?.type === "sports_ufc" ? "- Jika ada statistik UFC dan kondisi fisik/mental (fighterConditions dari DDG Scraper), evaluasi momentum (training camp, cedera, perilaku) dan keunggulan teknis." : ""}
 - Tugasmu hanya membuat brief pendek untuk analis berikutnya.
 - Balas hanya JSON valid.
 
@@ -472,7 +540,7 @@ Format JSON:
   "technical_momentum": "Arah tren chart Klines dan Long/Short Ratio",
   "missing_data": ["maks 4 data yang masih kurang"],
   "preliminary_verdict": "SKIP/WATCHLIST/VALUE CANDIDATE/HIGH RISK UNDERDOG",
-  "confidence": 65
+  "confidence": "[Isi dengan angka 1-100 murni dari evaluasi AI, BUKAN menyalin template]"
 }
 `.trim();
 
@@ -517,7 +585,7 @@ Aturan wajib:
 Format JSON wajib:
 {
   "verdict": "SKIP",
-  "confidence": 65,
+  "confidence": "[Isi dengan angka 1-100 murni dari keyakinan AI, BUKAN menyalin template]",
   "estimated_fair_probability": 60,
   "expected_value_cents": 10,
   "summary": "Ringkasan tajam ala manajer hedge fund kuantitatif (profesional, berbobot, berbasis data).",
@@ -771,7 +839,8 @@ Format JSON wajib:
   ],
   "avoid": ["market/tipe pilihan yang sebaiknya dihindari dan alasannya"],
   "missing_data": ["data eksternal yang perlu dicek sebelum entry"],
-  "final_note": "catatan final untuk user"
+  "final_note": "Catatan singkat.",
+  "confidence": "[Isi dengan angka 1-100 murni dari evaluasi AI, BUKAN menyalin template]"
 }
 `.trim();
 

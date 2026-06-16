@@ -485,7 +485,9 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
       question: scored.market.question,
       url: scored.market.url,
       prediction: finalPrediction,
-      analysis_conclusion: fullAnalysisMarkdown
+      analysis_conclusion: fullAnalysisMarkdown,
+      qwen_confidence: String(qwenResult?.analysis?.confidence || ""),
+      data_confidence: String(scored.score?.confidenceScore || "")
     });
   }
 
@@ -597,7 +599,9 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
       question: best.market.question,
       url: best.market.url,
       prediction: bestFinalPrediction,
-      analysis_conclusion: fullAnalysisMarkdownBest
+      analysis_conclusion: fullAnalysisMarkdownBest,
+      qwen_confidence: String(bestQwen?.analysis?.confidence || ""),
+      data_confidence: String(best.score?.confidenceScore || "")
     });
   }
 

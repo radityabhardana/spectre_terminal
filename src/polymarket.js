@@ -324,26 +324,35 @@ export async function searchMarkets(keyword, limit = 5) {
   return sortMarkets(scored, keyword).slice(0, limit);
 }
 
-export async function getBtcShortTermMarkets() {
+export async function getShortTermMarkets(asset = "btc") {
+  const assetLower = asset.toLowerCase();
+  
   const url5m = new URL("/events", config.gammaUrl);
-  url5m.searchParams.set("series_slug", "btc-up-or-down-5m");
+  url5m.searchParams.set("series_slug", `${assetLower}-up-or-down-5m`);
   url5m.searchParams.set("active", "true");
   url5m.searchParams.set("closed", "false");
   url5m.searchParams.set("limit", "100");
 
   const url15m = new URL("/events", config.gammaUrl);
-  url15m.searchParams.set("series_slug", "btc-up-or-down-15m");
+  url15m.searchParams.set("series_slug", `${assetLower}-up-or-down-15m`);
   url15m.searchParams.set("active", "true");
   url15m.searchParams.set("closed", "false");
   url15m.searchParams.set("limit", "100");
+  
+  const url1h = new URL("/events", config.gammaUrl);
+  url1h.searchParams.set("series_slug", `${assetLower}-up-or-down-hourly`);
+  url1h.searchParams.set("active", "true");
+  url1h.searchParams.set("closed", "false");
+  url1h.searchParams.set("limit", "100");
 
-  const [events5m, events15m] = await Promise.all([
+  const [events5m, events15m, events1h] = await Promise.all([
     fetchJson(url5m.toString()),
-    fetchJson(url15m.toString())
+    fetchJson(url15m.toString()),
+    fetchJson(url1h.toString())
   ]);
 
   const now = Date.now();
-  const btcMarkets = [];
+  const shortMarkets = [];
 
   const processEvents = (events, durationType) => {
     if (!Array.isArray(events)) return;
@@ -356,15 +365,16 @@ export async function getBtcShortTermMarkets() {
       
       const endTime = new Date(m.endDate).getTime();
       if (now - endTime <= 24 * 60 * 60 * 1000) {
-        btcMarkets.push(m);
+        shortMarkets.push(m);
       }
     }
   };
 
   processEvents(events5m, "5m");
   processEvents(events15m, "15m");
+  processEvents(events1h, "1h");
   
-  return btcMarkets.sort((a, b) => {
+  return shortMarkets.sort((a, b) => {
     const timeA = new Date(a.endDate).getTime();
     const timeB = new Date(b.endDate).getTime();
     return timeA - timeB;

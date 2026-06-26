@@ -1,0 +1,15 @@
+# UI/UX Design Rules
+
+ALWAYS apply the "Taste Skill" guidelines for any frontend or UI/UX tasks. 
+Reference: `taste-skill/skills/taste-skill/SKILL.md`
+
+Key Principles to remember for Razor Bot:
+1. **No AI Slop**: Avoid generic gradients, standard centered hero layouts, and overused UI patterns.
+2. **Typography**: Use high-quality fonts (e.g. Geist for sans, JetBrains Mono for tech/terminal vibes). Avoid standard `system-ui` or generic `Inter` unless specifically requested. Do not use serifs unless strictly for editorial themes.
+3. **Colors**: Maximum 1 accent color per theme. Avoid "AI purple" gradients. Use neutral bases (Zinc/Slate) with high-contrast singular accents.
+4. **Glassmorphism / Liquid Glass**: When using translucent panels, apply backdrop blur, a 1px inner border (`rgba(255,255,255,0.1)`), and a subtle inner shadow to simulate physical glass refraction.
+5. **Tactile Feedback**: Interactive elements (buttons) must have a tactile physical response (e.g., `transform: scale(0.98) translateY(1px)` on `:active`).
+6. **Layout Discipline**: Prefer asymmetric grids over simple flexbox math. Do not wrap CTA buttons on desktop. Ensure high contrast for readability.
+7. **Refined Animation**: Use motivated animations. If an animation doesn't communicate hierarchy, state transition, or feedback, remove it.
+
+Read `taste-skill/skills/taste-skill/SKILL.md` for complete guidelines if unsure.

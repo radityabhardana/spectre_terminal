@@ -13,6 +13,8 @@ const QWEN_COMMANDS = new Set([
   "/eventmarket",
   "/eventbest",
   "/eventall",
+  "/shortcondition",
+  "/shortvibe"
 ]);
 
 function cleanup(map, cutoff) {
@@ -66,7 +68,10 @@ export function enterCommandGuard({ command, arg, message, ctx }) {
   const scope = chatScope(message, ctx);
   const commandKey = `${scope}:${normalizedCommandKey(command, arg)}`;
   const hasArg = Boolean(String(arg || "").trim());
-  const isQwenCommand = QWEN_COMMANDS.has(normalizedCommand) && hasArg;
+  
+  // For standard commands, require hasArg. For commands that don't need args, just check the set.
+  const isQwenCommand = QWEN_COMMANDS.has(normalizedCommand) && 
+    (hasArg || normalizedCommand === "/shortcondition" || normalizedCommand === "/shortvibe");
 
   const lastCommandAt = commandCooldowns.get(scope) || 0;
   const commandWaitMs = config.commandCooldownMs - (now - lastCommandAt);
@@ -74,15 +79,6 @@ export function enterCommandGuard({ command, arg, message, ctx }) {
     return {
       allowed: false,
       message: cooldownMessage("Command terlalu cepat.", commandWaitMs),
-    };
-  }
-
-  const lastDuplicateAt = duplicateCooldowns.get(commandKey) || 0;
-  const duplicateWaitMs = config.duplicateCommandCooldownMs - (now - lastDuplicateAt);
-  if (duplicateWaitMs > 0) {
-    return {
-      allowed: false,
-      message: cooldownMessage("Command yang sama baru saja dikirim.", duplicateWaitMs),
     };
   }
 
@@ -109,6 +105,15 @@ export function enterCommandGuard({ command, arg, message, ctx }) {
         message: cooldownMessage("Command AI/Qwen sedang cooldown.", qwenWaitMs),
       };
     }
+  }
+
+  const lastDuplicateAt = duplicateCooldowns.get(commandKey) || 0;
+  const duplicateWaitMs = config.duplicateCommandCooldownMs - (now - lastDuplicateAt);
+  if (duplicateWaitMs > 0) {
+    return {
+      allowed: false,
+      message: cooldownMessage("Command yang sama baru saja dikirim.", duplicateWaitMs),
+    };
   }
 
   commandCooldowns.set(scope, now);

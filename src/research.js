@@ -848,11 +848,44 @@ async function fetchPremiumNews(queryStr) {
   }
 }
 
+async function fetchForexFactory() {
+  try {
+    const key = `forex_factory_this_week`;
+    const cached = getCache(key, 3600); // cache for 1 hour
+    if (cached) return cached;
+    
+    const url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
+    const signal = typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(5000) : undefined;
+    const res = await fetch(url, {
+      signal,
+      headers: { "User-Agent": "polymarket-telegram-analyzer/0.1" }
+    });
+    
+    if (!res.ok) return [];
+    const json = await res.json();
+    
+    // Filter only "High" impact news from today onwards
+    const todayStr = new Date().toISOString().split("T")[0];
+    const highImpact = json.filter(event => 
+      event.impact === "High" && 
+      event.date.startsWith(todayStr)
+    ).map(event => `${event.title} (${event.country}) at ${event.date}`);
+    
+    setCache(key, highImpact);
+    return highImpact;
+  } catch (error) {
+    console.error("[Research] Error fetching Forex Factory:", error.message);
+    return [];
+  }
+}
+
 export async function buildResearchContext({ market, event, markets } = {}) {
   const text = marketText({ market, event, markets });
   const primaryText = primaryAssetText({ market, event, markets });
 
   const detectedUfcFighters = detectUfcFighters(primaryText).length ? detectUfcFighters(primaryText) : detectUfcFighters(text);
+  
+  const forexFactoryNews = await fetchForexFactory();
   
   if (detectedUfcFighters.length > 0) {
     const newsResult = await fetchGdeltNews({ uniqueAssets: [], text }); 
@@ -910,6 +943,7 @@ export async function buildResearchContext({ market, event, markets } = {}) {
       sentiment: null,
       defi: null,
       news: newsResult,
+      forexFactory: forexFactoryNews,
       errors: newsResult.status === "error" ? [errorMessage(newsResult.error)] : [],
       limitations: [
         "Event ini tidak terdeteksi sebagai event Crypto. Analisis menggunakan keyword general.",
@@ -991,6 +1025,7 @@ export async function buildResearchContext({ market, event, markets } = {}) {
     sentiment,
     defi,
     news,
+    forexFactory: forexFactoryNews,
     errors: pairs
       .filter((pair) => pair.status === "error")
       .map((pair) => `${pair.symbol}: ${pair.error || "unknown error"}`)

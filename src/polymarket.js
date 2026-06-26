@@ -1,27 +1,34 @@
 import { config } from "./config.js";
 import { getCache, setCache } from "./storage.js";
 
-async function fetchJson(url, forceRefresh = false) {
+async function fetchJson(url, forceRefresh = false, retries = 3) {
   if (!forceRefresh) {
     const cached = getCache(url);
     if (cached) return cached;
   }
 
-  const response = await fetch(url, {
-    headers: {
-      accept: "application/json",
-      "user-agent": "polymarket-telegram-analyzer/0.1",
-    },
-  });
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          accept: "application/json",
+          "user-agent": "polymarket-telegram-analyzer/0.1",
+        },
+      });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`HTTP ${response.status} from ${url}: ${text.slice(0, 200)}`);
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`HTTP ${response.status} from ${url}: ${text.slice(0, 200)}`);
+      }
+
+      const json = await response.json();
+      setCache(url, json);
+      return json;
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Exponential backoff
+    }
   }
-
-  const json = await response.json();
-  setCache(url, json);
-  return json;
 }
 
 function safeJsonParse(value, fallback) {
@@ -349,7 +356,10 @@ export async function getShortTermMarkets(asset = "btc") {
     fetchJson(url5m.toString()),
     fetchJson(url15m.toString()),
     fetchJson(url1h.toString())
-  ]);
+  ]).catch(err => {
+    console.error("[Polymarket] getShortTermMarkets fetch error:", err.message);
+    throw new Error("Failed to fetch short markets from Polymarket: " + err.message);
+  });
 
   const now = Date.now();
   const shortMarkets = [];
@@ -358,7 +368,6 @@ export async function getShortTermMarkets(asset = "btc") {
     if (!Array.isArray(events)) return;
     for (const event of events) {
       if (!event.markets || !event.markets.length) continue;
-      // Gunakan market pertama dari event ini
       const rawMarket = event.markets[0];
       const m = normalizeMarket(rawMarket, event);
       m.duration_type = durationType;
@@ -374,11 +383,17 @@ export async function getShortTermMarkets(asset = "btc") {
   processEvents(events15m, "15m");
   processEvents(events1h, "1h");
   
-  return shortMarkets.sort((a, b) => {
+  // Sort by end date
+  shortMarkets.sort((a, b) => {
     const timeA = new Date(a.endDate).getTime();
     const timeB = new Date(b.endDate).getTime();
     return timeA - timeB;
   });
+
+  // Removed currentPrice and priceToBeat fetching because it is heavy (slows down the API significantly)
+
+
+  return shortMarkets;
 }
 
 export async function getMarketById(marketId, forceRefresh = false) {

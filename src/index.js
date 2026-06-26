@@ -12,6 +12,7 @@ import {
   formatSearchResults,
   formatTopMarkets,
   directionSignal,
+  formatShortCondition,
 } from "./format.js";
 import {
   getMarketFromPolymarketLink,
@@ -24,19 +25,58 @@ import {
   SEARCH_ENGINE_VERSION,
   searchMarkets,
 } from "./polymarket.js";
-import { askQwen, askQwenEvent } from "./qwen.js";
+import { askQwen, askQwenEvent, askQwenHotNiche } from "./qwen.js";
+import { scrapeTwitter } from "./twitter_scraper.js";
+import { broadcastAlert } from "./web.js";
 import { buildResearchContext } from "./research.js";
 import { enterCommandGuard, releaseCommandGuard } from "./rate-limit.js";
 import { scoreMarket } from "./scoring.js";
+import { getRecentWhales, formatSnifferWhales, setSnifferState, getSnifferState, setNotificationCallback, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
 import { appendAnalysisLog, addAnalyzedEvent } from "./storage.js";
 import { TelegramBot } from "./telegram.js";
+
+// Helper untuk UI
+export async function getWhalesData(minSize = 500) {
+  const whales = getRecentWhales(minSize);
+  return formatSnifferWhales(whales, minSize);
+}
+
+// ── Admin Chat ID untuk Push Notification (Sniffer) ───────────────────────
+let adminChatId = null;
+
+// ── CloddsBot-ported modules ──────────────────────────────────────────────
+import {
+  addAlert, listAlerts, deleteAlert, startAlertMonitor,
+  formatAlertsList, parseAlertCommand,
+} from "./alerts.js";
+import {
+  scanWhaleActivity, fetchTopTraders, scanInternalArbitrage,
+  formatWhaleResults, formatTopTraders, formatInternalArbitrageResults,
+} from "./whale.js";
+import {
+  detectInternalArbitrage, detectCrossPlatformArbitrage, scanAllOpportunities,
+  formatOpportunityScan,
+} from "./arbitrage.js";
+import {
+  getShadowTrades, calculatePerformanceMetrics, calculateKelly,
+  getPerformanceByCategory, getTimingAnalysis, runBacktest,
+  formatAnalyticsSummary, formatKellyResult, formatBacktestResult, formatTimingAnalysis,
+} from "./analytics.js";
+import { evaluateResolutions } from "./evaluate.js";
+import { evaluateShortMarketCondition } from "./short_condition.js";
 
 const MENU_BUTTONS = {
   TOP: "Top Markets",
   SEARCH: "Search Market",
   ANALYZE: "Analyze Link / ID",
   QUICK_SCAN: "Quick Scan Event",
+  ARB: "Scan Arbitrage",
+  WHALES: "Whale Activity",
+  ANALYTICS: "Performance Stats",
+  EVALUATE: "Evaluate PnL",
+  ALERTS: "My Alerts",
   BOOK: "Orderbook Check",
+  SHORT_COND: "Short Market Vibe",
   VERSION: "Bot Version",
   HELP: "Help",
   EXAMPLE: "Example Flow",
@@ -48,8 +88,10 @@ function menuKeyboard() {
       keyboard: [
         [{ text: MENU_BUTTONS.TOP }, { text: MENU_BUTTONS.ANALYZE }],
         [{ text: MENU_BUTTONS.SEARCH }, { text: MENU_BUTTONS.QUICK_SCAN }],
-        [{ text: MENU_BUTTONS.BOOK }, { text: MENU_BUTTONS.EXAMPLE }],
-        [{ text: MENU_BUTTONS.VERSION }, { text: MENU_BUTTONS.HELP }],
+        [{ text: MENU_BUTTONS.ARB }, { text: MENU_BUTTONS.WHALES }],
+        [{ text: MENU_BUTTONS.ANALYTICS }, { text: MENU_BUTTONS.EVALUATE }],
+        [{ text: MENU_BUTTONS.ALERTS }, { text: MENU_BUTTONS.SHORT_COND }],
+        [{ text: MENU_BUTTONS.BOOK }, { text: MENU_BUTTONS.HELP }],
       ],
       resize_keyboard: true,
       one_time_keyboard: false,
@@ -134,6 +176,11 @@ function normalizeButtonText(text) {
   if (trimmed === MENU_BUTTONS.SEARCH) return "/search";
   if (trimmed === MENU_BUTTONS.ANALYZE) return "/analyze";
   if (trimmed === MENU_BUTTONS.QUICK_SCAN) return "/quickscan";
+  if (trimmed === MENU_BUTTONS.ARB) return "/arb";
+  if (trimmed === MENU_BUTTONS.WHALES) return "/whales";
+  if (trimmed === MENU_BUTTONS.ANALYTICS) return "/analytics";
+  if (trimmed === MENU_BUTTONS.EVALUATE) return "/evaluate";
+  if (trimmed === MENU_BUTTONS.ALERTS) return "/alerts";
   if (trimmed === MENU_BUTTONS.BOOK) return "/book";
   if (trimmed === MENU_BUTTONS.VERSION) return "/version";
   if (trimmed === MENU_BUTTONS.HELP) return "/help";
@@ -391,19 +438,7 @@ async function runWithProgress(ctx, query, task, options = {}) {
     });
 
     if (progressMessage?.message_id) {
-      const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
-      await ctx
-        .editMessageText(
-          progressMessage.message_id,
-          [
-            "ANALISIS SELESAI",
-            `Input: ${query}`,
-            `Selesai dalam: ${elapsedSeconds}s`,
-            "",
-            "Hasil lengkap dikirim di bawah.",
-          ].join("\n")
-        )
-        .catch(() => {});
+      await ctx.deleteMessage(progressMessage.message_id).catch(() => {});
     }
 
     return result;
@@ -473,9 +508,36 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
     },
   });
 
-  const direction = directionSignal(scored.score);
-  let finalPrediction = direction.side;
-  if (finalPrediction === "NETRAL") finalPrediction = "=";
+  // For short crypto markets (Up/Down), derive direction from Qwen Bull/Bear debate result
+  // since Polymarket probability is always ~50% and useless for direction.
+  // For all other markets, use the standard directionSignal based on orderbook midpoint.
+  const isShortCryptoMarket = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*up.or.down/i.test(scored.market.question || "");
+  
+  let finalPrediction;
+  
+  if (isShortCryptoMarket && qwenResult?.analysis) {
+    // For short crypto markets, prioritize Qwen's estimated_fair_probability to decide direction
+    // even if the final verdict is SKIP (because prices change too fast for the verdict to be reliable).
+    // >50 = bullish = primary outcome (Up), <50 = bearish = secondary outcome (Down)
+    const fairProb = Number(qwenResult.analysis.estimatedFairProbability);
+    const primaryLabel = String(scored.score?.primaryOutcomeLabel || "UP").toUpperCase();
+    const secondaryLabel = String(scored.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
+    
+    if (Number.isFinite(fairProb)) {
+      if (fairProb >= 55) finalPrediction = primaryLabel;       // Clearly bullish → Up
+      else if (fairProb <= 45) finalPrediction = secondaryLabel; // Clearly bearish → Down
+      else finalPrediction = "=";                                // 45-55% → too uncertain, skip
+    } else {
+      // Fallback to directionSignal if fair_probability unavailable
+      const direction = directionSignal(scored.score);
+      finalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+    }
+  } else if (qwenResult?.analysis?.verdict === "SKIP") {
+    finalPrediction = "="; // For non-short markets, force netral/skip if Risk Manager explicitly skips
+  } else {
+    const direction = directionSignal(scored.score);
+    finalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+  }
 
   const fullAnalysisMarkdown = formatAnalysis({ market: scored.market, score: scored.score, qwenResult });
 
@@ -587,9 +649,28 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
     },
   });
 
-  const bestDirection = directionSignal(best.score);
-  let bestFinalPrediction = bestDirection.side;
-  if (bestFinalPrediction === "NETRAL") bestFinalPrediction = "=";
+  const isShortCryptoMarketBest = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*up.or.down/i.test(best.market.question || "");
+  let bestFinalPrediction;
+
+  if (isShortCryptoMarketBest && bestQwen?.analysis) {
+    const fairProb = Number(bestQwen.analysis.estimatedFairProbability);
+    const primaryLabel = String(best.score?.primaryOutcomeLabel || "UP").toUpperCase();
+    const secondaryLabel = String(best.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
+    
+    if (Number.isFinite(fairProb)) {
+      if (fairProb >= 55) bestFinalPrediction = primaryLabel;
+      else if (fairProb <= 45) bestFinalPrediction = secondaryLabel;
+      else bestFinalPrediction = "=";
+    } else {
+      const direction = directionSignal(best.score);
+      bestFinalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+    }
+  } else if (bestQwen?.analysis?.verdict === "SKIP") {
+    bestFinalPrediction = "=";
+  } else {
+    const direction = directionSignal(best.score);
+    bestFinalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+  }
 
   const fullAnalysisMarkdownBest = formatAnalysis({ market: best.market, score: best.score, qwenResult: bestQwen });
 
@@ -644,6 +725,8 @@ async function analyzeAllEvent({ result, query, setStep, ctx, signal = null }) {
       }),
       menuKeyboard()
     );
+    // Hindari rate-limit Telegram jika market sangat banyak (kasih jeda 500ms)
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
   appendAnalysisLog({
@@ -677,6 +760,13 @@ export async function handleCommand(text, message, ctx) {
 
   if (command === "/version") {
     return menuAnswer(`Bot version: ${SEARCH_ENGINE_VERSION}`);
+  }
+
+  if (command === "/evaluate") {
+    const progressMessage = await ctx.sendMessage("Mengecek market yang baru selesai di Polymarket dan mengevaluasi jurnal...", menuKeyboard());
+    const resultText = await evaluateResolutions(ctx);
+    await ctx.deleteMessage(progressMessage.message_id).catch(() => {});
+    return menuAnswer(resultText);
   }
 
   if (command === "/example") {
@@ -863,7 +953,12 @@ export async function handleCommand(text, message, ctx) {
             if (target.kind === "market" && !target.market) throw new Error("Market tidak ditemukan.");
             
             setStep(`[Queue ${i + 1}/${urls.length}] Analyzing: ${target.market.question}`);
-            await deepAnalyzeMarket({ market: target.market, query: url, setStep, signal });
+            const markdown = await deepAnalyzeMarket({ market: target.market, query: url, setStep, signal });
+            
+            if (markdown && ctx && typeof ctx.sendMessage === "function") {
+              await ctx.sendMessage(markdown, menuKeyboard());
+            }
+            
             results.push(`✅ Selesai: ${target.market.question}`);
           } catch (err) {
             results.push(`❌ Gagal (${url.slice(-15)}...): ${err.message}`);
@@ -971,6 +1066,226 @@ export async function handleCommand(text, message, ctx) {
     return menuAnswer(output);
   }
 
+  // ── 🔔 ALERTS (/alert, /alerts, /delalert) ─────────────────────────────
+  if (command === "/alerts" || (command === "/alert" && !arg)) {
+    return menuAnswer(formatAlertsList());
+  }
+
+  if (command === "/alert" && arg) {
+    // Format: /alert <tokenId> <above|below|change> <threshold>
+    // User harus kasih tokenId dari /book dulu
+    const parsed = parseAlertCommand(arg);
+    if (!parsed) {
+      return menuAnswer(
+        "Format: /alert <tokenId> <above|below|change> <threshold>\n\n" +
+        "Contoh:\n" +
+        "/alert abc123 above 0.70  → notif kalau harga naik ke ≥70¢\n" +
+        "/alert abc123 below 0.30  → notif kalau harga turun ke ≤30¢\n" +
+        "/alert abc123 change 5    → notif kalau harga berubah ≥5%\n\n" +
+        "Dapatkan tokenId dari /book <marketId>"
+      );
+    }
+
+    // Coba ambil nama market dari tokenId
+    let question = `Token ${parsed.tokenId.slice(0, 12)}...`;
+    try {
+      const book = await getOrderBook(parsed.tokenId);
+      if (book?.market) question = book.market.slice(0, 80);
+    } catch { /* ignore */ }
+
+    const id = addAlert({
+      tokenId: parsed.tokenId,
+      marketId: parsed.tokenId, // tokenId sama dengan marketId di sini
+      question,
+      condition: parsed.condition,
+      threshold: parsed.threshold,
+    });
+
+    const condLabel = { price_above: "naik ke ≥", price_below: "turun ke ≤", price_change_pct: "berubah ≥" };
+    const thresholdFmt = parsed.condition === "price_change_pct"
+      ? `${parsed.threshold}%`
+      : `${(parsed.threshold * 100).toFixed(1)}¢`;
+
+    return menuAnswer(
+      `✅ Alert dibuat! ID: *${id}*\n📊 ${question}\nKondisi: harga ${condLabel[parsed.condition]}${thresholdFmt}\n\nGunakan /delalert ${id} untuk menghapus.`
+    );
+  }
+
+  if (command === "/delalert") {
+    const id = parseInt(arg);
+    if (!id) return menuAnswer("Format: /delalert <id>\nDapatkan ID dari /alerts");
+    const ok = deleteAlert(id);
+    return menuAnswer(ok ? `✅ Alert ${id} dihapus.` : `❌ Alert ${id} tidak ditemukan.`);
+  }
+
+  // ✨🐋 WHALE TRACKING (/whales, /whale, /toptraders, /add, /del) ✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨
+  if (command === "/add") {
+    if (!arg) return menuAnswer("Format: /add <alamat_wallet> [nickname]\nContoh: /add 0x123... WhaleSatu");
+    const parts = arg.trim().split(/\s+/);
+    const address = parts[0];
+    const nickname = parts.slice(1).join(" ");
+    const cfg = getTrackerConfig();
+    const wallets = cfg.wallets;
+    if (!wallets.find(w => w.address.toLowerCase() === address.toLowerCase())) {
+      wallets.push({ address, nickname });
+      setTrackerConfig(cfg.minUsd, wallets);
+      return menuAnswer(`✅ Wallet ${address} (${nickname || "Tanpa Nama"}) berhasil ditambahkan ke Tracker.`);
+    } else {
+      return menuAnswer(`⚠️ Wallet ${address} sudah ada di Tracker.`);
+    }
+  }
+
+  if (command === "/del") {
+    if (!arg) return menuAnswer("Format: /del <alamat_wallet>\nContoh: /del 0x123...");
+    const address = arg.trim().toLowerCase();
+    const cfg = getTrackerConfig();
+    const originalLength = cfg.wallets.length;
+    const wallets = cfg.wallets.filter(w => w.address.toLowerCase() !== address);
+    if (wallets.length < originalLength) {
+      setTrackerConfig(cfg.minUsd, wallets);
+      return menuAnswer(`✅ Wallet ${address} berhasil dihapus dari Tracker.`);
+    } else {
+      return menuAnswer(`⚠️ Wallet ${address} tidak ditemukan di Tracker.`);
+    }
+  }
+
+  if (command === "/sniffer") {
+    if (arg === "on") {
+      setSnifferState(true);
+      return "✅ *LIVE WHALE SNIFFER DIAKTIFKAN*\nBot sekarang memantau Polymarket 24/7 dan akan mengirim notifikasi jika ada transaksi ≥ $500.";
+    } else if (arg === "off") {
+      setSnifferState(false);
+      return "⏸️ *LIVE WHALE SNIFFER DIMATIKAN*\nPemantauan dihentikan.";
+    } else {
+      const state = getSnifferState() ? "ON ✅" : "OFF ⏸️";
+      return `📡 *Status Sniffer saat ini: ${state}*\nGunakan \`/sniffer on\` atau \`/sniffer off\` untuk mengatur.`;
+    }
+  }
+
+  if (command === "/shortcondition" || command === "/shortvibe") {
+    return runWithProgress(ctx, "Checking short market condition...", async (setStep) => {
+      setStep("Fetching live BTC data & Twitter sentiment");
+      const result = await evaluateShortMarketCondition({ signal: ctx?.signal, currentPriceStr: arg });
+      return formatShortCondition(result);
+    }, { estimateSeconds: 15, mode: "quick" }).then(output => menuAnswer(output));
+  }
+
+  if (command === "/whales" || command === "/whale") {
+    const minSize = parseInt(arg) || 500;
+    return runWithProgress(ctx, `Whale scan (min $${minSize})`, async (setStep) => {
+      setStep("Membuka memori Live Sniffer...");
+      const whales = getRecentWhales(minSize);
+      return formatSnifferWhales(whales, minSize);
+    }, { estimateSeconds: 2, mode: "quick" }).then(output => menuAnswer(output));
+  }
+
+  if (command === "/toptraders") {
+    const limit = parseInt(arg) || 10;
+    const traders = await fetchTopTraders({ limit });
+    return menuAnswer(formatTopTraders(traders));
+  }
+
+  // ── ⚖️ ARBITRAGE (/arb, /opps, /internalabs) ────────────────────────────
+  if (command === "/arb" || command === "/opportunities" || command === "/opps") {
+    return runWithProgress(ctx, "Scanning arbitrage opportunities", async (setStep) => {
+      setStep("Fetching top markets");
+      const { markets } = await listTopMarkets({ mode: "volume", limit: 30 });
+      setStep(`Scanning ${markets.length} markets for opportunities`);
+      // Require at least 0.5% internal gap and 2% cross-platform spread for good RR
+      const results = await scanAllOpportunities(markets, { minGap: 0.005, minSpreadPct: 2 });
+      return formatOpportunityScan(results);
+    }, { estimateSeconds: 30, mode: "quick" }).then(output => menuAnswer(output));
+  }
+
+  if (command === "/internalarb") {
+    return runWithProgress(ctx, "Scanning internal arbitrage", async (setStep) => {
+      setStep("Fetching top markets");
+      const { markets } = await listTopMarkets({ mode: "volume", limit: 50 });
+      setStep(`Checking YES+NO prices on ${markets.length} markets`);
+      // Require at least 0.5% internal gap for good RR
+      const opps = await detectInternalArbitrage(markets, { minGap: 0.005 });
+      return formatOpportunityScan({ internal: opps, crossPlatform: [], total: opps.length, scannedAt: new Date().toISOString() });
+    }, { estimateSeconds: 35, mode: "quick" }).then(output => menuAnswer(output));
+  }
+
+  // ── 📊 ANALYTICS (/analytics, /stats, /timing, /bycat) ──────────────────
+  if (command === "/analytics" || command === "/stats") {
+    const days = parseInt(arg) || 30;
+    const trades = getShadowTrades({ days });
+    const metrics = calculatePerformanceMetrics(trades);
+    return menuAnswer(formatAnalyticsSummary(metrics, `${days} hari terakhir`));
+  }
+
+  if (command === "/timing" || command === "/besttimes") {
+    const trades = getShadowTrades({ days: 90 });
+    const timing = getTimingAnalysis(trades);
+    return menuAnswer(formatTimingAnalysis(timing));
+  }
+
+  if (command === "/bycat" || command === "/performance") {
+    const trades = getShadowTrades({ days: 90 });
+    const byCategory = getPerformanceByCategory(trades);
+    if (!Object.keys(byCategory).length) {
+      return menuAnswer("📭 Belum ada data resolved untuk analisis kategori.");
+    }
+    let text = "📊 *Performance by Category*\n\n";
+    const sorted = Object.entries(byCategory).sort((a, b) => b[1].total - a[1].total);
+    for (const [cat, data] of sorted) {
+      text += `*${cat}*: WR ${data.winRate}% (${data.wins}W/${data.total - data.wins}L, ${data.total} total)\n`;
+      if (data.sub && Object.keys(data.sub).length > 0) {
+        const sortedSub = Object.entries(data.sub).sort((a, b) => b[1].total - a[1].total);
+        for (const [subName, subData] of sortedSub) {
+          const subWr = subData.total > 0 ? (subData.wins / subData.total * 100).toFixed(1) : "0.0";
+          text += `  • ${subName}: WR ${subWr}% (${subData.wins}W/${subData.total - subData.wins}L, ${subData.total} total)\n`;
+        }
+      }
+    }
+    return menuAnswer(text);
+  }
+
+  // ── 📈 BACKTEST (/backtest) ───────────────────────────────────────────────
+  if (command === "/backtest") {
+    let strategy = "flat";
+    let initialCapital = 1000;
+    
+    const argParts = (arg || "").trim().split(/\s+/);
+    for (const a of argParts) {
+      const lowerA = a.toLowerCase();
+      if (["kelly", "flat", "conservative"].includes(lowerA)) {
+        strategy = lowerA;
+      } else if (!isNaN(parseFloat(a))) {
+        initialCapital = parseFloat(a);
+      }
+    }
+
+    const trades = getShadowTrades({ days: 180 });
+    const result = runBacktest({ trades, strategy, initialCapital });
+    return menuAnswer(formatBacktestResult(result));
+  }
+
+  // ── 📐 KELLY (/kelly) ────────────────────────────────────────────────────
+  if (command === "/kelly") {
+    // Format: /kelly <edge 0-1> <confidence 0-100> [bankroll]
+    const parts = (arg || "").trim().split(/\s+/);
+    const edge = parseFloat(parts[0]);
+    const confidence = parseFloat(parts[1]) || 70;
+    const bankroll = parseFloat(parts[2]) || 1000;
+
+    if (!isFinite(edge) || edge < 0 || edge > 1) {
+      return menuAnswer(
+        "Format: /kelly <edge> <confidence> [bankroll]\n\n" +
+        "Contoh: /kelly 0.10 75 1000\n" +
+        "  edge: selisih fair value vs market price (0-1)\n" +
+        "  confidence: dari scoring (0-100)\n" +
+        "  bankroll: modal simulasi (default 1000)"
+      );
+    }
+
+    const recentTrades = getShadowTrades({ days: 60 });
+    const result = calculateKelly({ edge, confidence, bankroll, recentTrades });
+    return menuAnswer(formatKellyResult(result));
+  }
+
   return menuAnswer(formatHelp());
   } finally {
     releaseCommandGuard(guard);
@@ -981,7 +1296,75 @@ let activeBot = null;
 
 export function startTelegramBot() {
   assertConfig();
-  activeBot = new TelegramBot(config.telegramToken, handleCommand);
+  activeBot = new TelegramBot(config.telegramToken, (text, msg, ctx) => {
+    // Tangkap adminChatId secara otomatis saat interaksi pertama
+    if (ctx && ctx.chatId) {
+      adminChatId = ctx.chatId;
+    }
+    return handleCommand(text, msg, ctx);
+  });
+
+  // Daftarkan callback notifikasi untuk Sniffer
+  setNotificationCallback(async (payload) => {
+    if (typeof payload === "string") {
+      const textMsg = payload;
+      console.log("\n[Whale Alert]\n" + textMsg.replace(/\*/g, ""));
+      if (adminChatId && activeBot) {
+        await activeBot.sendMessage(adminChatId, textMsg, { parse_mode: "Markdown" }).catch(() => {});
+      }
+    } else if (payload && payload.type === "HOT_NICHE") {
+      const { marketInfo, recentTradesCount, triggerWhale } = payload;
+      console.log(`\n[Hot Niche Alert] Market: ${marketInfo.question}`);
+      
+      try {
+        const tweets = await scrapeTwitter(marketInfo.question);
+        const volumeSpike = `${recentTradesCount} whale trades dalam 15 menit. Trigger: ${triggerWhale.side} $${triggerWhale.sizeUsdc.toFixed(0)}`;
+        
+        const qwenAnalysis = await askQwenHotNiche({ market: marketInfo, volumeSpike, tweets });
+        
+        let textMsg = `🔥 *HOT NICHE DETECTED* 🔥\n\n`;
+        textMsg += `📊 *Market:* [${marketInfo.question}](https://polymarket.com/event/${marketInfo.slug})\n`;
+        textMsg += `📈 *Volume Spike:* ${volumeSpike}\n\n`;
+        textMsg += `🐦 *X (Twitter) Sentiment:*\n`;
+        textMsg += `Sentimen: *${qwenAnalysis.sentiment}*\n`;
+        textMsg += `_Ringkasan:_ ${qwenAnalysis.summary}\n`;
+        
+        if (adminChatId && activeBot) {
+          await activeBot.sendMessage(adminChatId, textMsg, { parse_mode: "Markdown", disable_web_page_preview: true }).catch(() => {});
+        }
+        
+        // Broadcast ke SSE web UI
+        broadcastAlert({
+          type: "HOT_NICHE_UPDATE",
+          marketInfo,
+          volumeSpike,
+          sentiment: qwenAnalysis.sentiment,
+          summary: qwenAnalysis.summary
+        });
+      } catch (err) {
+         console.error("[Hot Niche Error]", err);
+      }
+    }
+  });
+
+  // Start alert monitor — kirim alert price ke semua chat yang punya alert aktif
+  // (simplified: kirim ke semua chat via broadcast, atau simpan chatId per alert)
+  // Untuk sekarang: bot hanya bisa broadcast ke satu chatId yang pertama kirim command
+  // Future: extend storage untuk per-user alert
+  const stopAlerts = startAlertMonitor(async (msg) => {
+    if (adminChatId && activeBot) {
+      await activeBot.sendMessage(adminChatId, msg).catch(() => {});
+    }
+    console.log("[Alert]", msg.replace(/\*/g, ""));
+  });
+
+  // Cleanup on stop
+  const originalStop = activeBot.stop.bind(activeBot);
+  activeBot.stop = () => {
+    stopAlerts();
+    originalStop();
+  };
+
   activeBot.start();
   return activeBot;
 }

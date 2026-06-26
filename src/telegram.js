@@ -58,6 +58,7 @@ export class TelegramBot {
             this.sendMessage(chatId, messageText, options),
           editMessageText: (messageId, messageText, options = {}) =>
             this.editMessageText(chatId, messageId, messageText, options),
+          deleteMessage: (messageId) => this.deleteMessage(chatId, messageId),
           sendChatAction: (action = "typing") => this.sendChatAction(chatId, action),
         };
         const answer = await this.handler(text, update.message, context);
@@ -82,6 +83,7 @@ export class TelegramBot {
           this.sendMessage(chatId, messageText, options),
         editMessageText: (messageId, messageText, options = {}) =>
           this.editMessageText(chatId, messageId, messageText, options),
+        deleteMessage: (messageId) => this.deleteMessage(chatId, messageId),
         sendChatAction: (action = "typing") => this.sendChatAction(chatId, action),
       };
       const answer = await this.handler(text, callbackQuery.message, context);
@@ -115,6 +117,20 @@ export class TelegramBot {
           { command: "analyzebest", description: "Pilih kandidat paling worth it dari event" },
           { command: "analyzeall", description: "Jelaskan semua pilihan di event" },
           { command: "book", description: "Cek orderbook market" },
+          // ── CloddsBot-ported commands ─────────────────────────────────────
+          { command: "arb", description: "🔄 Scan arbitrase (internal + cross-platform)" },
+          { command: "internalarb", description: "⚖️ Scan internal arb (YES+NO < 100¢)" },
+          { command: "whales", description: "🐋 Whale trades terbaru di top markets" },
+          { command: "toptraders", description: "🏆 Top Polymarket traders" },
+          { command: "alerts", description: "🔔 Lihat daftar price alerts aktif" },
+          { command: "alert", description: "🔔 Set price alert (lihat /alerts untuk format)" },
+          { command: "delalert", description: "🗑️ Hapus alert berdasarkan ID" },
+          { command: "analytics", description: "📊 Performance analytics Shadow Bot" },
+          { command: "bycat", description: "📂 Performa per kategori market" },
+          { command: "timing", description: "⏰ Analisis jam & hari terbaik" },
+          { command: "backtest", description: "📈 Backtest strategi (flat/kelly/conservative)" },
+          { command: "kelly", description: "📐 Hitung Kelly position sizing" },
+          // ─────────────────────────────────────────────────────────────────
           { command: "example", description: "Contoh alur pakai bot" },
           { command: "version", description: "Cek versi bot" },
           { command: "help", description: "Bantuan command" },
@@ -168,6 +184,18 @@ export class TelegramBot {
 
     if (!response.ok) {
       throw new Error(`Telegram editMessageText HTTP ${response.status}`);
+    }
+  }
+
+  async deleteMessage(chatId, messageId) {
+    const response = await fetch(`${this.apiBase}/deleteMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+    });
+
+    if (!response.ok) {
+      console.warn(`Telegram deleteMessage HTTP ${response.status} for msg ${messageId}`);
     }
   }
 

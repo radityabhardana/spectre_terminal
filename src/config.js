@@ -47,9 +47,22 @@ export const config = {
   qwenBaseUrl:
     process.env.QWEN_BASE_URL ||
     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-  qwenFastModel: process.env.QWEN_FAST_MODEL || "qwen-flash",
-  qwenAnalystModel: process.env.QWEN_ANALYST_MODEL || "qwen-plus",
-  qwenFinalModel: process.env.QWEN_FINAL_MODEL || process.env.QWEN_MODEL || "qwen-max",
+  // Model Roles for Single Market Analysis
+  qwenBullModel: process.env.QWEN_BULL_MODEL || process.env.QWEN_FAST_MODEL || "qwen-turbo",
+  qwenBearModel: process.env.QWEN_BEAR_MODEL || process.env.QWEN_ANALYST_MODEL || "qwen-plus",
+  qwenRiskManagerModel: process.env.QWEN_RISK_MANAGER_MODEL || process.env.QWEN_FINAL_MODEL || process.env.QWEN_MODEL || "qwen-max",
+  
+  // Model Role for Learning/Post-Mortem
+  qwenEvaluatorModel: process.env.QWEN_EVALUATOR_MODEL || process.env.QWEN_FINAL_MODEL || process.env.QWEN_MODEL || "qwen-max",
+
+  // Model Roles for Multi-Market Event Analysis
+  qwenScoutModel: process.env.QWEN_SCOUT_MODEL || process.env.QWEN_FAST_MODEL || "qwen-turbo",
+  qwenEventAnalystModel: process.env.QWEN_EVENT_ANALYST_MODEL || process.env.QWEN_ANALYST_MODEL || "qwen-plus",
+  qwenEventFinalModel: process.env.QWEN_EVENT_FINAL_MODEL || process.env.QWEN_FINAL_MODEL || process.env.QWEN_MODEL || "qwen-max",
+
+  customApiKey: process.env.CUSTOM_API_KEY || "",
+  customBaseUrl: process.env.CUSTOM_BASE_URL || "",
+  customFinalModel: process.env.CUSTOM_FINAL_MODEL || "",
   gammaUrl:
     process.env.POLYMARKET_GAMMA_URL || "https://gamma-api.polymarket.com",
   clobUrl: process.env.POLYMARKET_CLOB_URL || "https://clob.polymarket.com",
@@ -71,7 +84,7 @@ export const config = {
   researchFetchTimeoutMs: positiveInt(process.env.RESEARCH_FETCH_TIMEOUT_MS, 8000),
   commandCooldownMs: nonNegativeInt(process.env.COMMAND_COOLDOWN_MS, 3000),
   qwenCommandCooldownMs: nonNegativeInt(process.env.QWEN_COMMAND_COOLDOWN_MS, 45000),
-  duplicateCommandCooldownMs: nonNegativeInt(process.env.DUPLICATE_COMMAND_COOLDOWN_MS, 15000),
+  duplicateCommandCooldownMs: nonNegativeInt(process.env.DUPLICATE_COMMAND_COOLDOWN_MS, 3000),
   webPassword: process.env.WEB_PASSWORD || "",
 };
 

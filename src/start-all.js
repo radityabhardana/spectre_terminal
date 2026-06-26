@@ -1,8 +1,14 @@
 import { startTelegramBot, stopTelegramBot } from "./index.js";
 import { startWebServer } from "./web.js";
+import { startSniffer } from "./sniffer.js";
 
 const webServer = startWebServer();
 startTelegramBot();
+
+// Initialize global.livePrices before sniffer starts writing to it
+if (!global.livePrices) global.livePrices = {};
+
+startSniffer(); // Start the live whale sniffer
 
 console.log("Telegram bot and Web UI are running.");
 

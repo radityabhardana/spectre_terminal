@@ -1,4 +1,34 @@
+import fs from "node:fs";
+import path from "node:path";
 import { config } from "./config.js";
+import { getRecentReflections } from "./storage.js";
+
+const BINANCE_BASE_URLS = [
+  'https://api.binance.com',
+  'https://api-gcp.binance.com',
+  'https://api1.binance.com',
+  'https://api2.binance.com',
+  'https://api3.binance.com',
+  'https://api4.binance.com',
+  'https://data-api.binance.vision'
+];
+
+async function fetchWithFallback(endpoints, path, options) {
+  for (const base of endpoints) {
+    try {
+      const res = await fetch(base + path, options);
+      if (res.ok) return res;
+    } catch (e) {
+      // Try next endpoint
+    }
+  }
+  throw new Error("All Binance endpoints failed");
+}
+
+const dataDir = path.resolve(process.cwd(), "data");
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
 
 const VALID_VERDICTS = new Set([
   "SKIP",
@@ -82,6 +112,10 @@ function normalizeAnalysis(value, rawText) {
     confidence: Number.isFinite(Number(value.confidence)) && Number(value.confidence) > 0
       ? Math.max(1, Math.min(100, Math.round(Number(value.confidence))))
       : null,
+    positionSizePct: Number.isFinite(Number(value.position_size_pct)) ? Number(value.position_size_pct) : null,
+    estimatedFairProbability: Number.isFinite(Number(value.estimated_fair_probability)) ? Number(value.estimated_fair_probability) : null,
+    expectedValueCents: Number.isFinite(Number(value.expected_value_cents)) ? Number(value.expected_value_cents) : null,
+    kellyEdge: Number.isFinite(Number(value.kelly_edge)) ? Number(value.kelly_edge) : null,
     summary: truncate(value.summary || value.ringkasan || "", 420),
     dataQuality: truncate(value.data_quality || value.dataQuality || "", 360),
     bullishCase: cleanList(value.bullish_case || value.bullishCase),
@@ -223,34 +257,57 @@ function throwIfAborted(signal) {
   }
 }
 
-async function callQwen(payload, signal = null) {
+async function callQwen(payload, baseUrl, apiKey, signal = null, retries = 3) {
   throwIfAborted(signal);
-  const response = await fetch(`${config.qwenBaseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${config.qwenApiKey}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(payload),
-    signal,
-  });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Qwen HTTP ${response.status}: ${text.slice(0, 300)}`);
+  const lang = config.botLanguage || "Indonesia";
+  const requestPayload = {
+    ...payload,
+    messages: payload.messages?.map(m => {
+      if (m.role === "system") {
+        return {
+          ...m,
+          content: m.content + `\n\nCRITICAL INSTRUCTION: You MUST write ALL of your explanations, reasoning, thoughts, and output in the ${lang} language. Translate your entire output into ${lang} fluently.`
+        };
+      }
+      return m;
+    })
+  };
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(requestPayload),
+        signal,
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`Qwen HTTP ${response.status}: ${text.slice(0, 300)}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      if (i === retries - 1 || error.name === "AbortError") throw error;
+      console.warn(`[Qwen] fetch failed, retrying (${i + 1}/${retries})... Error: ${error.message}`);
+      await new Promise(r => setTimeout(r, 2000));
+    }
   }
-
-  return response.json();
 }
 
-async function callQwenJson(payload, signal = null) {
+async function callQwenJson(payload, baseUrl, apiKey, signal = null) {
   let json;
   try {
-    json = await callQwen(payload, signal);
+    json = await callQwen(payload, baseUrl, apiKey, signal);
   } catch (error) {
     if (!String(error.message).includes("response_format")) throw error;
     const { response_format, ...fallbackPayload } = payload;
-    json = await callQwen(fallbackPayload, signal);
+    json = await callQwen(fallbackPayload, baseUrl, apiKey, signal);
   }
 
   const text = json.choices?.[0]?.message?.content?.trim() || "";
@@ -262,14 +319,14 @@ async function callQwenJson(payload, signal = null) {
   };
 }
 
-async function callRoleQwenJson(payload, fallbackModel = "", signal = null) {
+async function callRoleQwenJson(payload, fallbackModel = "", baseUrl, apiKey, signal = null) {
   try {
-    return await callQwenJson(payload, signal);
+    return await callQwenJson(payload, baseUrl, apiKey, signal);
   } catch (error) {
     if (error.name === "AbortError") throw error;
     if (/Qwen HTTP (401|403)/.test(String(error.message))) throw error;
     if (!fallbackModel || payload.model === fallbackModel) throw error;
-    const fallback = await callQwenJson({ ...payload, model: fallbackModel }, signal);
+    const fallback = await callQwenJson({ ...payload, model: fallbackModel }, baseUrl, apiKey, signal);
     return { ...fallback, fallbackFrom: payload.model };
   }
 }
@@ -357,6 +414,125 @@ function researchBlock(researchContext) {
   ].join("\n");
 }
 
+// ─── Binance Technical Indicators ─────────────// Calculates RSI and MACD from raw Binance kline data (no external library needed)
+async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5) {
+  try {
+    // Fetch last 100 candles (more data = more accurate Wilder RSI + MACD signal warmup)
+    const interval = intervalMinutes <= 5 ? "5m" : intervalMinutes <= 15 ? "15m" : "1h";
+    const klinePath = `/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=100`;
+    const tickerPath = `/api/v3/ticker/24hr?symbol=${symbol}`;
+
+    const [klineRes, tickerRes] = await Promise.all([
+      fetchWithFallback(BINANCE_BASE_URLS, klinePath, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(8000) }),
+      fetchWithFallback(BINANCE_BASE_URLS, tickerPath, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(8000) }),
+    ]);
+
+    if (!klineRes.ok || !tickerRes.ok) throw new Error("Binance API error");
+    const klines = await klineRes.json(); // [[openTime, open, high, low, close, volume, ...], ...]
+    const ticker = await tickerRes.json();
+
+    const closes = klines.map(k => parseFloat(k[4]));
+    const volumes = klines.map(k => parseFloat(k[5]));
+
+    // ── RSI-14 using Wilder's Smoothing (matches TradingView / Binance exactly) ──
+    const rsiPeriod = 14;
+    // Step 1: compute all price changes
+    const changes = [];
+    for (let i = 1; i < closes.length; i++) {
+      changes.push(closes[i] - closes[i - 1]);
+    }
+    // Step 2: initial seed avg from first 14 changes
+    let avgGain = 0, avgLoss = 0;
+    for (let i = 0; i < rsiPeriod; i++) {
+      if (changes[i] >= 0) avgGain += changes[i];
+      else avgLoss += Math.abs(changes[i]);
+    }
+    avgGain /= rsiPeriod;
+    avgLoss /= rsiPeriod;
+    // Step 3: Wilder's smoothing for the rest
+    for (let i = rsiPeriod; i < changes.length; i++) {
+      const gain = changes[i] >= 0 ? changes[i] : 0;
+      const loss = changes[i] < 0 ? Math.abs(changes[i]) : 0;
+      avgGain = (avgGain * (rsiPeriod - 1) + gain) / rsiPeriod;
+      avgLoss = (avgLoss * (rsiPeriod - 1) + loss) / rsiPeriod;
+    }
+    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+    const rsi = Math.round(100 - (100 / (1 + rs)));
+
+    // ── EMA helper ──
+    const calcEma = (data, period) => {
+      const k = 2 / (period + 1);
+      let val = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+      for (let i = period; i < data.length; i++) val = data[i] * k + val * (1 - k);
+      return val;
+    };
+
+    // ── MACD (12, 26, 9) — correct: compute full MACD line series, then EMA-9 ──
+    // Build full EMA-12 and EMA-26 series across all candles
+    const buildEmaSeries = (data, period) => {
+      const k = 2 / (period + 1);
+      const series = [];
+      let val = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+      series.push(val);
+      for (let i = period; i < data.length; i++) {
+        val = data[i] * k + val * (1 - k);
+        series.push(val);
+      }
+      return series;
+    };
+
+    const ema12Series = buildEmaSeries(closes, 12); // length = closes.length - 11
+    const ema26Series = buildEmaSeries(closes, 26); // length = closes.length - 25
+    // Align: ema26 is shorter; match from the end
+    const alignLen = Math.min(ema12Series.length, ema26Series.length);
+    const macdSeries = [];
+    for (let i = 0; i < alignLen; i++) {
+      macdSeries.push(
+        ema12Series[ema12Series.length - alignLen + i] -
+        ema26Series[ema26Series.length - alignLen + i]
+      );
+    }
+    const macdLine = parseFloat(macdSeries[macdSeries.length - 1].toFixed(2));
+    // Signal = EMA-9 of the full MACD series
+    const signalVal = macdSeries.length >= 9 ? calcEma(macdSeries, 9) : macdSeries[macdSeries.length - 1];
+    const macdSignal = parseFloat(signalVal.toFixed(2));
+    const macdHistogram = parseFloat((macdLine - macdSignal).toFixed(2));
+
+    // Recent 5 candles summary
+    const recentCandles = klines.slice(-5).map(k => ({
+      time: new Date(k[0]).toISOString().slice(11, 16),
+      open: parseFloat(k[1]).toFixed(2),
+      close: parseFloat(k[4]).toFixed(2),
+      direction: parseFloat(k[4]) >= parseFloat(k[1]) ? '▲' : '▼',
+      vol: parseFloat(k[5]).toFixed(1)
+    }));
+
+    // Volume ratio: last candle vs 10-candle avg
+    const avgVol10 = volumes.slice(-11, -1).reduce((a, b) => a + b, 0) / 10;
+    const lastVol = volumes[volumes.length - 1];
+    const volRatio = avgVol10 > 0 ? (lastVol / avgVol10).toFixed(2) : 1;
+
+    return {
+      symbol,
+      interval,
+      currentPrice: parseFloat(ticker.lastPrice).toFixed(2),
+      priceChange24h: parseFloat(ticker.priceChangePercent).toFixed(2),
+      high24h: parseFloat(ticker.highPrice).toFixed(2),
+      low24h: parseFloat(ticker.lowPrice).toFixed(2),
+      rsi14: rsi,
+      rsiSignal: rsi > 70 ? 'OVERBOUGHT' : rsi < 30 ? 'OVERSOLD' : rsi > 55 ? 'BULLISH ZONE' : rsi < 45 ? 'BEARISH ZONE' : 'NEUTRAL',
+      macd: { line: macdLine, signal: macdSignal, histogram: macdHistogram, trend: macdHistogram > 0 ? 'BULLISH' : 'BEARISH' },
+      recentCandles,
+      volumeRatio: parseFloat(volRatio),
+      volumeSignal: parseFloat(volRatio) > 1.5 ? 'HIGH (momentum)' : parseFloat(volRatio) < 0.7 ? 'LOW (weak)' : 'NORMAL',
+    };
+  } catch (err) {
+    console.error('[Qwen] fetchBinanceTechData error:', err.message);
+    return null;
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function askQwen({ market, score, orderBook, researchContext = null, signal = null }) {
   throwIfAborted(signal);
   const primaryOutcomeLabel = String(score?.primaryOutcomeLabel || market.outcomes?.[0] || "YES");
@@ -386,71 +562,87 @@ export async function askQwen({ market, score, orderBook, researchContext = null
   );
 
   let cryptoSymbol = "";
+  let binanceSymbol = "";
   const qLower = (market.question || "").toLowerCase();
-  if (qLower.includes("bitcoin") || qLower.includes("btc")) cryptoSymbol = "BTC";
-  else if (qLower.includes("ethereum") || qLower.includes("eth")) cryptoSymbol = "ETH";
-  
-  let klineInterval = "1h";
-  let intervalLabel = "1H";
-  let msInterval = 60 * 60 * 1000;
-  if (qLower.includes("5m") || qLower.includes("5 min") || qLower.includes("5-min")) {
-    klineInterval = "5m";
-    intervalLabel = "5M";
-    msInterval = 5 * 60 * 1000;
-  } else if (qLower.includes("15m") || qLower.includes("15 min") || qLower.includes("15-min")) {
-    klineInterval = "15m";
-    intervalLabel = "15M";
-    msInterval = 15 * 60 * 1000;
-  } else if (qLower.includes("30m") || qLower.includes("30 min") || qLower.includes("30-min")) {
-    klineInterval = "30m";
-    intervalLabel = "30M";
-    msInterval = 30 * 60 * 1000;
-  }
-  
+  if (qLower.includes("bitcoin") || qLower.includes("btc")) { cryptoSymbol = "BTC"; binanceSymbol = "BTCUSDT"; }
+  else if (qLower.includes("ethereum") || qLower.includes("eth")) { cryptoSymbol = "ETH"; binanceSymbol = "ETHUSDT"; }
+  else if (qLower.includes("doge") || qLower.includes("dogecoin")) { cryptoSymbol = "DOGE"; binanceSymbol = "DOGEUSDT"; }
+
+  // Determine candle interval from market duration type
+  const durationMins = market.duration_type === "1h" ? 60 : market.duration_type === "15m" ? 15 : 5;
+
   let cryptoContext = "";
-  if (cryptoSymbol) {
-    try {
-      const pythIds = {
-        BTC: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-        ETH: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
-        DOGE: "dcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c"
-      };
-      const pid = pythIds[cryptoSymbol];
-      
-      if (pid) {
-        let currentPrice = null;
-        const pRes = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${pid}`);
-        if (pRes.ok) {
-          const pData = await pRes.json();
-          const pInfo = pData.parsed?.[0]?.price;
-          if (pInfo) {
-            currentPrice = parseFloat(pInfo.price) * Math.pow(10, pInfo.expo);
-          }
-        }
-        
-        let priceToBeatStr = "TBD";
-        const startTs = Math.floor((Math.floor(Date.now() / msInterval) * msInterval) / 1000);
-        let kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs}?ids[]=${pid}`);
-        if (!kRes.ok) {
-          kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs - 5}?ids[]=${pid}`);
-        }
-        if (kRes.ok) {
-          try {
-            const kData = await kRes.json();
-            const kInfo = kData.parsed?.[0]?.price;
-            if (kInfo) {
-              const openPrice = parseFloat(kInfo.price) * Math.pow(10, kInfo.expo);
-              priceToBeatStr = `$${openPrice.toFixed(2)} (${intervalLabel} Oracle Open)`;
-            }
-          } catch(e) {}
-        }
-        
-        if (currentPrice !== null) {
-          cryptoContext = `\n\nREAL-TIME CRYPTO DATA (${cryptoSymbol}/USDT):\n- Price to Beat (${intervalLabel} Open): ${priceToBeatStr}\n- Current Price (Live Pyth Oracle): $${currentPrice.toFixed(2)}\n[!] CATATAN: Harga menggunakan Pyth Oracle yang sangat identik dengan Chainlink Oracle VWAP di UI Polymarket. Tidak ada proxy deviasi.`;
-        }
-      }
-    } catch(e) {}
+  if (binanceSymbol) {
+    const techData = await fetchBinanceTechData(binanceSymbol, durationMins);
+    if (techData) {
+      const priceToBeat = market.priceToBeat || "N/A";
+      const currentPriceDisplay = market.currentPrice !== undefined
+        ? `$${market.currentPrice.toFixed(2)} (Polymarket WebSocket)`
+        : `$${techData.currentPrice} (Binance)`;
+      cryptoContext = `\n\n━━━ BINANCE REAL-TIME TECHNICAL DATA (${cryptoSymbol}/USDT) ━━━
+📍 Current Price: ${currentPriceDisplay}
+🎯 Polymarket Target (priceToBeat): ${priceToBeat}
+📈 24h Change: ${techData.priceChange24h}%  |  24h High: $${techData.high24h}  |  24h Low: $${techData.low24h}
+
+📊 RSI-14 (${techData.interval}): ${techData.rsi14} → ${techData.rsiSignal}
+   (>70 = Overbought/likely reversal | <30 = Oversold/likely bounce | 45-55 = Choppy)
+
+📉 MACD (12,26,9):
+   Line: ${techData.macd.line} | Signal: ${techData.macd.signal} | Histogram: ${techData.macd.histogram}
+   Trend: ${techData.macd.trend} ${techData.macd.histogram > 0 ? '(momentum naik)' : '(momentum turun)'}
+
+🕯️ Recent ${techData.interval} Candles (terbaru kanan):
+${techData.recentCandles.map(c => `   ${c.time} ${c.direction} $${c.close} vol:${c.vol}`).join('\n')}
+
+📦 Volume (vs 10-candle avg): ${techData.volumeRatio}x → ${techData.volumeSignal}
+
+[!] INSTRUKSI: Gunakan data teknikal Binance ini sebagai dasar utama prediksi arah harga dalam ${durationMins} menit ke depan. RSI dan MACD lebih relevan dari Polymarket probability untuk short market.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+    }
   }
+
+  function extractCoreLesson(text) {
+    if (!text) return "Tidak ada catatan.";
+    const kw = "3. **Core Lesson Learned";
+    const idx = text.indexOf(kw);
+    if (idx !== -1) {
+      let after = text.substring(idx + kw.length);
+      const nl = after.indexOf('\\n');
+      if (nl !== -1) after = after.substring(nl + 1).trim();
+      return after.substring(0, 500); // Batasi max 500 chars per lesson
+    }
+    // Fallback: ambil 300 karakter terakhir
+    return text.length > 300 ? "..." + text.substring(text.length - 300) : text;
+  }
+
+  const recentReflections = getRecentReflections(15);
+  const lessonsBlock = recentReflections.length > 0 
+    ? `\nGLOBAL TRAPS CHECKLIST (EXTRACTED RAG MEMORY):\n${recentReflections.map((r, i) => `${i+1}. [Market: ${r.question} | Tebakan Salah: ${r.prediction}] -> ${extractCoreLesson(r.reflection_note)}`).join("\n\n")}`
+    : "";
+
+  // Market type detection — adapts analyst prompts to the event category
+  const researchType = researchContext?.type || "general";
+  const isCryptoMkt = researchType === "crypto";
+  const isUfcMkt = researchType === "sports_ufc";
+  // Short crypto market detection: check duration_type (5m/15m/1h) OR regex on question as fallback
+  const isShortCryptoMkt = 
+    ["5m", "15m", "1h"].includes(market.duration_type) ||
+    /(bitcoin|btc|ethereum|eth|doge|dogecoin).*up.or.down/i.test(market.question || "");
+  const durationLabel = market.duration_type === "1h" ? "1 Jam" : market.duration_type === "15m" ? "15 Menit" : "5 Menit";
+
+  const bullAnalystHint = isUfcMkt
+    ? "Fokus pada statistik petarung, track record kemenangan, keunggulan style bertarung (striker vs grappler), kondisi fisik terbaru, dan rekam jejak di fight level yang sama."
+    : isCryptoMkt
+      ? "Fokus pada katalis positif, momentum harga, RSI/MACD bullish, volume tinggi, dan indikator teknikal pendukung tren naik."
+      : "Fokus pada peluang terealisasi berdasarkan data fundamental, berita terbaru, polling/survei, atau base rate historis yang mendukung outcome YES/PRIMARY.";
+
+  const bearAnalystHint = isUfcMkt
+    ? "Fokus pada kelemahan petarung sisi YES (cedera terbaru, turun form, kelemahan gaya), keunggulan lawan, dan faktor upset historis di matchup serupa."
+    : isCryptoMkt
+      ? "Fokus pada risiko downside, RSI overbought, MACD death cross, volume lemah, berita negatif makro, atau tanda-tanda reversal teknikal."
+      : "Fokus pada risiko kegagalan outcome YES/PRIMARY: faktor penghambat, data yang kontradiksi, ketidakpastian resolusi, atau base rate rendah.";
+
+  const marketTypeLabel = isUfcMkt ? "OLAHRAGA/UFC" : isCryptoMkt ? "CRYPTO" : "UMUM/POLITIK/EKONOMI";
 
   const sharedContext = `
 CURRENT DATE:
@@ -467,39 +659,118 @@ SCORING AWAL DARI BOT:
 ${JSON.stringify(score, null, 2)}
 
 ${researchBlock(researchContext)}
+${lessonsBlock}
 `.trim();
 
+  if (isShortCryptoMkt) {
+    const shortPrompt = `
+Kamu adalah Analis Teknikal Khusus Crypto Short-Term (${durationLabel}).
+Tugasmu: Evaluasi apakah market ini layak di-PLAY atau SKIP berdasarkan momentum dalam timeframe ${durationLabel}.
+Untuk short market, abaikan narasi fundamental. FOKUS pada indikator teknikal dari Binance.
+${market.duration_type === '1h' ? '\nCAATAN untuk 1H: Gunakan candle interval 1h dari Binance. Perhatikan juga RSI 1h dan MACD 1h karena ini window waktu lebih besar, false signal lebih jarang.' : ''}
+
+${sharedContext}
+
+Kondisi IDEAL untuk PLAY:
+- RSI dan MACD searah (keduanya bullish atau bearish).
+- Volume ratio > 1.3x.
+- Minimal 3 dari 5 candle terakhir searah.
+
+Kondisi WAJIB SKIP:
+- RSI dan MACD berlawanan arah.
+- Volume ratio < 0.8x.
+- Candle bolak-balik tanpa arah jelas (chop).
+
+Aturan Mutlak:
+- Jika RSI + MACD mendukung ${primaryOutcomeLabel}, maka probabilitas ${primaryOutcomeLabel} harus > 60%.
+- Jika RSI + MACD mendukung ${secondaryOutcomeLabel}, maka probabilitas ${primaryOutcomeLabel} harus < 40%.
+- Jika ragu atau data berlawanan, verdict WAJIB "SKIP".
+
+Balas HANYA dengan JSON valid.
+Format JSON:
+{
+  "verdict": "PLAY" atau "SKIP",
+  "reason_found": true,
+  "estimatedFairProbability": 75,
+  "position_size_pct": 2.5,
+  "summary": "Ringkasan teknikal singkat",
+  "data_quality": "Baik/Buruk",
+  "bullish_case": ["alasan teknikal naik"],
+  "bearish_case": ["alasan teknikal turun"],
+  "risks": {"liquidity": "OK", "spread": "OK", "resolution": "OK", "catalyst": "Momentum"},
+  "missing_data": [],
+  "checklist": { "liquidity": true, "spread": true, "rules": true, "edge": true, "catalyst": false },
+  "final_reason": "Alasan eksekusi."
+}
+`.trim();
+
+    const shortPayload = {
+      model: config.qwenRiskManagerModel,
+      messages: [
+        { role: "system", content: "Kamu adalah Algo Scalper. Balas HANYA dengan JSON valid." },
+        { role: "user", content: shortPrompt },
+      ],
+      temperature: 0.2,
+      max_tokens: roleMaxTokens("final"),
+      response_format: { type: "json_object" },
+    };
+
+    const result = await callRoleQwenJson(shortPayload, config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+    const analysis = result.text ? parseJsonOr(result.text, { verdict: "SKIP", final_reason: "Failed to parse Scalper JSON." }) : { verdict: "SKIP", final_reason: "Failed to parse Scalper JSON." };
+    const normalizedAnalysis = normalizeAnalysis(analysis, result.text);
+    
+    // Override mathematical calculations
+    try {
+      const fairProb = Number(analysis.estimatedFairProbability);
+      const marketProb = Number(score.marketProbability);
+      if (!isNaN(fairProb) && !isNaN(marketProb)) {
+        const diff = fairProb - marketProb;
+        if (analysis.verdict === "PLAY" && diff <= 0 && analysis.estimatedFairProbability < 95) {
+          analysis.verdict = "SKIP";
+          analysis.final_reason = "[OVERRIDE] EV negatif (" + diff.toFixed(2) + "%). Model mencoba PLAY tapi matematika melarang.";
+        }
+      }
+    } catch (e) {}
+
+    return {
+      provider: "qwen-fast-crypto",
+      model: result.model,
+      models: { final: result.model },
+      roleResults: [{ role: "scalper", model: result.model, usage: result.usage }],
+      usage: result.usage,
+      researchContext,
+      analysis: normalizedAnalysis,
+    };
+  }
+
+  // STAGE 1: FAST SCOUT (Classify & brief the market quickly)
   const scoutPrompt = `
 Klasifikasikan market Polymarket ini secara cepat sebelum dianalisis lebih dalam.
 
 ${sharedContext}
 
+Tipe Market: ${marketTypeLabel}
+
 Aturan:
-- Jangan mengarang data eksternal.
-${researchContext?.type === "sports_ufc" ? "- Jika ada statistik UFC dan kondisi fisik/mental (fighterConditions dari DDG Scraper), evaluasi momentum (training camp, cedera, perilaku) dan keunggulan teknis." : ""}
-- Tugasmu hanya membuat brief pendek untuk analis berikutnya.
-- Balas hanya JSON valid.
+- Baca data secara cepat. Beri ringkasan singkat tentang kompleksitas, missing data, dan rekomendasi kedalaman analisis.
+- Balas HANYA dengan JSON valid.
 
 Format JSON:
 {
-  "task_type": "single_market_analysis",
-  "complexity": "simple/medium/complex",
-  "main_question": "inti pertanyaan market",
-  "market_type": "politik/makro/crypto/sports/lainnya",
-  "risk_focus": ["maks 4 risiko utama yang perlu dicek"],
+  "task_type": "binary/multi-outcome/index",
+  "market_type": "crypto/sports/politics/economic/general",
+  "complexity": "low/medium/high",
+  "main_question": "Apa inti pertanyaan market?",
+  "key_risks": ["risiko 1", "risiko 2"],
   "missing_data": ["maks 4 data eksternal yang masih kurang"],
   "recommended_depth": "fast/standard/deep"
 }
 `.trim();
 
   const scoutPayload = {
-    model: config.qwenFastModel,
+    model: config.qwenBullModel || config.qwenRiskManagerModel,
     messages: [
-      {
-        role: "system",
-        content:
-          "Kamu model fast scout. Tugasmu membaca input cepat, mengklasifikasi kompleksitas, dan memberi brief ringkas tanpa analisis panjang.",
-      },
+      { role: "system", content: "Kamu model fast scout. Tugasmu membaca input cepat, mengklasifikasi kompleksitas, dan memberi brief ringkas tanpa analisis panjang." },
       { role: "user", content: scoutPrompt },
     ],
     temperature: 0,
@@ -507,51 +778,47 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenAnalystModel, signal);
-  const scout = normalizeScout(parseJsonOr(scoutJson.text, {}), scoutJson.text);
+  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenBullModel || config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  const scout = parseJsonOr(scoutJson.text, {});
 
+  // STAGE 2: ANALYST REVIEW (Deep risk + bull/bear evaluation)
   const analystPrompt = `
-Review market Polymarket ini sebagai analis risiko. Kamu bukan final judge.
+Review market Polymarket ini sebagai analis risiko konservatif. Kamu bukan final judge.
 
 ${sharedContext}
 
 FAST SCOUT RESULT:
 ${JSON.stringify(promptSafe(scout), null, 2)}
 
+Tipe Market: ${marketTypeLabel}
+
+Panduan Analisis:
+- BULL CASE (${primaryOutcomeLabel}): ${bullAnalystHint}
+- BEAR CASE (${secondaryOutcomeLabel}): ${bearAnalystHint}
+
 Aturan:
 - Jangan mengarang data eksternal. Gunakan DATA MARKET dan EXTERNAL RESEARCH CONTEXT.
-- Khusus market Crypto 5-Min & 15-Min: Abaikan berita (GDELT). Fokus HANYA pada 'futures_klines_5m' (Chart Momentum Binance), indikator TA (RSI, SMA), 'futures_long_short_ratio', dan 'orderbookImbalance' (di bagian SCORING AWAL).
-- Jika orderbookImbalance > 65%, itu indikasi kuat tekanan Paus (Whales) untuk BUY/UP. Jika < 35%, tekanan kuat SELL/DOWN.
-- Bandingkan arah Klines (Momentum) dengan orderbookImbalance. Jika berlawanan, catat sebagai jebakan likuiditas (Risiko Tinggi).
-- Balas hanya JSON valid.
+- Khusus market Crypto: Fokus HANYA pada RSI/MACD, futures_long_short_ratio, dan orderbookImbalance.
+- Jika orderbookImbalance > 65%, indikasi kuat tekanan Whales BUY/UP. Jika < 35%, tekanan kuat SELL/DOWN.
+- Balas HANYA JSON valid.
 
 Format JSON:
 {
-  "rules_summary": "ringkasan aturan resolusi",
-  "data_quality": "kualitas data yang tersedia",
-  "bullish_case": ["maks 3 poin"],
-  "bearish_case": ["maks 3 poin"],
-  "risks": {
-    "liquidity": "Low/Medium/High + alasan pendek",
-    "spread": "Low/Medium/High + alasan pendek",
-    "resolution": "Low/Medium/High + alasan pendek",
-    "catalyst": "Ada/tidak ada catalyst + alasan pendek"
-  },
-  "technical_momentum": "Arah tren chart Klines dan Long/Short Ratio",
-  "missing_data": ["maks 4 data yang masih kurang"],
+  "bullish_case": ["maks 3 poin kuat mendukung YES/PRIMARY"],
+  "bearish_case": ["maks 3 poin kuat mendukung NO/SECONDARY"],
+  "estimated_fair_probability": 60,
+  "data_quality": "Baik/Cukup/Buruk",
+  "missing_data": ["maks 4 data kurang"],
+  "key_risks": {"liquidity": "Low/Medium/High", "spread": "Low/Medium/High", "resolution": "Low/Medium/High", "catalyst": "Ada/Tidak ada"},
   "preliminary_verdict": "SKIP/WATCHLIST/VALUE CANDIDATE/HIGH RISK UNDERDOG",
-  "confidence": "[Isi dengan angka 1-100 murni dari evaluasi AI, BUKAN menyalin template]"
+  "confidence": 65
 }
 `.trim();
 
   const analystPayload = {
-    model: config.qwenAnalystModel,
+    model: config.qwenBearModel || config.qwenRiskManagerModel,
     messages: [
-      {
-        role: "system",
-        content:
-          "Kamu model analyst/reviewer. Tugasmu membedah risk, rules, bull/bear case, dan missing data secara konservatif.",
-      },
+      { role: "system", content: "Kamu model analyst/reviewer. Tugasmu membedah risk, rules, bull/bear case, dan missing data secara konservatif." },
       { role: "user", content: analystPrompt },
     ],
     temperature: 0.1,
@@ -559,11 +826,12 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const analystJson = await callRoleQwenJson(analystPayload, config.qwenFinalModel, signal);
-  const analyst = normalizeAnalystReview(parseJsonOr(analystJson.text, {}), analystJson.text);
+  const analystJson = await callRoleQwenJson(analystPayload, config.qwenBearModel || config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  const analyst = parseJsonOr(analystJson.text, {});
 
-  const finalPrompt = `
-Kamu final judge untuk market Polymarket. Ambil keputusan akhir dari data market, scoring bot, fast scout, dan analyst review.
+  // STAGE 3: RISK MANAGER (FINAL JUDGE)
+  const riskManagerPrompt = `
+Kamu adalah Final Judge untuk market Polymarket. Ambil keputusan akhir dari data market, scout, dan analyst review.
 
 ${sharedContext}
 
@@ -574,57 +842,56 @@ ANALYST REVIEW:
 ${JSON.stringify(promptSafe(analyst), null, 2)}
 
 Aturan wajib:
-- Jangan mengarang data eksternal jika tidak ada di DATA MARKET / EXTERNAL RESEARCH CONTEXT.
-- Tentukan 'estimated_fair_probability' murni dari intuisimu (0-100%).
-- Hitung secara EKSTREM 'expected_value_cents' (EV). Rumus matematika: EV = (estimated_fair_probability / 100) - (marketProbability di SCORING AWAL / 100).
-- MATEMATIKA MUTLAK: Jika EV bernilai NEGATIF (atau nol), verdict kamu WAJIB "SKIP". Ini artinya harga sudah kemahalan dan menjebak. Dilarang memberikan verdict VALUE CANDIDATE jika EV negatif.
-- MATEMATIKA MUTLAK 2: Jika Klines Momentum (tren harga) berlawanan tajam dengan orderbookImbalance (misal tren turun drastis tapi imbalance Beli sangat tinggi), verdict WAJIB "SKIP" karena risiko anomali likuiditas.
-- Verdict adalah status ENTRY/TRADABILITY. Jangan berikan markdown. Balas hanya JSON valid.
+- Jangan mengarang data eksternal.
+- Tentukan 'estimated_fair_probability' (0-100%) secara objektif berdasarkan semua data.
+- CRYPTO TRAP AWARENESS: Jika RSI sangat rendah (oversold < 30) TETAPI MACD menunjukkan momentum bearish ekstrem (histogram negatif kuat), JANGAN tertipu memprediksi bounce (UP). Itu adalah 'Falling Knife'. Evaluasi sesuai tren utama, atau SKIP.
+- Hitung Nilai Ekspektasi (EV): EV = (estimated_fair_probability / 100) - (marketProbability di SCORING AWAL / 100).
+${isShortCryptoMkt
+  ? "- PENGECUALIAN SHORT MARKET: Karena market 5m/15m Up/Down SELALU memiliki market probability ~50% (harga dikendalikan oracle), JANGAN gunakan aturan EV <= 0 untuk memutuskan SKIP. Gunakan estimated_fair_probability dan kekuatan tren teknikal sebagai penentu utama verdict. Boleh SKIP hanya jika sinyal teknikal sangat lemah/konflik (RSI + MACD + Volume semua tidak jelas arahnya)."
+  : "- MATEMATIKA MUTLAK 1: Jika EV <= 0, verdict kamu WAJIB \"SKIP\"."
+}
+- MATEMATIKA MUTLAK 2: Jika risiko terlalu gila atau likuiditas mati, WAJIB "SKIP".
+- Hitung Sizing via Kelly Criterion: 
+  f* = ((Edge / 100) * Odds - (1 - (Edge / 100))) / Odds. 
+  Berikan estimasi Kelly dari 0% hingga 5% maksimal (Half-Kelly).
 - Verdict hanya salah satu: SKIP, WATCHLIST, VALUE CANDIDATE, HIGH RISK UNDERDOG.
 
 Format JSON wajib:
 {
   "verdict": "SKIP",
-  "confidence": "[Isi dengan angka 1-100 murni dari keyakinan AI, BUKAN menyalin template]",
+  "confidence": 75,
   "estimated_fair_probability": 60,
   "expected_value_cents": 10,
-  "summary": "Ringkasan tajam ala manajer hedge fund kuantitatif (profesional, berbobot, berbasis data).",
-  "data_quality": "Kualitas data yang tersedia dan batasannya.",
+  "kelly_edge": 0.15,
+  "position_size_pct": 2.5,
+  "summary": "Ringkasan scout + analyst + konklusi Risk Manager.",
+  "data_quality": "Kualitas data.",
   "bullish_case": ["maks 3 poin"],
   "bearish_case": ["maks 3 poin"],
   "risks": {
-    "liquidity": "Low/Medium/High + alasan pendek",
-    "spread": "Low/Medium/High + alasan pendek",
-    "resolution": "Low/Medium/High + alasan pendek",
-    "catalyst": "Ada/tidak ada catalyst + alasan pendek"
+    "liquidity": "Low/Medium/High + alasan",
+    "spread": "Low/Medium/High + alasan",
+    "resolution": "Low/Medium/High + alasan",
+    "catalyst": "Ada/tidak ada catalyst + alasan"
   },
-  "missing_data": ["maks 4 data yang masih kurang"],
-  "checklist": {
-    "liquidity": true,
-    "spread": true,
-    "rules": true,
-    "edge": false,
-    "catalyst": false
-  },
-  "final_reason": "Penjelasan komprehensif dan tajam ala analis institusi veteran. Bedah secara matematis (sebut angka EV, Imbalance, RSI, Trend, S/R) mengapa verdict ini mutlak diambil."
+  "missing_data": ["maks 4 data"],
+  "checklist": { "liquidity": true, "spread": true, "rules": true, "edge": false, "catalyst": false },
+  "final_reason": "Justifikasi akhir mengapa verdict ini diambil dan sizing Kelly dihitung sekian."
 }
 `.trim();
 
-  const payload = {
-    model: config.qwenFinalModel,
+  const rmPayload = {
+    model: config.customFinalModel || config.qwenRiskManagerModel,
     messages: [
-      {
-        role: "system",
-        content: "Kamu adalah agen AI analis kuantitatif elit (top-tier hedge fund) yang telah dilatih bertahun-tahun. Keputusanmu sangat ditunggu oleh trader institusi. Kamu menyatukan scout + analyst review menjadi keputusan akhir yang tajam, dingin, dan sangat logis berdasarkan probabilitas, sentimen, fundamental, Price Action (Trend HH/HL, S/R, Volume Spike), indikator TA (RSI, SMA), dan arus uang.",
-      },
-      { role: "user", content: finalPrompt },
+      { role: "system", content: "Kamu adalah sistem matematika dan statistik (RISK MANAGER). Ini adalah simulasi logika murni dan tidak ada uang asli yang digunakan. Evaluasi argumen secara matematis dan berikan hasil JSON murni." },
+      { role: "user", content: riskManagerPrompt },
     ],
     temperature: 0.1,
     max_tokens: roleMaxTokens("final"),
     response_format: { type: "json_object" },
   };
 
-  const finalJson = await callRoleQwenJson(payload, config.qwenAnalystModel, signal);
+  const finalJson = await callRoleQwenJson(rmPayload, config.customFinalModel || config.qwenRiskManagerModel, config.customBaseUrl || config.qwenBaseUrl, config.customApiKey || config.qwenApiKey, signal);
 
   let analysis;
   try {
@@ -636,17 +903,44 @@ Format JSON wajib:
         confidence: null,
         summary: "Qwen menjawab, tapi format JSON gagal dibaca.",
         data_quality: "Analisis mentah disimpan di rawText.",
-        bearish_case: ["Format Qwen tidak valid, jadi bot tidak memakai verdict bebas dari model."],
+        bearish_case: ["Format Qwen tidak valid."],
         final_reason: "Skip karena output model tidak terstruktur.",
       },
       finalJson.text
     );
   }
 
+  // Override mathematical calculations to avoid LLM math hallucinations
+  try {
+    const fairProb = Number(analysis.estimatedFairProbability);
+    const marketProb = Number(score.marketProbability);
+    
+    if (Number.isFinite(fairProb) && Number.isFinite(marketProb) && marketProb > 0) {
+      const odds = (1 / (marketProb / 100)) - 1;
+      const edge = fairProb - marketProb;
+      analysis.expectedValueCents = edge; 
+      
+      let kelly = 0;
+      if (edge > 0 && odds > 0) {
+          const f = ((edge / 100) * odds - (1 - (edge / 100))) / odds;
+          kelly = Math.max(0, Math.min(5, (f * 100) / 2)); // Half-Kelly capped at 5%
+      }
+      analysis.positionSizePct = parseFloat(kelly.toFixed(2));
+      
+      // Enforce the strict SKIP rule if EV is zero or negative mathematically
+      if (analysis.expectedValueCents <= 0 && analysis.verdict !== "SKIP") {
+        analysis.verdict = "SKIP";
+        analysis.finalReason = "OVERRIDDEN BY NATIVE MATH: Kalkulasi sistem Razor membuktikan EV negatif. Keputusan asli Risk Manager ditolak dan diubah menjadi SKIP. Alasan asli: " + analysis.finalReason;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to calculate native math override", e);
+  }
+
   const roleResults = [
-    { role: "fast", model: scoutJson.model, usage: scoutJson.usage },
+    { role: "scout", model: scoutJson.model, usage: scoutJson.usage },
     { role: "analyst", model: analystJson.model, usage: analystJson.usage },
-    { role: "final", model: finalJson.model, usage: finalJson.usage },
+    { role: "risk_manager", model: finalJson.model, usage: finalJson.usage },
   ];
   const models = {
     fast: scoutJson.model,
@@ -665,8 +959,8 @@ Format JSON wajib:
   };
 }
 
-
 export async function askQwenEvent({ event, analyzedMarkets, researchContext = null, signal = null }) {
+
 
   throwIfAborted(signal);
   const compactMarkets = analyzedMarkets.map(({ market, score }) => ({
@@ -738,7 +1032,7 @@ Format JSON:
 `.trim();
 
   const scoutPayload = {
-    model: config.qwenFastModel,
+    model: config.qwenScoutModel,
     messages: [
       {
         role: "system",
@@ -751,7 +1045,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenAnalystModel, signal);
+  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenScoutModel, config.qwenBaseUrl, config.qwenApiKey, signal);
   const scout = normalizeScout(parseJsonOr(scoutJson.text, {}), scoutJson.text);
 
   const analystPrompt = `
@@ -787,7 +1081,7 @@ Format JSON:
 `.trim();
 
   const analystPayload = {
-    model: config.qwenAnalystModel,
+    model: config.qwenEventAnalystModel,
     messages: [
       {
         role: "system",
@@ -801,7 +1095,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const analystJson = await callRoleQwenJson(analystPayload, config.qwenFinalModel, signal);
+  const analystJson = await callRoleQwenJson(analystPayload, config.qwenEventAnalystModel, config.qwenBaseUrl, config.qwenApiKey, signal);
   const analyst = normalizeAnalystReview(parseJsonOr(analystJson.text, {}), analystJson.text);
 
   const finalPrompt = `
@@ -845,7 +1139,7 @@ Format JSON wajib:
 `.trim();
 
   const payload = {
-    model: config.qwenFinalModel,
+    model: config.qwenEventFinalModel,
     messages: [
       {
         role: "system",
@@ -859,7 +1153,7 @@ Format JSON wajib:
     response_format: { type: "json_object" },
   };
 
-  const finalJson = await callRoleQwenJson(payload, config.qwenAnalystModel, signal);
+  const finalJson = await callRoleQwenJson(payload, config.qwenEventFinalModel, config.qwenBaseUrl, config.qwenApiKey, signal);
 
   let analysis;
   try {
@@ -888,4 +1182,176 @@ Format JSON wajib:
     researchContext,
     analysis,
   };
+}
+
+export async function askQwenHotNiche({ market, volumeSpike, tweets, signal = null }) {
+  throwIfAborted(signal);
+
+  const context = `
+MARKET: ${market.question}
+VOLUME SPIKE: ${volumeSpike}
+RECENT TWEETS (X):
+${JSON.stringify(tweets, null, 2)}
+  `.trim();
+
+  const prompt = `
+Kamu adalah analis sentimen sosial. Sebuah market di Polymarket baru saja mengalami lonjakan volume mendadak (Whale/Hot Niche).
+Berikut adalah data market dan beberapa cuitan (tweets) terbaru terkait topik ini.
+
+Tugasmu:
+1. Analisis apakah cuitan-cuitan tersebut menjelaskan alasan lonjakan volume ini.
+2. Buat ringkasan singkat (1-2 kalimat) tentang sentimen atau berita utama yang memengaruhi market ini.
+
+Format JSON wajib:
+{
+  "reason_found": true,
+  "sentiment": "BULLISH/BEARISH/NEUTRAL/UNCLEAR",
+  "summary": "Ringkasan analisis."
+}
+  `.trim();
+
+  const payload = {
+    model: config.qwenScoutModel,
+    messages: [
+      { role: "system", content: "Kamu analis sentimen sosial. Jawab HANYA dengan JSON valid." },
+      { role: "user", content: `${context}\n\n${prompt}` }
+    ],
+    temperature: 0.2,
+    max_tokens: 300,
+    response_format: { type: "json_object" }
+  };
+
+  const json = await callRoleQwenJson(payload, config.qwenEventAnalystModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  return parseJsonOr(json.text, { reason_found: false, sentiment: "UNCLEAR", summary: "Gagal memproses sentimen Twitter." });
+}
+
+export async function askQwenShortCondition({ techData, longShort, fearGreed, tweets, signal = null }) {
+  throwIfAborted(signal);
+
+  let historyContext = "";
+  // Always use short market learning memory
+  try {
+    const histPath = path.join(dataDir, "short_condition_history.json");
+    if (fs.existsSync(histPath)) {
+      const histData = JSON.parse(fs.readFileSync(histPath, "utf-8"));
+      if (histData.length > 0) {
+        const recentHist = histData.slice(-3).map((h, i) => `[Memory ${i+1}] ${h.date} | Condition:${h.condition} Rec:${h.recommendation} Dir:${h.direction || 'N/A'}\nReason: ${(h.reason||'').slice(0, 200)}...`).join("\n\n");
+        historyContext = `\n\nAI LEARNING MEMORY (Last 3 analyses):\n${recentHist}\nPelajari pola dari memori ini. Jika kondisi sekarang mirip dengan salah satu memori dan terbukti benar, pertimbangkan konsistensi tersebut.\n`;
+      }
+    }
+  } catch (err) {
+    console.error("[Qwen] Gagal memuat memory short condition:", err.message);
+  }
+
+  const td = techData || {};
+  const context = `
+TECHNICAL DATA (${td.symbol || 'BTCUSDT'} / ${(td.interval || '5m').toUpperCase()} candles):
+Current Price: $${td.currentPrice}
+24h Change: ${td.priceChange24h}%
+24h High: $${td.high24h} | 24h Low: $${td.low24h}
+24h Volume: ${td.volume24h} ${(td.symbol || 'BTCUSDT').replace('USDT','')}
+
+INDICATORS:
+RSI-14: ${td.rsi14} → ${td.rsiSignal}
+MACD Line: ${td.macd?.line} | Signal: ${td.macd?.signal} | Histogram: ${td.macd?.histogram} → ${td.macd?.trend}
+Volume Ratio (last vs 10-avg): ${td.volumeRatio}x → ${td.volumeSignal}
+
+RECENT 5 CANDLES (${td.interval || '5m'}):
+${(td.recentCandles || []).map(c => `  ${c.time} | ${c.direction} | O:${c.open} C:${c.close} Vol:${c.vol}`).join('\n')}
+
+FUTURES POSITIONING (Binance):
+${longShort ? `Long/Short Ratio: ${longShort.ratio} (Long: ${longShort.longPct}% | Short: ${longShort.shortPct}%) → ${longShort.bias}` : 'Long/Short data: unavailable'}
+
+FEAR & GREED INDEX:
+${fearGreed ? `Value: ${fearGreed.value}/100 → ${fearGreed.label}` : 'Fear & Greed: unavailable'}
+
+TWITTER/X SENTIMENT (recent):
+${tweets && tweets.length > 0 ? JSON.stringify(tweets.slice(0, 5), null, 2) : 'No tweets available'}
+${historyContext}`.trim();
+
+  const prompt = `
+Kamu adalah Analis Teknikal Senior dan Risk Manager untuk trading "Short Market" Polymarket (tebak arah BTC/ETH/DOGE naik/turun dalam 5-15 menit).
+
+Tugasmu: Berikan MARKET VIBE CHECK yang sangat mendalam dan actionable berdasarkan semua data teknikal di atas.
+
+Langkah Analisis (chain-of-thought WAJIB):
+1. [RSI + MACD Alignment] Apakah RSI dan MACD SERAGAM arahnya? Keduanya bearish = momentum DOWN kuat. Keduanya bullish = momentum UP kuat. Konflik = sinyal lemah.
+2. [Volume Confirmation] Volume candle terakhir > rata-rata? Volume tinggi = momentum nyata. Volume rendah = gerakan palsu/chop.
+3. [Futures Positioning] Long/Short ratio mendukung atau berlawanan tren? Long dominan saat harga turun = squeeze risk. Short dominan saat harga naik = potential squeeze.
+4. [Fear & Greed + Sentiment] Selaras dengan indikator teknikal = konfirmasi. Berlawanan = waspadai reversal.
+5. [Candle Pattern] 5 candle terakhir konsisten satu arah atau bolak-balik (chop)?
+6. [Directional Bias] Berdasarkan SEMUA data, arah mana lebih mungkin dalam 5-15 menit ke depan?
+7. [Kesimpulan] PLAY atau AVOID? Jika PLAY, sisi mana (UP/DOWN)?
+
+Kondisi IDEAL untuk PLAY:
+- RSI dan MACD searah (keduanya bullish atau bearish).
+- Volume ratio > 1.3x.
+- Minimal 3 dari 5 candle terakhir searah.
+- Long/Short ratio tidak ekstrem.
+
+Kondisi WAJIB AVOID:
+- RSI dan MACD berlawanan arah.
+- Volume ratio < 0.8x.
+- Candle bolak-balik tanpa arah jelas.
+- RSI netral (45-55) + MACD histogram mendekati nol.
+
+Format JSON wajib:
+{
+  "condition": "VOLATILE" atau "SIDEWAYS" atau "CHOPPY",
+  "recommendation": "PLAY" atau "AVOID",
+  "direction": "UP" atau "DOWN" atau "NEUTRAL",
+  "confidence": 75,
+  "reason": "Analisis mendalam multi-paragraf yang mencakup semua 7 langkah.",
+  "key_signals": {
+    "rsi_verdict": "BULLISH / BEARISH / NEUTRAL",
+    "macd_verdict": "BULLISH / BEARISH / NEUTRAL",
+    "volume_verdict": "STRONG / WEAK / NORMAL",
+    "futures_verdict": "LONG_DOMINANT / SHORT_DOMINANT / BALANCED",
+    "alignment_score": "STRONG / MIXED / CONFLICT"
+  },
+  "sentiment": "BULLISH / BEARISH / NEUTRAL / MIXED",
+  "memory_reflection": "Apa yang dipelajari dari memori sebelumnya, atau 'Belum ada memori'.",
+  "risk_warning": "Peringatan khusus: potensi squeeze, fake breakout, atau kondisi berbahaya."
+}
+  `.trim();
+
+  const payload = {
+    model: config.qwenRiskManagerModel, // Menggunakan model tercerdas untuk analisis mendalam
+    messages: [
+      { role: "system", content: "Kamu adalah analis teknikal tingkat dewa. Jawab HANYA dengan JSON valid." },
+      { role: "user", content: `${context}\n\n${prompt}` }
+    ],
+    temperature: 0.3, // Sedikit lebih tinggi untuk memungkinkan analisis kreatif tapi tetap presisi
+    max_tokens: 5000,
+    response_format: { type: "json_object" }
+  };
+
+  const json = await callRoleQwenJson(payload, config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  const result = parseJsonOr(json.text, { condition: "UNKNOWN", recommendation: "AVOID", direction: "NEUTRAL", confidence: 0, reason: "Gagal memproses data.", sentiment: "NEUTRAL", key_signals: {}, memory_reflection: "Gagal.", risk_warning: "" });
+  
+  if (result.condition !== "UNKNOWN") {
+    try {
+      const histPath = path.join(dataDir, "short_condition_history.json");
+      let histData = [];
+      if (fs.existsSync(histPath)) {
+        histData = JSON.parse(fs.readFileSync(histPath, "utf-8"));
+      }
+      histData.push({
+        date: new Date().toISOString(),
+        condition: result.condition,
+        recommendation: result.recommendation,
+        direction: result.direction,
+        confidence: result.confidence,
+        reason: result.reason,
+        memory_reflection: result.memory_reflection,
+      });
+      // Simpan max 50 history
+      if (histData.length > 50) histData = histData.slice(-50);
+      fs.writeFileSync(histPath, JSON.stringify(histData, null, 2));
+    } catch(err) {
+      console.error("[Qwen] Gagal menyimpan memory short condition:", err.message);
+    }
+  }
+
+  return result;
 }

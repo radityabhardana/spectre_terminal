@@ -39,6 +39,24 @@ db.exec(`
     created_at TEXT NOT NULL,
     resolved_at TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS prediction_reflections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    prediction TEXT NOT NULL,
+    actual_outcome TEXT NOT NULL,
+    reflection_note TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS user_profile (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    username TEXT,
+    email TEXT,
+    password TEXT,
+    avatar_url TEXT
+  );
 `);
 
 try {
@@ -132,10 +150,33 @@ export function addAnalyzedEvent(event) {
 
 export function getAnalyzedEvents(limit = 100) {
   try {
-    return db.prepare('SELECT * FROM analyzed_events ORDER BY id DESC LIMIT ?').all(limit);
+    return db.prepare(`
+      SELECT a.*, 
+        CASE WHEN EXISTS (
+          SELECT 1 FROM prediction_reflections p WHERE p.market_id = a.market_id
+        ) THEN 1 ELSE 0 END as has_reflection
+      FROM analyzed_events a 
+      ORDER BY a.id DESC LIMIT ?
+    `).all(limit);
   } catch (error) {
     console.error("[Storage] getAnalyzedEvents error:", error.message);
     return [];
+  }
+}
+
+export function getStats() {
+  try {
+    const totalRow = db.prepare('SELECT COUNT(*) as total FROM analyzed_events').get();
+    const winRow = db.prepare('SELECT COUNT(*) as wins FROM analyzed_events WHERE result = ?').get('menang');
+    const lossRow = db.prepare('SELECT COUNT(*) as losses FROM analyzed_events WHERE result = ?').get('kalah');
+    return {
+      totalAnalyzed: totalRow.total || 0,
+      wins: winRow.wins || 0,
+      losses: lossRow.losses || 0
+    };
+  } catch (error) {
+    console.error("[Storage] getStats error:", error.message);
+    return { totalAnalyzed: 0, wins: 0, losses: 0 };
   }
 }
 
@@ -150,3 +191,54 @@ export function updateAnalyzedEventStatus(id, status, result, actualOutcome) {
     return false;
   }
 }
+
+export function saveReflection(reflection) {
+  try {
+    const createdAt = new Date().toISOString();
+    const info = db.prepare(`
+      INSERT INTO prediction_reflections (market_id, question, prediction, actual_outcome, reflection_note, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(reflection.market_id, reflection.question, reflection.prediction, reflection.actual_outcome, reflection.reflection_note, createdAt);
+    return info.lastInsertRowid;
+  } catch (error) {
+    console.error("[Storage] saveReflection error:", error.message);
+    return null;
+  }
+}
+
+export function getRecentReflections(limit = 5) {
+  try {
+    return db.prepare('SELECT * FROM prediction_reflections ORDER BY id DESC LIMIT ?').all(limit);
+  } catch (error) {
+    console.error("[Storage] getRecentReflections error:", error.message);
+    return [];
+  }
+}
+
+export function getAnalyzedEventById(id) {
+  try {
+    return db.prepare('SELECT * FROM analyzed_events WHERE id = ?').get(id);
+  } catch (error) {
+    console.error("[Storage] getAnalyzedEventById error:", error.message);
+    return null;
+  }
+}
+
+export function getReflectionByMarketId(marketId) {
+  try {
+    return db.prepare('SELECT * FROM prediction_reflections WHERE market_id = ? ORDER BY id DESC LIMIT 1').get(marketId);
+  } catch (error) {
+    console.error("[Storage] getReflectionByMarketId error:", error.message);
+    return null;
+  }
+}
+
+export function getAllReflections() {
+  try {
+    return db.prepare('SELECT * FROM prediction_reflections ORDER BY id DESC').all();
+  } catch (error) {
+    console.error("[Storage] getAllReflections error:", error.message);
+    return [];
+  }
+}
+

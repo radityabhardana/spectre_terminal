@@ -463,6 +463,25 @@ export function formatAnalysis({ market, score, qwenResult }) {
   const direction = directionSignal(score);
   const strength = directionStrength(direction);
 
+  // Detect market type for context-aware display
+  const researchType = qwenResult?.researchContext?.type || "general";
+  const isCryptoMarket = researchType === "crypto";
+  const isUfcMarket = researchType === "sports_ufc";
+  const isShortCrypto = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*up.or.down/i.test(market.question || "");
+
+  // For short crypto markets, derive shown direction from Qwen fairProb (same logic as index.js)
+  let shownDirection = direction.side;
+  if (isShortCrypto && qwen.estimatedFairProbability != null) {
+    const fairProb = Number(qwen.estimatedFairProbability);
+    const primaryLabel = String(score?.primaryOutcomeLabel || "UP").toUpperCase();
+    const secondaryLabel = String(score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
+    if (Number.isFinite(fairProb)) {
+      if (fairProb >= 55) shownDirection = primaryLabel;
+      else if (fairProb <= 45) shownDirection = secondaryLabel;
+      else shownDirection = "NETRAL";
+    }
+  }
+
   return [
     "MARKET SUMMARY",
     `Market: ${market.question}`,
@@ -477,12 +496,12 @@ export function formatAnalysis({ market, score, qwenResult }) {
     market.url ? `URL: ${market.url}` : null,
     "",
     "KESIMPULAN CEPAT",
-    `Arah market: ${direction.side} (${strength})`,
+    `Arah market: ${shownDirection} (${isShortCrypto ? 'dari Qwen RSI/MACD analysis' : strength})`,
     `Entry status: ${entryVerdictMeaning(verdict)}`,
     `Catatan: Arah market = bacaan probabilitas/sentimen. Entry status = layak masuk atau tidak.`,
     "",
     "ARAH MARKET - SCOUTING",
-    `Dominan: ${direction.side}`,
+    `Dominan: ${shownDirection}`,
     `Confidence ${direction.primaryLabel}: ${pct(direction.yesConfidence)} | Confidence ${direction.secondaryLabel}: ${pct(
       direction.noConfidence
     )}`,
@@ -491,7 +510,7 @@ export function formatAnalysis({ market, score, qwenResult }) {
     "",
     "SNAPSHOT DATA",
     outcomeLine(market),
-    `Realtime Ticker: ${score.primaryTokenId}|${score.secondaryTokenId}|${score.primaryOutcomeLabel}|${score.secondaryOutcomeLabel}|${market.question}|${market.endDate}`,
+    `Realtime Ticker: ${score.primaryTokenId}|${score.secondaryTokenId}|${score.primaryOutcomeLabel}|${score.secondaryOutcomeLabel}|${market.question}|${market.endDate}|${market.groupItemTitle || market.eventTitle || ""}`,
     `Liquidity: ${money(market.liquidity)}`,
     `Gamma volume: ${money(market.volume)}`,
     `Orderbook ${direction.primaryLabel}: bid ${price(score.bestBid)} | ask ${price(score.bestAsk)} | spread ${pct(
@@ -507,6 +526,12 @@ export function formatAnalysis({ market, score, qwenResult }) {
     "",
     "ALASAN SINGKAT",
     `Qwen summary: ${qwen.summary || "n/a"}`,
+    // Only show fair probability context for crypto markets
+    isCryptoMarket && qwen.estimatedFairProbability != null
+      ? `Est. Fair Prob: ${qwen.estimatedFairProbability}% | Market Prob: ${score.marketProbability?.toFixed(1) ?? "n/a"}%`
+      : null,
+    qwen.expectedValueCents != null ? `Expected Value (EV): ${qwen.expectedValueCents.toFixed(2)} cents per share` : null,
+    qwen.positionSizePct != null ? `Kelly Sizing Rec: ${qwen.positionSizePct}% of Portfolio` : null,
     `Bull point: ${oneLine(qwen.bullishCase)}`,
     `Bear point: ${oneLine(qwen.bearishCase)}`,
     qwen.finalReason ? `Final reason: ${qwen.finalReason}` : null,
@@ -518,7 +543,8 @@ export function formatAnalysis({ market, score, qwenResult }) {
     usageLine(qwenResult),
     "",
     "KESIMPULAN AKHIR",
-    `Hasil Arah: ${direction.side === 'NETRAL' ? '=' : direction.side}`,
+    isShortCrypto && shownDirection !== 'NETRAL' ? `⚡ Mode Short Market: Sinyal arah diprioritaskan (mengabaikan vonis Netral/SKIP).` : null,
+    `Hasil Arah: ${shownDirection === 'NETRAL' ? '=' : shownDirection}`,
     `Data Confidence: ${confidenceText(score.confidenceScore)}`,
     `Qwen Confidence: ${confidenceText(qwen.confidence)}`,
     `Kesimpulan Analisis: ${qwen.summary || "n/a"}`,
@@ -679,6 +705,51 @@ export function formatEventAnalysis({ event, analyzedMarkets, qwenResult }) {
     eventUsageLine(qwenResult),
     "",
     "Disclaimer: Ini bukan financial advice. Untuk event multi-market, ranking berarti watchlist priority, bukan sinyal auto-entry.",
+  ]
+    .filter((line) => line != null && line !== false)
+    .join("\n");
+}
+
+export function formatShortCondition({ techData, longShort, fearGreed, evaluation }) {
+  const rec     = (evaluation.recommendation || "AVOID").toUpperCase();
+  const dir     = (evaluation.direction || "NEUTRAL").toUpperCase();
+  const cond    = (evaluation.condition || "UNKNOWN").toUpperCase();
+  const recIcon = rec === "PLAY" ? "PLAY" : "AVOID";
+  const dirIcon = dir === "UP" ? "UP" : dir === "DOWN" ? "DOWN" : "NEUTRAL";
+  const sigs    = evaluation.key_signals || {};
+  const td      = techData || {};
+  const conf    = evaluation.confidence ? `${evaluation.confidence}/100` : "n/a";
+
+  return [
+    "SHORT MARKET VIBE CHECK",
+    `${recIcon} | ARAH: ${dirIcon} | Confidence: ${conf}`,
+    `Kondisi: ${cond}   Sentimen: ${evaluation.sentiment || "N/A"}`,
+    "",
+    "── INDIKATOR TEKNIKAL ──────────────────────────",
+    td.currentPrice   ? `Harga: $${td.currentPrice} (24h: ${td.priceChange24h}%)` : null,
+    td.rsi14 != null  ? `RSI-14: ${td.rsi14} → ${td.rsiSignal}` : null,
+    td.macd           ? `MACD: Line:${td.macd.line} Signal:${td.macd.signal} Hist:${td.macd.histogram} → ${td.macd.trend}` : null,
+    td.volumeRatio    ? `Volume Ratio: ${td.volumeRatio}x → ${td.volumeSignal}` : null,
+    td.recentCandles  ? `Candles (5m): ${td.recentCandles.map(c => c.direction === "UP" ? "UP" : "DN").join(" ")}` : null,
+    "",
+    "── SENTIMEN & POSITIONING ──────────────────────",
+    longShort
+      ? `L/S Ratio: ${longShort.ratio} (Long:${longShort.longPct}% Short:${longShort.shortPct}%) → ${longShort.bias}`
+      : "L/S Ratio: unavailable",
+    fearGreed ? `Fear & Greed: ${fearGreed.value}/100 → ${fearGreed.label}` : "Fear & Greed: unavailable",
+    "",
+    "── SIGNAL ALIGNMENT ───────────────────────────",
+    sigs.rsi_verdict      ? `RSI:     ${sigs.rsi_verdict}` : null,
+    sigs.macd_verdict     ? `MACD:    ${sigs.macd_verdict}` : null,
+    sigs.volume_verdict   ? `Volume:  ${sigs.volume_verdict}` : null,
+    sigs.futures_verdict  ? `Futures: ${sigs.futures_verdict}` : null,
+    sigs.alignment_score  ? `Overall: ${sigs.alignment_score}` : null,
+    "",
+    "── AI ANALYSIS ────────────────────────────────",
+    evaluation.reason || "n/a",
+    evaluation.risk_warning ? `\nRISK WARNING: ${evaluation.risk_warning}` : null,
+    "",
+    "Disclaimer: Ini bukan financial advice. Kondisi pasar bisa berubah dalam detik.",
   ]
     .filter((line) => line != null && line !== false)
     .join("\n");

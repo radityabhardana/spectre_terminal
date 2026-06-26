@@ -1,18 +1,20 @@
 <!doctype html>
-<html lang="id">
+<html lang="id" data-mode="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MVPM Terminal — Polymarket Analyzer</title>
-    <meta name="description" content="Professional Polymarket prediction market analysis terminal with real-time data, AI-powered insights, and order book analysis." />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <link rel="stylesheet" href="/styles.css?v=36-close-tab" />
+    <!-- Anti-flash: apply stored color mode before any CSS renders -->
+    <script>!function(){var m=localStorage.getItem('razorbot_mode')||'dark';document.documentElement.setAttribute('data-mode',m);}();</script>
+  <title>Razor Bot — Polymarket Intelligence Terminal</title>
+  <meta name="description" content="Professional Polymarket prediction market analysis terminal with real-time data, AI-powered insights, and order book analysis." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  />
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="/styles.css?v=stripe-v1" />
   </head>
   <body>
     <div class="app-shell">
@@ -28,15 +30,42 @@
           </div>
         </div>
 
+        <div id="priceTicker" style="display:flex; gap:12px; align-items:center; flex:1; padding-left:24px;">
+          <!-- BTC Card -->
+          <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:6px; padding:4px 10px; display:flex; align-items:center; gap:8px;">
+            <div style="width:6px; height:6px; border-radius:50%; background:var(--neon-amber);"></div>
+            <span style="font-size:11px; font-weight:600; color:var(--text-secondary);">BTC</span>
+            <span id="priceBTC" style="font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--text-primary);">...</span>
+          </div>
+          <!-- ETH Card -->
+          <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:6px; padding:4px 10px; display:flex; align-items:center; gap:8px;">
+            <div style="width:6px; height:6px; border-radius:50%; background:var(--neon-cyan);"></div>
+            <span style="font-size:11px; font-weight:600; color:var(--text-secondary);">ETH</span>
+            <span id="priceETH" style="font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--text-primary);">...</span>
+          </div>
+          <!-- DOGE Card -->
+          <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:6px; padding:4px 10px; display:flex; align-items:center; gap:8px;">
+            <div style="width:6px; height:6px; border-radius:50%; background:var(--text-tertiary);"></div>
+            <span style="font-size:11px; font-weight:600; color:var(--text-secondary);">DOGE</span>
+            <span id="priceDOGE" style="font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--text-primary);">...</span>
+          </div>
+        </div>
+
         <div class="header-clock" id="headerClock" aria-label="Local time">
           <span class="clock-label">Local</span>
           <span id="clockTime">--:--:--</span>
         </div>
-        <div class="top-status">
+        <div class="status-row top-status">
           <span class="status-pill">Gamma</span>
           <span class="status-pill">CLOB</span>
           <span id="qwenStatus" class="status-pill ai">Qwen</span>
           <span class="status-pill muted">Local</span>
+          <button id="btnThemeToggle" aria-label="Toggle light/dark mode" title="Toggle light/dark mode" style="margin-left:4px; background:transparent; border:1px solid var(--border-strong); border-radius:var(--radius-md); cursor:pointer; display:flex; align-items:center; justify-content:center; width:30px; height:26px; color:var(--text-secondary); transition:all 0.15s ease; flex-shrink:0;">
+            <i data-lucide="moon" id="toggleModeIcon" style="width:14px; height:14px;"></i>
+          </button>
+          <button id="btnSettings" class="btn-profile" aria-label="Settings" style="margin-left: 4px; background: transparent; border: 1px solid var(--border-strong); border-radius: var(--radius-md); cursor: pointer; display: flex; align-items: center; justify-content:center; width:30px; height:26px; color: var(--text-secondary); transition: all 0.15s ease;">
+            <i data-lucide="settings" style="width:14px; height:14px;"></i>
+          </button>
         </div>
       </header>
 
@@ -74,6 +103,72 @@
           <!-- Divider -->
           <div class="panel-divider"></div>
 
+          <!-- Section: Opportunities (CloddsBot) -->
+          <div class="panel-section">
+            <div class="section-header">
+              <span class="section-icon" style="background-color: var(--neon-cyan);"></span>
+              <span class="section-label">Opportunities</span>
+              <span class="section-hint">Auto-scan</span>
+            </div>
+            <div class="action-row">
+              <button type="button" class="action-chip" data-command="/arb">
+                <i data-lucide="refresh-cw" class="chip-icon"></i>
+                <span>Arbitrage</span>
+              </button>
+              <button type="button" class="action-chip" data-command="/internalarb">
+                <i data-lucide="minimize-2" class="chip-icon"></i>
+                <span>Internal Arb</span>
+              </button>
+              <button type="button" class="action-chip" data-command="/toptraders">
+                <i data-lucide="award" class="chip-icon"></i>
+                <span>Top Traders</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Divider -->
+          <div class="panel-divider"></div>
+
+          <!-- Section: Stats & Alerts (CloddsBot) -->
+          <div class="panel-section">
+            <div class="section-header">
+              <span class="section-icon" style="background-color: var(--neon-purple);"></span>
+              <span class="section-label">Stats & Alerts</span>
+              <span class="section-hint">No input needed</span>
+            </div>
+            <div class="action-row" style="flex-wrap: wrap;">
+              <button type="button" class="action-chip" data-command="/analytics">
+                <i data-lucide="pie-chart" class="chip-icon"></i>
+                <span>Analytics</span>
+              </button>
+              <button type="button" class="action-chip" data-command="/bycat">
+                <i data-lucide="folder" class="chip-icon"></i>
+                <span>By Category</span>
+              </button>
+              <button type="button" class="action-chip" data-command="/timing">
+                <i data-lucide="clock" class="chip-icon"></i>
+                <span>Timing Analysis</span>
+              </button>
+              <div class="tooltip-container">
+                <button type="button" class="action-chip" data-command="/backtest" style="opacity: 0.4; cursor: not-allowed; background-color: rgba(255, 255, 255, 0.02);">
+                  <i data-lucide="trending-up" class="chip-icon"></i>
+                  <span>Backtest</span>
+                </button>
+                <div class="tooltip-content" style="width: 200px; text-align: center; bottom: 100%; top: auto; margin-bottom: 10px;">
+                  <strong style="color:var(--neon-amber)">🚧 On Progress</strong><br>
+                  <span style="font-size: 11px; color: var(--text-secondary);">Sedang upgrade sistem database untuk merekam entry price asli.</span>
+                </div>
+              </div>
+              <button type="button" class="action-chip" data-command="/alerts">
+                <i data-lucide="bell" class="chip-icon"></i>
+                <span>My Alerts</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Divider -->
+          <div class="panel-divider"></div>
+
           <!-- Section 2: Smart Input -->
           <div class="panel-section grow">
             <div class="section-header" style="display:flex; align-items:center; gap:6px;">
@@ -90,7 +185,14 @@
                   <span style="color:var(--neon-cyan)">/analyzebest [url]</span> - Analisis 1 market paling mis-priced<br>
                   <span style="color:var(--neon-cyan)">/analyzeall [url]</span> - Analisis seluruh market dalam event<br>
                   <span style="color:var(--neon-cyan)">/book [id]</span> - Intip orderbook dan likuiditas<br>
-                  <span style="color:var(--neon-cyan)">/top</span> - Lihat 5 market paling aktif saat ini
+                  <span style="color:var(--neon-cyan)">/top</span> - Lihat 5 market paling aktif saat ini<br>
+                  <hr style="border: 1px solid rgba(255,255,255,0.1); margin: 8px 0;">
+                  <strong>CloddsBot Commands:</strong><br><br>
+                  <span style="color:var(--neon-purple)">/kelly [edge] [conf]</span> - Hitung position sizing<br>
+                  <span style="color:var(--neon-purple)">/alert [id] [cond]</span> - Set price alert<br>
+                  <span style="color:var(--neon-purple)">/delalert [id]</span> - Hapus alert<br>
+                  <span style="color:var(--neon-purple)">/whales [min$]</span> - Custom whale tracker<br>
+                  <span style="color:var(--neon-purple)">/arb</span> - Scan semua arbitrase
                 </div>
               </div>
             </div>
@@ -192,6 +294,13 @@
                 .hover-tooltip .tooltip-text { visibility: hidden; opacity: 0; width: 260px; background-color: rgba(0,0,0,0.95); color: #fff; text-align: left; padding: 10px; border-radius: 6px; position: absolute; z-index: 9999; top: 130%; left: 0; font-size: 11px; line-height: 1.5; border: 1px solid rgba(16,185,129,0.5); transition: opacity 0.2s; pointer-events: none; font-weight: normal; }
                 .hover-tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
               </style>
+              <button id="snifferToggleBtn" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 12px; border-color: var(--neon-amber); color: var(--neon-amber); font-weight: bold; min-width: 130px; justify-content: center; gap: 6px;">
+                <i data-lucide="radar" style="width: 12px; height: 12px;"></i>
+                <span id="snifferToggleText">TRACKER: OFF</span>
+              </button>
+              <button id="btnShortMarket" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px; border-color: rgba(245, 158, 11, 0.3);">
+                <i data-lucide="zap" class="btn-icon" style="width:12px; height:12px; color:var(--neon-amber);"></i> Short Market
+              </button>
               <div class="hover-tooltip">
                 <i data-lucide="info" style="width:14px; height:14px; color:var(--text-secondary);"></i>
                 <div class="tooltip-text">
@@ -201,12 +310,19 @@
                   Jika dianalisis sebelum batas waktu ini, titik acuan harga belum dikunci oleh Polymarket.
                 </div>
               </div>
-              <button id="btnShortMarket" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px; border-color: rgba(245, 158, 11, 0.3);">
-                <i data-lucide="zap" class="btn-icon" style="width:12px; height:12px; color:var(--neon-amber);"></i> Short Market
-              </button>
-              <button id="togglePolyBtn" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px;">
-                <i data-lucide="eye" class="btn-icon" style="width:12px; height:12px;"></i> Polymarket
-              </button>
+              <div style="position:relative; display:inline-block;">
+                <button id="togglePolyBtn" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px;">
+                  <i data-lucide="eye" class="btn-icon" style="width:12px; height:12px;"></i> <span id="currentPanelLabel">Polymarket</span> <i data-lucide="chevron-down" style="width:12px; height:12px; margin-left:4px; opacity:0.7;"></i>
+                </button>
+                <div id="polyMenuDropdown" style="display:none; position:absolute; top:100%; right:0; margin-top:4px; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:4px; box-shadow:0 4px 12px rgba(0,0,0,0.5); z-index:9999; min-width:140px; flex-direction:column; overflow:hidden;">
+                  <button type="button" id="menuBtnPoly" style="background:none; border:none; color:var(--text-primary); padding:10px 12px; font-size:11px; text-align:left; cursor:pointer; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                    <i data-lucide="line-chart" style="width:14px; height:14px; color:var(--neon-cyan);"></i> Polymarket Live
+                  </button>
+                  <button type="button" id="menuBtnX" style="background:none; border:none; color:var(--text-primary); padding:10px 12px; font-size:11px; text-align:left; cursor:pointer; display:flex; align-items:center; gap:8px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:#fff;"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg> Whales Feed
+                  </button>
+                </div>
+              </div>
               <!-- Floating Panel for Queue -->
               <div id="queuePanel" style="display:none; position:absolute; top:32px; right:330px; width:360px; height:400px; min-width:300px; min-height:200px; max-width:800px; max-height:80vh; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index:150; text-align:left; flex-direction:column;">
                 <div id="queueResizeHandleSW" style="position:absolute; bottom:0; left:0; width:16px; height:16px; cursor:sw-resize; z-index:101; border-bottom-left-radius: var(--radius-md);">
@@ -222,12 +338,6 @@
                     <button type="button" id="btnMinimizeQueue" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Minimize Queue">
                       <i data-lucide="minus" style="width:14px; height:14px;"></i>
                     </button>
-                    <button type="button" id="btnMuteAudio" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Toggle Audio Alerts">
-                      <i data-lucide="volume-2" id="iconMute" style="width:12px; height:12px;"></i>
-                    </button>
-                    <button type="button" id="btnSniperSettings" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Sniper Settings">
-                      <i data-lucide="settings" style="width:12px; height:12px;"></i>
-                    </button>
                     <button type="button" id="btnClearQueue" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Clear Queue">
                       <i data-lucide="trash-2" style="width:12px; height:12px;"></i>
                     </button>
@@ -238,33 +348,7 @@
                 </div>
 
                 <div id="queuePanelContent" style="display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden;">
-                  <!-- Inline Settings Panel -->
-                <div id="sniperSettingsPanel" style="display:none; padding:12px; background:rgba(0,0,0,0.2); border-bottom:1px solid var(--border); font-size:10px; color:var(--text-secondary);">
-                  <div style="margin-bottom:8px;">Menit/detik **sebelum market ditutup** untuk trigger sniper:</div>
-                  <div style="display:flex; flex-direction:column; gap:6px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:6px 8px; border-radius:4px; border:1px solid var(--border);">
-                      <span style="font-weight:bold; color:var(--text-primary);">5-Min Market:</span>
-                      <div style="display:flex; gap:4px; align-items:center;">
-                        <input type="number" id="sniper5mMin" value="4" min="0" max="4" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">m
-                        <input type="number" id="sniper5mSec" value="30" min="0" max="59" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">s
-                      </div>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:6px 8px; border-radius:4px; border:1px solid var(--border);">
-                      <span style="font-weight:bold; color:var(--text-primary);">15-Min Market:</span>
-                      <div style="display:flex; gap:4px; align-items:center;">
-                        <input type="number" id="sniper15mMin" value="13" min="0" max="14" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">m
-                        <input type="number" id="sniper15mSec" value="30" min="0" max="59" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">s
-                      </div>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:6px 8px; border-radius:4px; border:1px solid var(--border);">
-                      <span style="font-weight:bold; color:var(--text-primary);">1-Hour Market:</span>
-                      <div style="display:flex; gap:4px; align-items:center;">
-                        <input type="number" id="sniper1hMin" value="55" min="0" max="59" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">m
-                        <input type="number" id="sniper1hSec" value="0" min="0" max="59" style="width:30px; height:20px; font-size:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border); color:var(--text-primary); text-align:center; border-radius:2px;">s
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  <!-- Sniper settings moved to settings modal -->
                 <div id="queueDropzone" style="flex:1; overflow-y:auto; padding:8px; font-size:10px; display:flex; flex-direction:column; gap:6px; border: 2px dashed transparent; transition: border-color 0.2s;">
                   <div id="queueEmpty" style="text-align:center; padding:30px 10px; color:var(--text-tertiary); pointer-events:none; margin:auto;">
                     <i data-lucide="download" style="width:20px; height:20px; margin-bottom:8px; opacity:0.5;"></i><br>
@@ -277,6 +361,144 @@
                   </button>
                 </div>
                 </div> <!-- End of queuePanelContent -->
+              </div>
+
+              <!-- Modal Panel for Sniffer -->
+              <div id="snifferPanel" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
+                <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.5); width:1100px; max-width:95vw; height:85vh; display:flex; flex-direction:column; overflow:hidden;">
+                  
+                  <!-- Header -->
+                  <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                    <h3 style="margin:0; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
+                      <i data-lucide="radar" style="width:16px; height:16px; color:var(--neon-cyan);"></i>
+                      Live Market Tracker
+                    </h3>
+                    <div style="display:flex; align-items:center; gap:16px;">
+                      <button id="panelSnifferPowerBtn" class="btn-primary" type="button" style="height:28px; font-size:12px; font-weight:600; padding:0 16px; background:rgba(245, 158, 11, 0.15); color:var(--neon-amber); border:1px solid rgba(245, 158, 11, 0.4); border-radius:6px; cursor:pointer; transition:all 0.2s;">
+                        TURN ON
+                      </button>
+                      <button type="button" id="btnCloseSnifferPanel" style="background:none; border:none; padding:4px; cursor:pointer; color:var(--text-tertiary); transition:color 0.2s;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-tertiary)'" title="Close">
+                        <i data-lucide="x" style="width:20px; height:20px;"></i>
+                      </button>
+                    </div>
+                  </div>
+                             <!-- Body Container: Sidebar + Content -->
+                  <div style="display:flex; flex:1; overflow:hidden;">
+                    <!-- Left Sidebar -->
+                    <div style="width:200px; height:100%; border-right:1px solid var(--border); background:rgba(0,0,0,0.2); display:flex; flex-direction:column; padding:16px 0;">
+                      <button id="tabSniffer" style="display:flex; align-items:center; gap:12px; padding:12px 20px; background:rgba(6,182,212,0.1); border:none; border-right:3px solid var(--neon-cyan); color:var(--text-primary); text-align:left; cursor:pointer; font-weight:600; font-size:13px; transition:background 0.2s;">
+                        <i data-lucide="activity" style="width:16px; height:16px; color:var(--neon-cyan);"></i> Live Sniffer
+                      </button>
+                      <button id="tabTrackWallet" style="display:flex; align-items:center; gap:12px; padding:12px 20px; background:transparent; border:none; border-right:3px solid transparent; color:var(--text-tertiary); text-align:left; cursor:pointer; font-weight:500; font-size:13px; transition:background 0.2s, color 0.2s;">
+                        <i data-lucide="target" style="width:16px; height:16px;"></i> Track Wallet
+                      </button>
+                    </div>
+                    
+                    <!-- Right Content -->
+                    <div style="flex:1; display:flex; flex-direction:column; background:var(--bg-surface); position:relative; overflow:hidden;">
+                      
+                      <!-- Sniffer View Pane -->
+                      <div id="snifferViewPane" style="display:flex; flex-direction:column; width:100%; height:100%;">
+                        <div style="padding:12px 20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.1); display:flex; justify-content:space-between; align-items:center;">
+                          <div style="font-size:12px; color:var(--text-secondary);">Catch whales exceeding size limit</div>
+                          <div style="display:flex; align-items:center; gap:8px;">
+                            <div style="font-size:11px; color:var(--text-tertiary); font-weight:600; text-transform:uppercase;">Min Size (USD)</div>
+                            <input type="number" id="trackerMinSizeInput" value="1000" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-family:var(--font-mono); font-size:12px; padding:4px 8px; width:80px; outline:none;">
+                            <button id="btnSaveSnifferConfig" class="btn-secondary" style="height:26px; font-size:11px; padding:0 12px;">Save</button>
+                          </div>
+                        </div>
+                        <div id="trendingMarketsContainer" style="padding:12px 20px; border-bottom:1px solid var(--border); display:none; flex-direction:column; gap:8px;">
+                          <div style="font-size:11px; color:var(--text-tertiary); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;"><i data-lucide="trending-up" style="width:12px; height:12px; vertical-align:middle; margin-right:4px;"></i> Top Whale Markets (15m)</div>
+                          <div id="trendingMarketsList" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+                        </div>
+                        <div id="snifferWhaleList" style="flex:1; overflow-y:auto; padding:20px; font-size:13px; display:flex; flex-direction:column; gap:12px;">
+                          <div style="text-align:center; padding:60px 20px; color:var(--text-tertiary); display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%;">
+                            <i data-lucide="activity" style="width:48px; height:48px; opacity:0.2; margin-bottom:16px;"></i>
+                            <div style="font-size:16px; font-weight:500; color:var(--text-secondary); margin-bottom:8px;">Tracker is Offline</div>
+                            <div style="font-size:13px;">Turn on the tracker to intercept live whale trades...</div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <!-- Track Wallet View Pane -->
+                      <div id="trackerViewPane" style="display:none; flex-direction:column; width:100%; height:100%;">
+                        <div style="padding:12px 20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.1); display:flex; flex-direction:column; gap:12px;">
+                          <div style="font-size:12px; color:var(--text-secondary);">Intercept all trades from specific addresses</div>
+                          <div style="display:flex; gap:8px;">
+                            <input type="text" id="trackerWalletInput" placeholder="0x..." style="flex:2; background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-family:var(--font-mono); font-size:12px; padding:6px 12px; outline:none;">
+                            <input type="text" id="trackerWalletNickname" placeholder="Nickname (opsional)" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px; padding:6px 12px; outline:none;">
+                            <button id="btnAddWallet" class="btn-primary" style="height:30px; font-size:12px; padding:0 16px; border-radius:6px;">Add</button>
+                          </div>
+                          <div id="trackedWalletsTags" style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+                            <!-- Wallet Tags go here -->
+                          </div>
+                        </div>
+                        <div id="trackedWhaleList" style="flex:1; overflow-y:auto; padding:20px; font-size:13px; display:flex; flex-direction:column; gap:12px;">
+                          <!-- Tracked trades go here -->
+                        </div>
+                      </div>
+                      
+                    </div>
+                  </div>   </div>
+                </div>
+
+              <!-- Wallet Dashboard Modal -->
+              <div id="positionsModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:10000; justify-content:center; align-items:center;">
+                <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.8); width:1000px; max-width:95vw; height:85vh; max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
+                  
+                  <!-- Profile Header -->
+                  <div style="padding:20px; border-bottom:1px solid var(--border); background:linear-gradient(to right, rgba(245,158,11,0.05), transparent); display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div style="display:flex; gap:16px; align-items:center;">
+                      <div id="walletAvatar" style="width:48px; height:48px; border-radius:50%; background:var(--bg-elevated); border:2px solid var(--neon-amber); display:flex; justify-content:center; align-items:center;">
+                        <i data-lucide="user" style="width:24px; height:24px; color:var(--neon-amber);"></i>
+                      </div>
+                      <div style="display:flex; flex-direction:column; gap:4px;">
+                        <h2 id="walletDashboardNickname" style="margin:0; color:var(--text-primary); font-size:20px;">Wallet Profile</h2>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                          <div id="walletDashboardAddress" style="font-family:var(--font-mono); font-size:12px; color:var(--text-tertiary); background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; width:fit-content;">0x...</div>
+                          <a id="btnViewOnPoly" href="#" target="_blank" style="font-size:11px; font-weight:bold; color:var(--bg-surface); background:var(--neon-amber); padding:2px 8px; border-radius:4px; text-decoration:none; display:flex; align-items:center; gap:4px; transition:opacity 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">
+                            <i data-lucide="external-link" style="width:12px; height:12px;"></i> View on Poly
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div style="display:flex; gap:24px; align-items:center;">
+                      <div style="display:flex; flex-direction:column; align-items:flex-end;">
+                        <span style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600; letter-spacing:0.5px;">All-Time PNL</span>
+                        <span id="walletDashboardAllTimePnl" style="font-size:20px; font-weight:bold; font-family:var(--font-mono); color:var(--text-primary); text-shadow: 0 0 10px rgba(255,255,255,0.1);">$0.00</span>
+                      </div>
+                      <div style="width:1px; height:30px; background:var(--border);"></div>
+                      <div style="display:flex; flex-direction:column; align-items:flex-end;">
+                        <span style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600; letter-spacing:0.5px;">Total Active Portfolio</span>
+                        <span id="walletDashboardValue" style="font-size:24px; font-weight:bold; color:var(--neon-green); font-family:var(--font-mono); text-shadow: 0 0 10px rgba(16,185,129,0.3);">$0.00</span>
+                      </div>
+                      <button id="btnClosePositions" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer; align-self:flex-start; padding:4px;">
+                        <i data-lucide="x" style="width:24px; height:24px;"></i>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Tab Navigation -->
+                  <div style="display:flex; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.2);">
+                    <button id="tabWalletPositions" style="flex:1; padding:12px; border:none; background:rgba(245,158,11,0.1); border-bottom:2px solid var(--neon-amber); color:var(--text-primary); font-weight:600; font-size:13px; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px;">
+                      <i data-lucide="briefcase" style="width:16px; height:16px; color:var(--neon-amber);"></i> Active Holdings
+                    </button>
+                    <button id="tabWalletHistory" style="flex:1; padding:12px; border:none; background:transparent; border-bottom:2px solid transparent; color:var(--text-tertiary); font-weight:500; font-size:13px; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px; transition:color 0.2s;">
+                      <i data-lucide="history" style="width:16px; height:16px;"></i> Trade History
+                    </button>
+                  </div>
+
+                  <!-- Content Area -->
+                  <div style="flex:1; overflow:hidden; position:relative; background:var(--bg-surface);">
+                    <div id="positionsTabContent" style="position:absolute; top:0; left:0; width:100%; height:100%; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px;">
+                      <div style="text-align:center; padding:40px; color:var(--text-tertiary);">Loading...</div>
+                    </div>
+                    <div id="historyTabContent" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px;">
+                    </div>
+                  </div>
+
+                </div>
               </div>
 
               <!-- Floating Panel for Short Market -->
@@ -293,14 +515,23 @@
                       <option value="1h">1-Hour</option>
                     </select>
                   </div>
-                  <div style="display:flex; align-items:center; gap:8px;">
-                    <button type="button" id="btnToggleQueue" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Open Analysis Queue">
-                      <i data-lucide="layout-template" style="width:14px; height:14px; color:var(--neon-green);"></i>
-                    </button>
+                  <div style="display:flex; align-items:center; gap:10px;">
                     <span id="shortMarketStatus" style="font-size:9px; color:var(--text-tertiary);">Updating...</span>
-                    <button type="button" id="btnRefreshShortMarket" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Refresh">
-                      <i data-lucide="refresh-cw" style="width:12px; height:12px;"></i>
-                    </button>
+                    
+                    <!-- Compact Toolbar -->
+                    <div style="display:flex; align-items:center; gap:6px; background:rgba(255,255,255,0.05); padding:3px 6px; border-radius:6px; border:1px solid rgba(255,255,255,0.05);">
+                      <button type="button" id="btnCheckShortCondition" style="background:none; border:none; padding:2px; cursor:pointer; color:var(--text-secondary); display:flex; align-items:center; justify-content:center; transition:color 0.2s;" title="Check Market Vibe (AI)" onmouseover="this.style.color='var(--neon-amber)'" onmouseout="this.style.color='var(--text-secondary)'">
+                        <i data-lucide="brain" style="width:13px; height:13px;"></i>
+                      </button>
+                      <div style="width:1px; height:12px; background:var(--border);"></div>
+                      <button type="button" id="btnToggleQueue" style="background:none; border:none; padding:2px; cursor:pointer; color:var(--text-secondary); display:flex; align-items:center; justify-content:center; transition:color 0.2s;" title="Open Analysis Queue" onmouseover="this.style.color='var(--neon-green)'" onmouseout="this.style.color='var(--text-secondary)'">
+                        <i data-lucide="layout-template" style="width:13px; height:13px;"></i>
+                      </button>
+                      <div style="width:1px; height:12px; background:var(--border);"></div>
+                      <button type="button" id="btnRefreshShortMarket" style="background:none; border:none; padding:2px; cursor:pointer; color:var(--text-secondary); display:flex; align-items:center; justify-content:center; transition:color 0.2s;" title="Refresh Market" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-secondary)'">
+                        <i data-lucide="refresh-cw" style="width:13px; height:13px;"></i>
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <div id="shortMarketList" style="max-height:280px; overflow-y:auto; padding:8px; font-size:10px; display:flex; flex-direction:column; gap:6px;">
@@ -364,6 +595,64 @@
               ></iframe>
             </aside>
 
+            <!-- X / Twitter Feed Panel -->
+            <aside id="xPanelContainer" class="poly-panel" style="display:none; flex-direction:column; background:var(--bg-elevated); border-left:1px solid var(--border);">
+              <div class="poly-head" style="border-bottom:1px solid var(--border); padding:12px 16px; flex-direction:column; align-items:stretch; gap:12px; height:auto;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                    <span class="panel-kicker" style="color:#1DA1F2;">X Intelligence</span>
+                    <strong style="color:var(--text-primary); display:block; font-size:13px; margin-top:2px;">Live Social Data</strong>
+                  </div>
+                  <!-- Mini Vibe Check Score -->
+                  <div id="xMiniVibeCheck" style="display:none; background:rgba(16,185,129,0.1); border:1px solid var(--neon-green); color:var(--neon-green); font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px;">
+                    BULLISH
+                  </div>
+                </div>
+                
+                <!-- X Panel Tabs -->
+                <div style="display:flex; border-radius:6px; background:rgba(0,0,0,0.3); padding:2px;">
+                  <button class="x-tab-btn active" data-target="xTabSearch" style="flex:1; padding:6px; font-size:11px; font-weight:600; border:none; border-radius:4px; background:rgba(255,255,255,0.1); color:var(--text-primary); cursor:pointer;">Search</button>
+                  <button class="x-tab-btn" data-target="xTabWhales" style="flex:1; padding:6px; font-size:11px; font-weight:600; border:none; background:transparent; color:var(--text-secondary); cursor:pointer;">Alerts <span id="xAlertCount" style="display:none; background:var(--neon-red); color:#fff; padding:1px 4px; border-radius:4px; font-size:9px; margin-left:4px;">0</span></button>
+                  <button class="x-tab-btn" data-target="xTabVibe" style="flex:1; padding:6px; font-size:11px; font-weight:600; border:none; background:transparent; color:var(--text-secondary); cursor:pointer;">Vibe Check</button>
+                </div>
+              </div>
+              
+              <!-- Content Area -->
+              <div style="flex:1; overflow-y:auto; background:var(--bg-base); position:relative;">
+                
+                <!-- Tab: Dynamic Search Embed -->
+                <div id="xTabSearch" class="x-tab-content" style="display:flex; flex-direction:column; height:100%;">
+                  <div id="xEmbedWrapper" style="flex:1; overflow-y:auto; background:#000; display:flex; align-items:center; justify-content:center;">
+                     <div style="text-align:center; padding:40px 20px; color:var(--text-tertiary);">
+                        <i data-lucide="twitter" style="width:32px; height:32px; opacity:0.3; margin-bottom:12px;"></i><br>
+                        Silakan Analyze sebuah market Polymarket untuk melihat hasil pencarian Twitter di sini.
+                     </div>
+                  </div>
+                </div>
+
+                <!-- Tab: Whale & Hot Niche Alerts -->
+                <div id="xTabWhales" class="x-tab-content" style="display:none; flex-direction:column; height:100%;">
+                  <div id="xWhaleFeed" style="display:flex; flex-direction:column; gap:8px; padding:12px;">
+                    <div id="xWhaleEmpty" style="text-align:center; padding:40px 20px; color:var(--text-tertiary);">
+                       <i data-lucide="radar" style="width:32px; height:32px; opacity:0.3; margin-bottom:12px;"></i><br>
+                       Menunggu deteksi Hot Niche atau Whale Trades...
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Tab: AI Vibe Check -->
+                <div id="xTabVibe" class="x-tab-content" style="display:none; flex-direction:column; height:100%; padding:16px;">
+                  <div id="xVibeContent" style="display:flex; flex-direction:column; gap:16px;">
+                    <div style="text-align:center; padding:40px 20px; color:var(--text-tertiary);">
+                         <i data-lucide="brain" style="width:32px; height:32px; opacity:0.3; margin-bottom:12px;"></i><br>
+                         Analisis AI Vibe Check akan muncul di sini setelah ada peringatan Hot Niche.
+                    </div>
+                  </div>
+                </div>
+                
+              </div>
+            </aside>
+
             <!-- History List Panel (replaces poly-panel in History Tab) -->
             <aside id="historyListPanel" class="poly-panel" style="display:none; flex-direction:column; background:var(--bg-elevated); border-left:1px solid var(--border);">
               <div class="poly-head" style="border-bottom:1px solid var(--border); padding:12px 16px;">
@@ -394,9 +683,16 @@
           <span id="sbQwenLabel">Qwen: checking</span>
         </div>
         <div class="status-bar-item">
-          <span id="sbLatency">--ms</span>
+          <span id="sbLatency" style="font-weight:bold; transition:color 0.3s;">--ms</span>
+        </div>
+        <div class="status-bar-item">
+          <span id="sbDns" style="color:var(--text-tertiary);">DNS: detecting...</span>
         </div>
         <div style="flex:1;"></div>
+        <div class="status-bar-item" style="cursor:pointer;" id="btnManual" title="Buku Panduan">
+          <i data-lucide="book-open" style="width:14px; height:14px; color:var(--neon-cyan);"></i>
+          <span style="font-weight:600; color:var(--text-primary);">Manual</span>
+        </div>
         <div class="status-bar-item" style="cursor:pointer;" id="btnHistory" title="Riwayat Analisis">
           <i data-lucide="history" style="width:14px; height:14px;"></i>
           <span style="font-weight:600; color:var(--text-primary);">History Logs</span>
@@ -412,9 +708,12 @@
               Riwayat Analisis
             </h3>
             <div style="display:flex; align-items:center; gap:16px;">
-              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px; color:var(--text-tertiary);">
-                <input type="checkbox" id="excludeNeutralBtn" style="accent-color:var(--neon-purple); cursor:pointer;"> Tidak Hitung Netral
-              </label>
+              <button id="btnEvaluateAllHistory" style="padding:6px 12px; border-radius:6px; background:rgba(239,68,68,0.1); color:var(--neon-red); border:1px solid rgba(239,68,68,0.3); cursor:pointer; font-size:12px; display:flex; align-items:center; gap:6px; transition:all 0.2s;" onmouseover="this.style.background='var(--neon-red)'; this.style.color='#000';" onmouseout="this.style.background='rgba(239,68,68,0.1)'; this.style.color='var(--neon-red)';">
+                <i data-lucide="brain" style="width:14px; height:14px;"></i> Evaluate All
+              </button>
+              <button id="btnCheckAllHistory" style="padding:6px 12px; border-radius:6px; background:rgba(6,182,212,0.1); color:var(--neon-cyan); border:1px solid rgba(6,182,212,0.3); cursor:pointer; font-size:12px; display:flex; align-items:center; gap:6px; transition:all 0.2s;" onmouseover="this.style.background='var(--neon-cyan)'; this.style.color='#000';" onmouseout="this.style.background='rgba(6,182,212,0.1)'; this.style.color='var(--neon-cyan)';">
+                <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i> Periksa Semua
+              </button>
               <button id="closeHistoryModal" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;">
                 <i data-lucide="x" style="width:20px; height:20px;"></i>
               </button>
@@ -448,6 +747,7 @@
             <div>Total Analisis: <span id="historyTotal">0</span></div>
             <div>Menang: <span id="historyWins" style="color:var(--neon-green);">0</span></div>
             <div>Kalah: <span id="historyLosses" style="color:var(--neon-red);">0</span></div>
+            <div title="Netral tidak dihitung sebagai menang atau kalah dalam kalkulasi win rate." style="cursor:help;">Netral: <span id="historyNeutral" style="color:var(--neon-amber);">0</span></div>
             <div>Belum Selesai: <span id="historyPending" style="color:var(--text-tertiary);">0</span></div>
           </div>
           <div style="overflow-y:auto; flex:1;">
@@ -471,8 +771,392 @@
         </div>
       </div>
       
-      <!-- Custom Alert Modal -->
-      <div id="alertModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10000; justify-content:center; align-items:center;">
+      <!-- Manual / Guidebook Modal -->
+      <div id="manualModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; backdrop-filter: blur(4px);">
+        <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-lg); box-shadow: 0 8px 32px rgba(0, 255, 255, 0.1); width:80%; max-width:850px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
+          
+          <div style="padding:16px 20px; border-bottom:1px solid var(--border); background:rgba(6, 182, 212, 0.05); display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0; color:var(--text-primary); display:flex; align-items:center; gap:10px; font-family:var(--font-mono); font-size:14px;">
+              <i data-lucide="terminal" style="width:18px; height:18px; color:var(--neon-cyan);"></i>
+              MVPM TERMINAL_MANUAL.md
+            </h3>
+            <button id="closeManualModal" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer; padding:4px;">
+              <i data-lucide="x" style="width:20px; height:20px;"></i>
+            </button>
+          </div>
+
+          <div style="overflow-y:auto; flex:1; padding:24px 32px; font-size:13px; line-height:1.6; color:var(--text-secondary);" class="manual-content">
+            
+            <h2 style="color:var(--text-primary); font-size:18px; margin-top:0; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:8px;">
+              <span style="color:var(--neon-cyan);">#</span> Tentang MVPM Terminal
+            </h2>
+            <p style="margin-bottom:20px;">MVPM (Minimum Viable Prediction Market) Terminal adalah command-center untuk menganalisa, memonitor, dan mencari peluang cuan di Polymarket secara otomatis menggunakan teknologi AI Qwen.</p>
+            
+            <h3 style="color:var(--text-primary); margin-top:24px; margin-bottom:12px; font-size:15px;"><span style="color:var(--neon-purple);">##</span> Fitur Utama</h3>
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:32px;">
+              <div style="background:rgba(255,255,255,0.03); padding:16px; border-radius:8px; border:1px solid var(--border);">
+                <strong style="color:var(--neon-cyan); display:block; margin-bottom:4px;">🔍 Discover (Pencarian Otomatis)</strong>
+                Akses instan ke market dengan Volume terbesar, Likuiditas terdalam, Market baru, dan yang akan segera berakhir.
+              </div>
+              <div style="background:rgba(255,255,255,0.03); padding:16px; border-radius:8px; border:1px solid var(--border);">
+                <strong style="color:var(--neon-amber); display:block; margin-bottom:4px;">⚖️ Opportunities (Arbitrage)</strong>
+                Sistem scanning otomatis untuk mencari selisih harga dan peluang profit tanpa resiko (Arbitrage).
+              </div>
+              <div style="background:rgba(255,255,255,0.03); padding:16px; border-radius:8px; border:1px solid var(--border);">
+                <strong style="color:var(--neon-purple); display:block; margin-bottom:4px;">🤖 AI Analysis (Deep Dive)</strong>
+                Tempel link Polymarket dan biarkan Qwen AI memberikan opini objektif, analisis sentimen, dan strategi *position sizing* (Kelly).
+              </div>
+              <div style="background:rgba(255,255,255,0.03); padding:16px; border-radius:8px; border:1px solid var(--border);">
+                <strong style="color:var(--neon-green); display:block; margin-bottom:4px;">📊 Analytics & Alerts</strong>
+                Backtesting, laporan performa historis, dan sistem alarm pergerakan harga yang termonitor 24/7.
+              </div>
+            </div>
+
+            <h2 style="color:var(--text-primary); font-size:18px; margin-top:32px; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:8px;">
+              <span style="color:var(--neon-cyan);">#</span> Masterclass: Arbitrage 101
+            </h2>
+            <p>Arbitrage adalah teknik tingkat dewa untuk mengunci <strong>profit pasti tanpa resiko</strong> dengan memanfaatkan selisih harga.</p>
+
+            <div style="background:#0f1115; border:1px solid rgba(16, 185, 129, 0.3); padding:16px; border-radius:8px; margin-top:16px; margin-bottom:24px;">
+              <h4 style="color:var(--neon-green); margin-top:0; margin-bottom:12px; font-family:var(--font-mono); font-size:13px;">> INTERNAL ARBITRAGE (1 Platform)</h4>
+              <p>Mencari harga saham YES + NO yang totalnya di bawah $1.00 di dalam Polymarket.</p>
+              <ul style="margin-left:20px; margin-bottom:12px;">
+                <li>Harga "YES" = 40¢</li>
+                <li>Harga "NO" = 50¢</li>
+              </ul>
+              <p>Modal beli dua-duanya: <strong>90¢</strong>. <br/>Karena karcis yang menang selalu cair <strong>100¢ ($1)</strong>, apapun yang terjadi lu otomatis <strong>untung 10¢ (Profit 11%)</strong>.</p>
+            </div>
+
+            <div style="background:#0f1115; border:1px solid rgba(245, 158, 11, 0.3); padding:16px; border-radius:8px;">
+              <h4 style="color:var(--neon-amber); margin-top:0; margin-bottom:12px; font-family:var(--font-mono); font-size:13px;">> CROSS-PLATFORM ARBITRAGE (2 Platform)</h4>
+              <p>Memanfaatkan perbedaan harga antara Polymarket dan Manifold Markets.</p>
+              
+              <p style="margin-top:12px;"><strong>Skenario Belanja (Bawa Modal $20):</strong></p>
+              <ul style="margin-left:20px; margin-bottom:16px;">
+                <li><strong>Warung Polymarket:</strong> Harga "YES" lagi murah (40¢). Lu ngeluarin $10 untuk beli <strong>25 tiket YES</strong>.</li>
+                <li><strong>Warung Manifold:</strong> Harga "NO" lagi murah (30¢). Lu ngeluarin $10 untuk beli <strong>33.3 tiket NO</strong>.</li>
+              </ul>
+
+              <p><strong>Hari Penentuan (Apapun yang Terjadi = Untung):</strong></p>
+              <table style="width:100%; border-collapse:collapse; margin-bottom:12px; background:rgba(255,255,255,0.02);">
+                <tr style="border-bottom:1px solid var(--border);">
+                  <th style="padding:8px; text-align:left;">Skenario</th>
+                  <th style="padding:8px; text-align:left;">Pencairan (100¢/tiket)</th>
+                  <th style="padding:8px; text-align:right;">Profit Bersih</th>
+                </tr>
+                <tr style="border-bottom:1px solid var(--border);">
+                  <td style="padding:8px;">Hasil: <strong>YES Menang</strong></td>
+                  <td style="padding:8px;">25 tiket Poly Cair = <strong>$25.00</strong></td>
+                  <td style="padding:8px; text-align:right; color:var(--neon-green);">+$5.00 (25%)</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px;">Hasil: <strong>NO Menang</strong></td>
+                  <td style="padding:8px;">33.3 tiket Manifold Cair = <strong>$33.33</strong></td>
+                  <td style="padding:8px; text-align:right; color:var(--neon-green);">+$13.33 (66%)</td>
+                </tr>
+              </table>
+              <p style="color:var(--text-tertiary); font-style:italic; font-size:11px;">"Mau badai mau hujan, posisi ini mengunci profit bersih minimal $5.00 tanpa resiko kerugian finansial."</p>
+            </div>
+
+          </div>
+        </div>
+      </div>
+      <!-- Settings Modal -->
+      <div id="settingsModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(6px); z-index:10002; justify-content:center; align-items:center;">
+        <div style="background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:16px; width:min(92vw,860px); height:min(85vh,640px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,0.7);">
+          
+          <!-- Header -->
+          <div style="padding:0 20px; height:52px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--bg-surface); flex-shrink:0;">
+            <h3 style="margin:0; font-size:14px; font-weight:600; color:var(--text-primary); font-family:'Outfit',sans-serif; letter-spacing:-0.01em;">System Settings</h3>
+            <button id="closeSettingsModal" style="background:transparent; border:1px solid var(--border-strong); border-radius:var(--radius-md); color:var(--text-tertiary); cursor:pointer; width:28px; height:28px; display:flex; align-items:center; justify-content:center; transition:all 0.15s ease;">
+              <i data-lucide="x" style="width:14px; height:14px;"></i>
+            </button>
+          </div>
+
+          <!-- Body -->
+          <div style="display:flex; flex:1; min-height:0;">
+            
+            <!-- Left Sidebar -->
+            <div style="width:190px; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:12px 10px; gap:2px; background:var(--bg-surface); flex-shrink:0;">
+              <button class="settings-tab active" data-target="pane-appearance" style="text-align:left; padding:9px 14px; background:rgba(255,255,255,0.06); border:none; border-radius:var(--radius-md); color:var(--text-primary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Appearance</button>
+              <button class="settings-tab" data-target="pane-language" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Language</button>
+              <button class="settings-tab" data-target="pane-alerts" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Alerts &amp; Audio</button>
+              <button class="settings-tab" data-target="pane-sniper" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Sniper Trigger</button>
+              <button class="settings-tab" data-target="pane-analytics" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Analytics</button>
+              <button class="settings-tab" data-target="pane-learning" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Proses Belajar</button>
+              
+              <div style="margin-top:auto; padding-top:12px; border-top:1px solid var(--border);">
+                <button id="btnSaveSettings" class="btn-primary" style="width:100%; justify-content:center;">
+                  <i data-lucide="check" style="width:13px; height:13px;"></i> Done
+                </button>
+              </div>
+            </div>
+
+            <!-- Right Content -->
+            <div style="flex:1; overflow-y:auto; padding:28px 32px; background:var(--bg-base); scrollbar-width:thin; scrollbar-color:var(--border-strong) transparent;">
+              
+              <!-- Appearance Pane -->
+              <div id="pane-appearance" class="settings-pane" style="display:block;">
+                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Appearance</h2>
+                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Select your color theme. Changes are applied immediately.</p>
+                
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                  
+                  <button class="theme-btn active" data-theme="default">
+                    <div class="theme-swatch" style="background:linear-gradient(135deg, #635bff, #8a83ff); box-shadow:0 0 12px rgba(99,91,255,0.3);"></div>
+                    <div style="display:flex; flex-direction:column; align-items:flex-start; gap:2px;">
+                      <span class="theme-title" style="font-size:14px; font-family:'Outfit',sans-serif; letter-spacing:-0.01em;">Stripe Deep</span>
+                      <span style="font-size:11px; color:var(--text-tertiary);">Elegant & Modern</span>
+                    </div>
+                    <i data-lucide="check-circle-2" class="theme-check" style="width:18px; height:18px;"></i>
+                  </button>
+
+                  <button class="theme-btn" data-theme="synthwave">
+                    <div class="theme-swatch" style="background:linear-gradient(135deg, #c800ff, #e166ff); box-shadow:0 0 12px rgba(200,0,255,0.3);"></div>
+                    <div style="display:flex; flex-direction:column; align-items:flex-start; gap:2px;">
+                      <span class="theme-title" style="font-size:14px; font-family:'Outfit',sans-serif; letter-spacing:-0.01em;">Synthwave</span>
+                      <span style="font-size:11px; color:var(--text-tertiary);">Retro futuristic</span>
+                    </div>
+                    <i data-lucide="check-circle-2" class="theme-check" style="width:18px; height:18px;"></i>
+                  </button>
+
+                  <button class="theme-btn" data-theme="gold">
+                    <div class="theme-swatch" style="background:linear-gradient(135deg, #d4a017, #f7c94b); box-shadow:0 0 12px rgba(212,160,23,0.3);"></div>
+                    <div style="display:flex; flex-direction:column; align-items:flex-start; gap:2px;">
+                      <span class="theme-title" style="font-size:14px; font-family:'Outfit',sans-serif; letter-spacing:-0.01em;">Gold / Lux</span>
+                      <span style="font-size:11px; color:var(--text-tertiary);">Premium & Exclusive</span>
+                    </div>
+                    <i data-lucide="check-circle-2" class="theme-check" style="width:18px; height:18px;"></i>
+                  </button>
+
+                  <button class="theme-btn" data-theme="hacker">
+                    <div class="theme-swatch" style="background:linear-gradient(135deg, #00d130, #33ff60); box-shadow:0 0 12px rgba(0,209,48,0.3);"></div>
+                    <div style="display:flex; flex-direction:column; align-items:flex-start; gap:2px;">
+                      <span class="theme-title" style="font-size:14px; font-family:'Outfit',sans-serif; letter-spacing:-0.01em;">Hacker Terminal</span>
+                      <span style="font-size:11px; color:var(--text-tertiary);">Classic Matrix vibes</span>
+                    </div>
+                    <i data-lucide="check-circle-2" class="theme-check" style="width:18px; height:18px;"></i>
+                  </button>
+
+                </div>
+              </div>
+
+              <!-- Language Pane -->
+              <div id="pane-language" class="settings-pane" style="display:none;">
+                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Language</h2>
+                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Pilih bahasa yang akan digunakan Qwen untuk merespons hasil analisis.</p>
+                
+                <div style="display:flex; flex-direction:column; gap:12px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:16px 18px; border-radius:10px; border:1px solid var(--border);">
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                      <span style="font-weight:600; color:var(--text-primary); font-size:14px;">Bot Language</span>
+                      <span style="font-size:12px; color:var(--text-tertiary);">Bahasa respons bot</span>
+                    </div>
+                    <select id="botLanguageSelect" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); padding:6px 12px; font-size:13px; outline:none; cursor:pointer;">
+                      <option value="Indonesia">Indonesia</option>
+                      <option value="English">English</option>
+                      <option value="Spanish">Spanish</option>
+                      <option value="Russian">Russian</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Alerts Pane -->
+              <div id="pane-alerts" class="settings-pane" style="display:none;">
+                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Alerts &amp; Audio</h2>
+                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Configure system notifications and sound alerts.</p>
+                
+                <div style="display:flex; flex-direction:column; gap:12px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:16px 18px; border-radius:10px; border:1px solid var(--border);">
+                    <div style="display:flex; flex-direction:column; gap:3px;">
+                      <span style="color:var(--text-primary); font-size:13px; font-weight:500; font-family:'Outfit',sans-serif;">Master Audio</span>
+                      <span style="color:var(--text-tertiary); font-size:11px;">Enable or disable all sound effects.</span>
+                    </div>
+                    <button id="toggleAudioBtn" style="background:rgba(45,184,112,0.1); border:1px solid var(--green); color:var(--green); padding:5px 14px; border-radius:var(--radius-md); font-size:11px; font-weight:700; cursor:pointer; transition:all 0.15s; font-family:'Outfit',sans-serif; width:50px;">ON</button>
+                  </div>
+
+                  <div style="display:flex; flex-direction:column; background:var(--bg-elevated); padding:16px 18px; border-radius:10px; border:1px solid var(--border); gap:12px;">
+                    <div style="color:var(--text-primary); font-size:13px; font-weight:500; font-family:'Outfit',sans-serif;">Notification Sounds:</div>
+                    
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                      <div style="display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" id="chkSoundSniffer" checked style="cursor:pointer; width:16px; height:16px; accent-color:var(--neon-amber);">
+                        <span style="color:var(--text-secondary); font-size:12px; display:flex; align-items:center;"><i data-lucide="radar" style="width:14px;height:14px;margin-right:6px;color:var(--neon-amber)"></i>Live Whale Sniffer</span>
+                      </div>
+                      <div style="display:flex; gap:6px;">
+                        <select id="selectSoundSniffer" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-primary); border-radius: var(--radius-md); font-size: 11px; padding: 0 4px; height: 24px; outline: none; cursor:pointer;">
+                          <option value="chime" style="background:var(--bg-elevated)">Chime</option>
+                          <option value="coin" style="background:var(--bg-elevated)">Coin</option>
+                          <option value="beep" style="background:var(--bg-elevated)">Beep</option>
+                        </select>
+                        <button class="btnTestSound" data-type="sniffer" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:var(--radius-md); padding:0 8px; color:var(--text-secondary); cursor:pointer; height:24px; display:flex; align-items:center; justify-content:center;"><i data-lucide="play" style="width:10px;height:10px;"></i></button>
+                      </div>
+                    </div>
+                    
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                      <div style="display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" id="chkSoundQueue" checked style="cursor:pointer; width:16px; height:16px; accent-color:var(--neon-purple);">
+                        <span style="color:var(--text-secondary); font-size:12px; display:flex; align-items:center;"><i data-lucide="cpu" style="width:14px;height:14px;margin-right:6px;color:var(--neon-purple)"></i>Analysis Complete</span>
+                      </div>
+                      <div style="display:flex; gap:6px;">
+                        <select id="selectSoundQueue" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-primary); border-radius: var(--radius-md); font-size: 11px; padding: 0 4px; height: 24px; outline: none; cursor:pointer;">
+                          <option value="chime" style="background:var(--bg-elevated)">Chime</option>
+                          <option value="coin" style="background:var(--bg-elevated)">Coin</option>
+                          <option value="beep" style="background:var(--bg-elevated)">Beep</option>
+                        </select>
+                        <button class="btnTestSound" data-type="queue" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:var(--radius-md); padding:0 8px; color:var(--text-secondary); cursor:pointer; height:24px; display:flex; align-items:center; justify-content:center;"><i data-lucide="play" style="width:10px;height:10px;"></i></button>
+                      </div>
+                    </div>
+
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                      <div style="display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" id="chkSoundAlerts" checked style="cursor:pointer; width:16px; height:16px; accent-color:var(--neon-cyan);">
+                        <span style="color:var(--text-secondary); font-size:12px; display:flex; align-items:center;"><i data-lucide="bell" style="width:14px;height:14px;margin-right:6px;color:var(--neon-cyan)"></i>Alerts &amp; Arb</span>
+                      </div>
+                      <div style="display:flex; gap:6px;">
+                        <select id="selectSoundAlerts" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-primary); border-radius: var(--radius-md); font-size: 11px; padding: 0 4px; height: 24px; outline: none; cursor:pointer;">
+                          <option value="chime" style="background:var(--bg-elevated)">Chime</option>
+                          <option value="coin" style="background:var(--bg-elevated)">Coin</option>
+                          <option value="beep" style="background:var(--bg-elevated)">Beep</option>
+                        </select>
+                        <button class="btnTestSound" data-type="alerts" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:var(--radius-md); padding:0 8px; color:var(--text-secondary); cursor:pointer; height:24px; display:flex; align-items:center; justify-content:center;"><i data-lucide="play" style="width:10px;height:10px;"></i></button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sniper Pane -->
+              <div id="pane-sniper" class="settings-pane" style="display:none;">
+                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Sniper Trigger Timing</h2>
+                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Berapa menit/detik sebelum tutup market Qwen harus menembak?</p>
+                
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
+                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:'Outfit',sans-serif;">5-Min Market</span>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                      <input type="number" id="set5mMin" value="4" min="0" max="4" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
+                      <input type="number" id="set5mSec" value="30" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
+                    </div>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
+                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:'Outfit',sans-serif;">15-Min Market</span>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                      <input type="number" id="set15mMin" value="13" min="0" max="14" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
+                      <input type="number" id="set15mSec" value="30" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
+                    </div>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
+                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:'Outfit',sans-serif;">1-Hour Market</span>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                      <input type="number" id="set1hMin" value="55" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
+                      <input type="number" id="set1hSec" value="0" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Analytics Pane -->
+              <div id="pane-analytics" class="settings-pane" style="display:none;">
+                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Analytics Stats</h2>
+                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Ringkasan performa dan prediksi dari Qwen.</p>
+                
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+                  <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:20px; border-radius:10px; text-align:center;">
+                    <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-tertiary); margin-bottom:8px; font-family:'Outfit',sans-serif;">Total Analyzed</div>
+                    <div id="statTotal" style="font-size:26px; font-weight:700; color:var(--text-primary); font-family:'JetBrains Mono',monospace;">0</div>
+                  </div>
+                  <div style="background:rgba(45,184,112,0.05); border:1px solid rgba(45,184,112,0.18); padding:20px; border-radius:10px; text-align:center;">
+                    <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-tertiary); margin-bottom:8px; font-family:'Outfit',sans-serif;">Win Rate</div>
+                    <div id="statWinRate" style="font-size:26px; font-weight:700; color:var(--green); font-family:'JetBrains Mono',monospace;">0%</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Learning Pane -->
+              <div id="pane-learning" class="settings-pane" style="display:none; flex-direction:column;">
+                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Proses Belajar</h2>
+                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:16px; line-height:1.5;">Apa saja yang sudah Qwen improve dari evaluasi kekalahan sebelumnya.</p>
+                
+                <div style="background:var(--bg-elevated); padding:16px; border-radius:10px; border:1px solid var(--border); margin-bottom:14px;">
+                  <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                    <span style="font-size:12px; color:var(--text-secondary); font-weight:500; font-family:'Outfit',sans-serif;">Perkiraan Peningkatan (Improvement)</span>
+                    <span id="improvementPercentage" style="font-size:12px; color:var(--green); font-weight:700; font-family:'JetBrains Mono',monospace;">0%</span>
+                  </div>
+                  <div style="height:5px; background:var(--border); border-radius:3px; overflow:hidden;">
+                    <div id="improvementBar" style="height:100%; width:0%; background:var(--green); transition:width 1s ease-out; border-radius:3px;"></div>
+                  </div>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border); margin-bottom:14px;">
+                  <div style="display:flex; flex-direction:column; gap:3px;">
+                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:'Outfit',sans-serif;">Short Market Memory (15 Traps)</span>
+                    <span style="color:var(--text-tertiary); font-size:11px;">Membaca intisari 15 evaluasi terakhir untuk menghindari jebakan market lintas-topik.</span>
+                  </div>
+                  <style>
+                    #chkShortMarketLearning:checked + span {
+                      background-color: var(--neon-cyan) !important;
+                      border-color: var(--neon-cyan) !important;
+                    }
+                    #chkShortMarketLearning:checked + span > span {
+                      transform: translateX(16px);
+                      background-color: #000 !important;
+                    }
+                  </style>
+                  <label style="position:relative; display:inline-block; width:36px; height:20px;">
+                    <input type="checkbox" id="chkShortMarketLearning" style="opacity:0; width:0; height:0;">
+                    <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:var(--bg-base); transition:.4s; border-radius:34px; border:1px solid var(--border-strong);">
+                      <span style="position:absolute; content:''; height:14px; width:14px; left:2px; bottom:2px; background-color:var(--text-tertiary); transition:.4s; border-radius:50%;"></span>
+                    </span>
+                  </label>
+                </div>
+                
+                <div style="display:flex; border-bottom:1px solid var(--border); margin-bottom:14px;">
+                  <button id="tabLearningEval" style="flex:1; padding:8px; background:rgba(255,255,255,0.05); color:var(--text-primary); border:none; border-bottom:2px solid var(--neon-cyan); font-size:12px; font-weight:600; cursor:pointer;">Evaluasi Market (15)</button>
+                  <button id="tabLearningShort" style="flex:1; padding:8px; background:transparent; color:var(--text-tertiary); border:none; border-bottom:2px solid transparent; font-size:12px; font-weight:500; cursor:pointer;">Memori Vibe Check</button>
+                </div>
+                
+                <div id="learningListContainer" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
+                  <div style="margin-bottom:12px;">
+                    <button id="btnViewMemoryPrompt" class="btn-secondary" style="width:100%; justify-content:center; padding:8px; font-size:12px; color:var(--neon-purple); border-color:rgba(168,85,247,0.3);"><i data-lucide="code" style="width:14px; height:14px; margin-right:6px;"></i>Lihat Kompilasi Memori (Wujud Asli ke AI)</button>
+                  </div>
+                  <div id="learningList" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding-right:4px;">
+                    <div style="text-align:center; padding:20px; color:var(--text-tertiary); font-size:12px;">Memuat data...</div>
+                  </div>
+                </div>
+                
+                <div id="shortMemoryList" style="flex:1; overflow-y:auto; display:none; flex-direction:column; gap:10px; padding-right:4px;">
+                  <div style="text-align:center; padding:20px; color:var(--text-tertiary); font-size:12px;">Memuat data memori...</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+          
+        </div>
+      </div>
+
+      <!-- Improvement Modal -->
+      <div id="improvementModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:10005; justify-content:center; align-items:center;">
+        <div style="background:#000000; border:1px solid var(--neon-cyan); width:90%; max-width:600px; max-height:80vh; display:flex; flex-direction:column; overflow:hidden;">
+          <div style="padding:8px 12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#000000;">
+            <h3 style="margin:0; font-size:14px; font-weight:bold; color:var(--neon-cyan); display:flex; align-items:center; gap:8px;">
+              <i data-lucide="lightbulb" style="width:18px; height:18px;"></i>
+              Detail Improvement
+            </h3>
+            <button id="closeImprovementModal" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;">
+              <i data-lucide="x" style="width:20px; height:20px;"></i>
+            </button>
+          </div>
+          <div style="padding:20px; flex:1; overflow-y:auto; font-size:12px; color:var(--text-primary); line-height:1.6;" id="improvementModalContent">
+            <!-- Content goes here -->
+          </div>
+        </div>
+      </div>
+
+      <div id="alertModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10010; justify-content:center; align-items:center;">
         <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5); width:300px; display:flex; flex-direction:column; text-align:center;">
           <div style="padding:20px;">
             <i data-lucide="info" style="width:32px; height:32px; color:var(--neon-cyan); margin-bottom:12px;"></i>
@@ -483,8 +1167,53 @@
           </div>
         </div>
       </div>
+
+      <!-- Reason Modal -->
+      <div id="reasonModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:10001; justify-content:center; align-items:center;">
+        <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.5); width:80%; max-width:800px; max-height:80vh; display:flex; flex-direction:column;">
+          <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="margin:0; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
+              <i data-lucide="file-text" style="width:16px; height:16px; color:var(--neon-cyan);"></i>
+              Alasan & Evaluasi
+            </h3>
+            <button id="closeReasonModal" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;">
+              <i data-lucide="x" style="width:20px; height:20px;"></i>
+            </button>
+          </div>
+          <div style="padding:20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:16px;">
+            <div id="reasonEventResult" style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:10px 16px; border-radius:8px; border:1px solid var(--border);">
+              <div style="display:flex; flex-direction:column; gap:4px;">
+                <span style="font-size:10px; color:var(--text-tertiary);">Prediksi AI</span>
+                <span id="reasonPrediction" style="font-size:14px; font-weight:bold; color:var(--text-primary);">-</span>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:4px; text-align:right;">
+                <span style="font-size:10px; color:var(--text-tertiary);">Hasil Aktual</span>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span id="reasonActualOutcome" style="font-size:14px; font-weight:bold; color:var(--text-primary);">-</span>
+                  <span id="reasonStatusBadge" style="font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px; border:1px solid transparent;">-</span>
+                </div>
+              </div>
+            </div>
+            
+            <div style="font-size:12px; color:var(--text-secondary); line-height:1.6; white-space:pre-wrap;" id="reasonModalContent">Memuat...</div>
+            
+            <div id="reflectionContainer" style="display:none; padding:16px; background:rgba(239, 68, 68, 0.05); border:1px solid rgba(239, 68, 68, 0.3); border-radius:8px;">
+              <h4 style="margin:0 0 8px 0; color:var(--neon-red); display:flex; align-items:center; gap:6px;">
+                <i data-lucide="brain" style="width:14px; height:14px;"></i> Catatan Evaluasi (Lesson Learned)
+              </h4>
+              <div id="reflectionText" style="font-size:12px; color:var(--text-primary); line-height:1.5;"></div>
+            </div>
+            
+            <div id="evaluateBtnContainer" style="display:none; text-align:center; padding-top:10px;">
+              <button id="btnEvaluateSingle" class="btn-primary" style="background:rgba(239, 68, 68, 0.2); color:var(--neon-red); border:1px solid rgba(239, 68, 68, 0.5);">
+                <i data-lucide="alert-triangle" style="width:14px; height:14px; margin-right:6px;"></i> Evaluate Kesalahan
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <script src="/app.js?v=58-pyth-bugfix" type="module"></script>
+    <script src="/app.js?v=67-dns-ping" type="module"></script>
   </body>
 </html>

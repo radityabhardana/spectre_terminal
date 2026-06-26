@@ -615,7 +615,7 @@ ${techData.recentCandles.map(c => `   ${c.time} ${c.direction} $${c.close} vol:$
     return text.length > 300 ? "..." + text.substring(text.length - 300) : text;
   }
 
-  const recentReflections = getRecentReflections(15);
+  const recentReflections = getRecentReflections(5);
   const lessonsBlock = recentReflections.length > 0 
     ? `\nGLOBAL TRAPS CHECKLIST (EXTRACTED RAG MEMORY):\n${recentReflections.map((r, i) => `${i+1}. [Market: ${r.question} | Tebakan Salah: ${r.prediction}] -> ${extractCoreLesson(r.reflection_note)}`).join("\n\n")}`
     : "";

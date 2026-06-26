@@ -97,6 +97,17 @@ export function getSnifferStartTime() {
   return snifferStartTime;
 }
 
+// Aggressive Mode (No NETRAL) — forces UP or DOWN, never =
+let aggressiveModeEnabled = false;
+
+export function setAggressiveMode(enabled) {
+  aggressiveModeEnabled = !!enabled;
+}
+
+export function getAggressiveMode() {
+  return aggressiveModeEnabled;
+}
+
 export function setNotificationCallback(fn) {
   notifyCallback = fn;
 }

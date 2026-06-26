@@ -8,7 +8,7 @@ import { getCooldownState } from "./rate-limit.js";
 import { SEARCH_ENGINE_VERSION, getMarketById, getShortTermMarkets } from "./polymarket.js";
 import { getAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, getReflectionByMarketId, getAllReflections, getAnalysisLogs } from "./storage.js";
 import { evaluateSingleEvent, evaluateAllResolutions } from "./evaluate.js";
-import { getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
+import { getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig, setAggressiveMode, getAggressiveMode } from "./sniffer.js";
 import { scrapeTwitter } from "./twitter_scraper.js";
 
 const sseClients = new Set();
@@ -558,6 +558,16 @@ export function startWebServer(options = {}) {
         const body = await readBody(req);
         const newState = setSnifferState(body.active);
         return sendJson(res, 200, { isSnifferActive: newState, startTime: getSnifferStartTime() });
+      }
+
+      if (req.url === "/api/settings/aggressive-mode" && req.method === "POST") {
+        const body = await readBody(req);
+        setAggressiveMode(!!body.enabled);
+        return sendJson(res, 200, { aggressiveMode: getAggressiveMode() });
+      }
+
+      if (req.url === "/api/settings/aggressive-mode" && req.method === "GET") {
+        return sendJson(res, 200, { aggressiveMode: getAggressiveMode() });
       }
 
       if (req.url === "/api/tracker-config") {

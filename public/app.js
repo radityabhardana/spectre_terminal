@@ -3405,6 +3405,52 @@ setInterval(pollBackendQueue, 1000);
 setTimeout(loadHealth, 100);
 setTimeout(detectDns, 100);
 
+
+/* --- Aggressive Mode (No NETRAL) --- */
+const aggressiveModeBtn = document.getElementById('aggressiveModeBtn');
+const aggressiveModeText = document.getElementById('aggressiveModeText');
+let isAggressiveMode = localStorage.getItem('aggressiveMode') === 'true';
+
+function updateAggressiveModeUI() {
+  if (!aggressiveModeBtn || !aggressiveModeText) return;
+  if (isAggressiveMode) {
+    aggressiveModeText.textContent = 'NO NETRAL: ON';
+    aggressiveModeBtn.style.borderColor = 'var(--neon-red)';
+    aggressiveModeBtn.style.color = 'var(--neon-red)';
+    aggressiveModeBtn.style.boxShadow = '0 0 8px rgba(239,68,68,0.4)';
+    aggressiveModeBtn.title = 'Mode Agresif AKTIF: Analisis NETRAL akan dipaksa ke UP atau DOWN';
+  } else {
+    aggressiveModeText.textContent = 'NO NETRAL: OFF';
+    aggressiveModeBtn.style.borderColor = 'rgba(239,68,68,0.35)';
+    aggressiveModeBtn.style.color = 'var(--text-secondary)';
+    aggressiveModeBtn.style.boxShadow = 'none';
+    aggressiveModeBtn.title = 'Mode Agresif: Paksa UP atau DOWN, tidak ada NETRAL';
+  }
+}
+
+if (aggressiveModeBtn) {
+  aggressiveModeBtn.addEventListener('click', () => {
+    isAggressiveMode = !isAggressiveMode;
+    localStorage.setItem('aggressiveMode', isAggressiveMode);
+    updateAggressiveModeUI();
+    // Notify backend
+    fetch('/api/settings/aggressive-mode', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ enabled: isAggressiveMode })
+    }).catch(() => {});
+    // Show toast
+    const msg = isAggressiveMode
+      ? '🔴 Mode Agresif ON — Tidak ada NETRAL, semua dipaksa UP atau DOWN'
+      : '⚪ Mode Agresif OFF — NETRAL diperbolehkan';
+    if (typeof showToastNotification === 'function') showToastNotification(msg, isAggressiveMode ? 'warning' : 'info');
+  });
+  updateAggressiveModeUI();
+}
+
+// Expose to be used by analysis result handler
+window.isAggressiveMode = () => isAggressiveMode;
+
 /* --- Whale Sniffer UI Toggle --- */
 const snifferToggleBtn = document.getElementById('snifferToggleBtn');
 const snifferPanel = document.getElementById('snifferPanel');
@@ -3525,7 +3571,13 @@ if (snifferToggleBtn) {
       if (data.isSnifferActive) {
         snifferToggleBtn.style.borderColor = 'var(--neon-green)';
         snifferToggleBtn.style.color = 'var(--neon-green)';
-        if (topBtnText && !topBtnText.innerText.includes('ON')) topBtnText.innerText = 'TRACKER: ON';
+        // Always update the text to ON (remove guard that blocked this)
+        if (topBtnText) {
+          if (!currentSnifferStartTime || currentSnifferStartTime === 0) {
+            topBtnText.innerText = 'TRACKER: ON';
+          }
+          // else timer interval will handle the text with uptime
+        }
         snifferToggleBtn.style.boxShadow = '0 0 10px rgba(57, 255, 20, 0.5)';
         if (topBtnIcon) topBtnIcon.classList.add('radar-anim');
         

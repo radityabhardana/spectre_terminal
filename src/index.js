@@ -31,7 +31,7 @@ import { broadcastAlert } from "./web.js";
 import { buildResearchContext } from "./research.js";
 import { enterCommandGuard, releaseCommandGuard } from "./rate-limit.js";
 import { scoreMarket } from "./scoring.js";
-import { getRecentWhales, formatSnifferWhales, setSnifferState, getSnifferState, setNotificationCallback, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
+import { getRecentWhales, formatSnifferWhales, setSnifferState, getSnifferState, setNotificationCallback, getTrackerConfig, setTrackerConfig, getAggressiveMode } from "./sniffer.js";
 import { appendAnalysisLog, addAnalyzedEvent } from "./storage.js";
 import { TelegramBot } from "./telegram.js";
 
@@ -535,8 +535,27 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
   } else if (qwenResult?.analysis?.verdict === "SKIP") {
     finalPrediction = "="; // For non-short markets, force netral/skip if Risk Manager explicitly skips
   } else {
-    const direction = directionSignal(scored.score);
-    finalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+    // Confidence Guardrail
+    const confidence = Number(qwenResult?.analysis?.confidence);
+    if (!Number.isNaN(confidence) && confidence < config.minQwenConfidence) {
+      finalPrediction = "="; // Force netral if AI is overthinking/uncertain
+      if (qwenResult?.analysis) {
+        qwenResult.analysis.final_reason = `[OVERRIDE] Confidence terlalu rendah (${confidence}% < ${config.minQwenConfidence}%). Mencegah halusinasi AI. Alasan asli: ` + qwenResult.analysis.final_reason;
+      }
+    } else {
+      const direction = directionSignal(scored.score);
+      finalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+    }
+  }
+
+  // Aggressive Mode: force = to UP or DOWN based on fairProb
+  if (finalPrediction === "=" && getAggressiveMode()) {
+    const fairProbAgg = Number(qwenResult?.analysis?.estimatedFairProbability);
+    if (Number.isFinite(fairProbAgg) && fairProbAgg !== 50) {
+      const primaryLabelAgg = String(scored.score?.primaryOutcomeLabel || "UP").toUpperCase();
+      const secondaryLabelAgg = String(scored.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
+      finalPrediction = fairProbAgg >= 50 ? primaryLabelAgg : secondaryLabelAgg;
+    }
   }
 
   const fullAnalysisMarkdown = formatAnalysis({ market: scored.market, score: scored.score, qwenResult });
@@ -668,8 +687,27 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
   } else if (bestQwen?.analysis?.verdict === "SKIP") {
     bestFinalPrediction = "=";
   } else {
-    const direction = directionSignal(best.score);
-    bestFinalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+    // Confidence Guardrail
+    const confidence = Number(bestQwen?.analysis?.confidence);
+    if (!Number.isNaN(confidence) && confidence < config.minQwenConfidence) {
+      bestFinalPrediction = "=";
+      if (bestQwen?.analysis) {
+        bestQwen.analysis.final_reason = `[OVERRIDE] Confidence terlalu rendah (${confidence}% < ${config.minQwenConfidence}%). Mencegah halusinasi AI. Alasan asli: ` + bestQwen.analysis.final_reason;
+      }
+    } else {
+      const direction = directionSignal(best.score);
+      bestFinalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+    }
+  }
+
+  // Aggressive Mode override for bestFinalPrediction
+  if (bestFinalPrediction === "=" && getAggressiveMode()) {
+    const fairProbAgg = Number(bestQwen?.analysis?.estimatedFairProbability);
+    if (Number.isFinite(fairProbAgg) && fairProbAgg !== 50) {
+      const pLabelAgg = String(best.score?.primaryOutcomeLabel || "UP").toUpperCase();
+      const sLabelAgg = String(best.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
+      bestFinalPrediction = fairProbAgg >= 50 ? pLabelAgg : sLabelAgg;
+    }
   }
 
   const fullAnalysisMarkdownBest = formatAnalysis({ market: best.market, score: best.score, qwenResult: bestQwen });

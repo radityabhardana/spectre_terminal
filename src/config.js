@@ -86,6 +86,7 @@ export const config = {
   qwenCommandCooldownMs: nonNegativeInt(process.env.QWEN_COMMAND_COOLDOWN_MS, 45000),
   duplicateCommandCooldownMs: nonNegativeInt(process.env.DUPLICATE_COMMAND_COOLDOWN_MS, 3000),
   webPassword: process.env.WEB_PASSWORD || "",
+  minQwenConfidence: positiveInt(process.env.MIN_QWEN_CONFIDENCE, 80),
 };
 
 export function assertConfig() {

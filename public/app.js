@@ -3400,8 +3400,7 @@ function applyLanguageUI(lang) {
   }
 }
 
-// Start polling backend queue for status
-setInterval(pollBackendQueue, 1000);
+// Queue polling handled by the sniper interval above
 setTimeout(loadHealth, 100);
 setTimeout(detectDns, 100);
 

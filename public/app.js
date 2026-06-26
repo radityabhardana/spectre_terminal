@@ -3578,12 +3578,9 @@ if (snifferToggleBtn) {
       if (data.isSnifferActive) {
         snifferToggleBtn.style.borderColor = 'var(--neon-green)';
         snifferToggleBtn.style.color = 'var(--neon-green)';
-        // Always update the text to ON (remove guard that blocked this)
-        if (topBtnText) {
-          if (!currentSnifferStartTime || currentSnifferStartTime === 0) {
-            topBtnText.innerText = 'TRACKER: ON';
-          }
-          // else timer interval will handle the text with uptime
+        // Always change from OFF to ON so the interval can pick it up
+        if (topBtnText && topBtnText.innerText.includes('OFF')) {
+          topBtnText.innerText = 'TRACKER: ON';
         }
         snifferToggleBtn.style.boxShadow = '0 0 10px rgba(57, 255, 20, 0.5)';
         if (topBtnIcon) topBtnIcon.classList.add('radar-anim');

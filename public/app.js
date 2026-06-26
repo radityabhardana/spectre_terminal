@@ -3578,8 +3578,8 @@ if (snifferToggleBtn) {
       if (data.isSnifferActive) {
         snifferToggleBtn.style.borderColor = 'var(--neon-green)';
         snifferToggleBtn.style.color = 'var(--neon-green)';
-        // Always change from OFF to ON so the interval can pick it up
-        if (topBtnText && topBtnText.innerText.includes('OFF')) {
+        // Force to ON state to ensure interval starts ticking
+        if (topBtnText && !topBtnText.innerText.includes('(')) {
           topBtnText.innerText = 'TRACKER: ON';
         }
         snifferToggleBtn.style.boxShadow = '0 0 10px rgba(57, 255, 20, 0.5)';
@@ -3740,7 +3740,10 @@ if (snifferToggleBtn) {
 
   setInterval(() => {
     const text = document.getElementById('snifferToggleText');
-    if (!text || !currentSnifferStartTime || text.innerText.includes('OFF')) return;
+    if (!text || !currentSnifferStartTime) return;
+    
+    // If it's explicitly OFF, skip timer
+    if (text.innerText === 'TRACKER: OFF') return;
     const diff = Math.floor((Date.now() - currentSnifferStartTime) / 1000);
     const m = String(Math.floor(diff / 60)).padStart(2, '0');
     const s = String(diff % 60).padStart(2, '0');

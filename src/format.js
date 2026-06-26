@@ -456,7 +456,7 @@ export function formatBook(book) {
   ].join("\n");
 }
 
-export function formatAnalysis({ market, score, qwenResult }) {
+export function formatAnalysis({ market, score, qwenResult, finalPrediction }) {
   const qwen = qwenResult?.analysis || {};
   const verdict = finalVerdict(score, qwen);
   const blockers = score.blockers?.length ? score.blockers.join("; ") : "Tidak ada hard blocker";
@@ -480,6 +480,10 @@ export function formatAnalysis({ market, score, qwenResult }) {
       else if (fairProb <= 45) shownDirection = secondaryLabel;
       else shownDirection = "NETRAL";
     }
+  }
+  // If finalPrediction is explicitly passed (e.g. from Aggressive Mode override), use it!
+  if (finalPrediction) {
+    shownDirection = finalPrediction === "=" ? "NETRAL" : finalPrediction;
   }
 
   return [

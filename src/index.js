@@ -567,7 +567,7 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
     }
   }
 
-  const fullAnalysisMarkdown = formatAnalysis({ market: scored.market, score: scored.score, qwenResult });
+  const fullAnalysisMarkdown = formatAnalysis({ market: scored.market, score: scored.score, qwenResult, finalPrediction });
 
   if (!signal?.aborted) {
     addAnalyzedEvent({
@@ -727,7 +727,7 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
     }
   }
 
-  const fullAnalysisMarkdownBest = formatAnalysis({ market: best.market, score: best.score, qwenResult: bestQwen });
+  const fullAnalysisMarkdownBest = formatAnalysis({ market: best.market, score: best.score, qwenResult: bestQwen, finalPrediction: bestFinalPrediction });
 
   if (!signal?.aborted) {
     addAnalyzedEvent({

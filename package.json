@@ -17,6 +17,12 @@
   },
   "license": "UNLICENSED",
   "dependencies": {
-    "better-sqlite3": "^12.10.0"
+    "@polymarket/clob-client": "^5.8.1",
+    "axios": "^1.18.1",
+    "better-sqlite3": "^12.10.0",
+    "dotenv": "^17.4.2",
+    "ethers": "^6.17.0",
+    "node-telegram-bot-api": "^1.1.2",
+    "ws": "^8.21.0"
   }
 }

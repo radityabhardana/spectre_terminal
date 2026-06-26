@@ -548,13 +548,22 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
     }
   }
 
-  // Aggressive Mode: force = to UP or DOWN based on fairProb
+  // Aggressive Mode: force = to UP or DOWN
   if (finalPrediction === "=" && getAggressiveMode()) {
+    const primaryLabelAgg = String(scored.score?.primaryOutcomeLabel || "UP").toUpperCase();
+    const secondaryLabelAgg = String(scored.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
+    
     const fairProbAgg = Number(qwenResult?.analysis?.estimatedFairProbability);
     if (Number.isFinite(fairProbAgg) && fairProbAgg !== 50) {
-      const primaryLabelAgg = String(scored.score?.primaryOutcomeLabel || "UP").toUpperCase();
-      const secondaryLabelAgg = String(scored.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
-      finalPrediction = fairProbAgg >= 50 ? primaryLabelAgg : secondaryLabelAgg;
+      finalPrediction = fairProbAgg > 50 ? primaryLabelAgg : secondaryLabelAgg;
+    } else {
+      // Fallback to data score if fairProb missing or 50
+      const scoreNum = Number(scored.score?.score || 50);
+      finalPrediction = scoreNum >= 50 ? primaryLabelAgg : secondaryLabelAgg;
+    }
+    
+    if (qwenResult?.analysis) {
+      qwenResult.analysis.final_reason = `[AGGRESSIVE MODE] Memaksa trade. Awalnya NETRAL, dipaksa ke ${finalPrediction}. ` + (qwenResult.analysis.final_reason || "");
     }
   }
 
@@ -702,11 +711,19 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
 
   // Aggressive Mode override for bestFinalPrediction
   if (bestFinalPrediction === "=" && getAggressiveMode()) {
+    const pLabelAgg = String(best.score?.primaryOutcomeLabel || "UP").toUpperCase();
+    const sLabelAgg = String(best.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
+    
     const fairProbAgg = Number(bestQwen?.analysis?.estimatedFairProbability);
     if (Number.isFinite(fairProbAgg) && fairProbAgg !== 50) {
-      const pLabelAgg = String(best.score?.primaryOutcomeLabel || "UP").toUpperCase();
-      const sLabelAgg = String(best.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
-      bestFinalPrediction = fairProbAgg >= 50 ? pLabelAgg : sLabelAgg;
+      bestFinalPrediction = fairProbAgg > 50 ? pLabelAgg : sLabelAgg;
+    } else {
+      const scoreNum = Number(best.score?.score || 50);
+      bestFinalPrediction = scoreNum >= 50 ? pLabelAgg : sLabelAgg;
+    }
+
+    if (bestQwen?.analysis) {
+      bestQwen.analysis.final_reason = `[AGGRESSIVE MODE] Memaksa trade. Awalnya NETRAL, dipaksa ke ${bestFinalPrediction}. ` + (bestQwen.analysis.final_reason || "");
     }
   }
 

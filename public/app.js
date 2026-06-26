@@ -3428,6 +3428,13 @@ function updateAggressiveModeUI() {
   }
 }
 
+// Notify backend of initial state on page load
+fetch('/api/settings/aggressive-mode', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({ enabled: isAggressiveMode })
+}).catch(() => {});
+
 if (aggressiveModeBtn) {
   aggressiveModeBtn.addEventListener('click', () => {
     isAggressiveMode = !isAggressiveMode;

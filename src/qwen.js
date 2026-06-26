@@ -113,7 +113,11 @@ function normalizeAnalysis(value, rawText) {
       ? Math.max(1, Math.min(100, Math.round(Number(value.confidence))))
       : null,
     positionSizePct: Number.isFinite(Number(value.position_size_pct)) ? Number(value.position_size_pct) : null,
-    estimatedFairProbability: Number.isFinite(Number(value.estimated_fair_probability)) ? Number(value.estimated_fair_probability) : null,
+    estimatedFairProbability: (() => {
+      const val = value.estimated_fair_probability !== undefined ? value.estimated_fair_probability : value.estimatedFairProbability;
+      const num = typeof val === 'string' ? parseFloat(val.replace('%', '')) : Number(val);
+      return Number.isFinite(num) ? num : null;
+    })(),
     expectedValueCents: Number.isFinite(Number(value.expected_value_cents)) ? Number(value.expected_value_cents) : null,
     kellyEdge: Number.isFinite(Number(value.kelly_edge)) ? Number(value.kelly_edge) : null,
     summary: truncate(value.summary || value.ringkasan || "", 420),

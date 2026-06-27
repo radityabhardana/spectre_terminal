@@ -175,20 +175,43 @@ async function fetchFearGreed() {
   }
 }
 
-export async function evaluateShortMarketCondition({ signal = null, currentPriceStr = "", asset = "BTC" }) {
+export async function evaluateShortMarketCondition({ signal = null, currentPriceStr = "", asset = "BTC", marketQuestion = "", marketOutcomePrice = null }) {
   const symbol = asset === "ETH" ? "ETHUSDT" : asset === "DOGE" ? "DOGEUSDT" : "BTCUSDT";
 
-  // If full kline data fails, fall back to ticker-only (no RSI/MACD but still functional)
-  let techData = await fetchBinanceTechData(symbol, 5);
-  if (!techData) {
-    console.warn("[Short Condition] Kline fetch gagal, mencoba ticker fallback...");
-    techData = await fetchBinanceTickerOnly(symbol);
+  // Extract target price from market question
+  let targetPrice = null;
+  if (marketQuestion) {
+    const match = marketQuestion.match(/\$([0-9,]+(\.[0-9]+)?)/);
+    if (match) {
+      targetPrice = parseFloat(match[1].replace(/,/g, ''));
+    }
   }
-  if (!techData) throw new Error("Gagal mengambil data Binance (kline dan ticker keduanya gagal). Periksa koneksi internet.");
+
+  // Fetch Pyth Oracle Data
+  let pythPrice = null;
+  if (asset === "BTC") {
+    try {
+      const pid = "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
+      const pRes = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${pid}`);
+      if (pRes.ok) {
+        const pData = await pRes.json();
+        const pInfo = pData.parsed?.[0]?.price;
+        if (pInfo) {
+          pythPrice = parseFloat(pInfo.price) * Math.pow(10, pInfo.expo);
+        }
+      }
+    } catch(err) {
+      console.warn("[Short Condition] Failed to fetch Pyth Oracle:", err.message);
+    }
+  }
+
+  // We only need the current price and 24h stats. Klines (RSI/MACD) are removed for 5-minute short markets.
+  let tickerData = await fetchBinanceTickerOnly(symbol);
+  if (!tickerData) throw new Error("Gagal mengambil data ticker Binance. Periksa koneksi internet.");
 
   // Override price if live Polymarket WebSocket price provided
   if (currentPriceStr && !isNaN(parseFloat(currentPriceStr))) {
-    techData.currentPrice = parseFloat(currentPriceStr).toFixed(2);
+    tickerData.currentPrice = parseFloat(currentPriceStr).toFixed(2);
   }
 
   // Fetch remaining data sources in parallel (all gracefully fail to null)
@@ -205,7 +228,19 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
   const depthData = getOrderbookImbalance(symbol);
 
   // Ask Qwen
-  const result = await askQwenShortCondition({ techData, longShort, fearGreed, tweets, signal, liquidations: liqData, orderbookDepth: depthData });
+  const result = await askQwenShortCondition({ 
+    tickerData, 
+    longShort, 
+    fearGreed, 
+    tweets, 
+    signal, 
+    liquidations: liqData, 
+    orderbookDepth: depthData,
+    targetPrice,
+    pythPrice,
+    marketQuestion,
+    marketOutcomePrice
+  });
 
-  return { techData, longShort, fearGreed, liquidations: liqData, depth: depthData, evaluation: result };
+  return { tickerData, liquidations: liqData, depth: depthData, pythPrice, targetPrice, evaluation: result };
 }

@@ -1229,7 +1229,19 @@ Format JSON wajib:
   return parseJsonOr(json.text, { reason_found: false, sentiment: "UNCLEAR", summary: "Gagal memproses sentimen Twitter." });
 }
 
-export async function askQwenShortCondition({ techData, longShort, fearGreed, tweets, signal = null, liquidations = null, orderbookDepth = null }) {
+export async function askQwenShortCondition({ 
+  tickerData, 
+  longShort, 
+  fearGreed, 
+  tweets, 
+  signal = null, 
+  liquidations = null, 
+  orderbookDepth = null,
+  targetPrice = null,
+  pythPrice = null,
+  marketQuestion = "",
+  marketOutcomePrice = null
+}) {
   throwIfAborted(signal);
 
   let historyContext = "";
@@ -1239,35 +1251,42 @@ export async function askQwenShortCondition({ techData, longShort, fearGreed, tw
     if (fs.existsSync(histPath)) {
       const histData = JSON.parse(fs.readFileSync(histPath, "utf-8"));
       if (histData.length > 0) {
-        const recentHist = histData.slice(-3).map((h, i) => `[Memory ${i+1}] ${h.date} | Condition:${h.condition} Rec:${h.recommendation} Dir:${h.direction || 'N/A'}\nReason: ${(h.reason||'').slice(0, 200)}...`).join("\n\n");
-        historyContext = `\n\nAI LEARNING MEMORY (Last 3 analyses):\n${recentHist}\nPelajari pola dari memori ini. Jika kondisi sekarang mirip dengan salah satu memori dan terbukti benar, pertimbangkan konsistensi tersebut.\n`;
+        const recentHist = histData.slice(-3).map((h, i) => `[Memory ${i+1}] ${h.date} | Recommendation:${h.recommendation} Dir:${h.direction || 'N/A'}\nReason: ${(h.reason||'').slice(0, 200)}...`).join("\n\n");
+        historyContext = `\n\nAI LEARNING MEMORY (Last 3 analyses):\n${recentHist}\nPelajari memori ini, tapi utamakan perhitungan matematis jarak vs sisa waktu.\n`;
       }
     }
   } catch (err) {
     console.error("[Qwen] Gagal memuat memory short condition:", err.message);
   }
 
-  const td = techData || {};
+  const td = tickerData || {};
+  
+  let targetContext = "";
+  if (marketQuestion && targetPrice) {
+    const currentP = pythPrice || td.currentPrice;
+    const distance = targetPrice - currentP;
+    
+    targetContext = `
+MARKET TARGET (PRICE TO BEAT):
+- Pertanyaan Polymarket: "${marketQuestion}"
+- Target Price: $${targetPrice}
+- Current Pyth Price (Oracle): $${pythPrice || "N/A"}
+- Jarak ke Target: $${distance.toFixed(2)}
+- Harga Token Polymarket Saat Ini: ${marketOutcomePrice ? "$" + marketOutcomePrice : "N/A"}
+`;
+  }
+
   const context = `
-TECHNICAL DATA (${td.symbol || 'BTCUSDT'} / ${(td.interval || '5m').toUpperCase()} candles):
+${targetContext}
+
+TECHNICAL DATA (${td.symbol || 'BTCUSDT'} / Ticker):
 Current Price: $${td.currentPrice}
 24h Change: ${td.priceChange24h}%
 24h High: $${td.high24h} | 24h Low: $${td.low24h}
 24h Volume: ${td.volume24h} ${(td.symbol || 'BTCUSDT').replace('USDT','')}
 
-INDICATORS:
-RSI-14: ${td.rsi14} → ${td.rsiSignal}
-MACD Line: ${td.macd?.line} | Signal: ${td.macd?.signal} | Histogram: ${td.macd?.histogram} → ${td.macd?.trend}
-Volume Ratio (last vs 10-avg): ${td.volumeRatio}x → ${td.volumeSignal}
-
-RECENT 5 CANDLES (${td.interval || '5m'}):
-${(td.recentCandles || []).map(c => `  ${c.time} | ${c.direction} | O:${c.open} C:${c.close} Vol:${c.vol}`).join('\n')}
-
 FUTURES POSITIONING (Binance):
 ${longShort ? `Long/Short Ratio: ${longShort.ratio} (Long: ${longShort.longPct}% | Short: ${longShort.shortPct}%) → ${longShort.bias}` : 'Long/Short data: unavailable'}
-
-FEAR & GREED INDEX:
-${fearGreed ? `Value: ${fearGreed.value}/100 → ${fearGreed.label}` : 'Fear & Greed: unavailable'}
 
 LIVE LIQUIDATIONS (Binance 15m):
 ${liquidations ? `Longs Liq: $${liquidations.longsLiqValue.toFixed(2)} | Shorts Liq: $${liquidations.shortsLiqValue.toFixed(2)} | Total Events: ${liquidations.totalCount}` : 'Liquidations data: unavailable'}
@@ -1280,52 +1299,38 @@ ${tweets && tweets.length > 0 ? JSON.stringify(tweets.slice(0, 5), null, 2) : 'N
 ${historyContext}`.trim();
 
   const prompt = `
-Kamu adalah Analis Teknikal Senior dan Risk Manager untuk trading "Short Market" Polymarket (tebak arah BTC/ETH/DOGE naik/turun dalam 5-15 menit).
+Kamu adalah Quant Trader Spesialis "Short Market" Polymarket (tebak arah BTC/ETH/DOGE naik/turun dalam 5-15 menit).
 
-Tugasmu: Berikan MARKET VIBE CHECK yang sangat mendalam dan actionable berdasarkan semua data teknikal di atas.
+Tugasmu: Berikan keputusan entry murni berdasarkan KUANTITATIF (Jarak Harga, Orderbook Flow, dan Nilai Ekspektasi/EV). JANGAN menebak reversal menggunakan pola candle atau tebakan kosong!
 
 Langkah Analisis (chain-of-thought WAJIB):
-1. [RSI + MACD Alignment] Apakah RSI dan MACD SERAGAM arahnya? Keduanya bearish = momentum DOWN kuat. Keduanya bullish = momentum UP kuat. Konflik = sinyal lemah.
-2. [Volume Confirmation] Volume candle terakhir > rata-rata? Volume tinggi = momentum nyata. Volume rendah = gerakan palsu/chop.
-3. [Futures Positioning] Long/Short ratio mendukung atau berlawanan tren? Long dominan saat harga turun = squeeze risk. Short dominan saat harga naik = potential squeeze.
-4. [Fear & Greed + Sentiment] Selaras dengan indikator teknikal = konfirmasi. Berlawanan = waspadai reversal.
-5. [Orderbook Depth Imbalance] Apakah ada tembok (wall) tebal? Bid wall menahan harga turun (dorong UP). Ask wall menahan harga naik (dorong DOWN). Ratio > 2x = banteng dominan. Ratio < 0.5x = beruang dominan.
-6. [Liquidation Flow] Apakah ada Short Liq massal (magnet buat naik)? Atau Long Liq (flush ke bawah)?
-7. [Candle Pattern] 5 candle terakhir konsisten satu arah atau bolak-balik (chop)?
-8. [Directional Bias] Berdasarkan SEMUA data, arah mana lebih mungkin dalam 5-15 menit ke depan?
-9. [Kesimpulan] PLAY atau AVOID? Jika PLAY, sisi mana (UP/DOWN)?
+1. [Distance Check] Berapa jarak harga Oracle Pyth saat ini ke Target Price? Semakin dekat, semakin besar kemungkinan tertembus.
+2. [Orderbook Flow] Apakah ada tembok duit raksasa (Bid/Ask Depth) di Binance yang menghalangi pergerakan harga menuju target?
+3. [Crowd Wisdom / Market Probability] Berapa harga token Polymarket saat ini? (Contoh $0.76 = Crowd yakin 76% UP).
+4. [Momentum Follow] Jangan melawan tren! Jika Crowd Probability tinggi (> 60%) dan tidak ada tembok yang memblokir, asumsikan Crowd BENAR. Jangan coba-coba menebak reversal.
+5. [EV Math] EV = (estimated_fair_probability / 100) - Harga Token Polymarket. Jika Crowd salah harga (kemurahan), EV positif = PLAY. Jika kemahalan atau berisiko tinggi = AVOID.
 
-Kondisi IDEAL untuk PLAY:
-- RSI dan MACD searah (keduanya bullish atau bearish).
-- Volume ratio > 1.0x.
-- Minimal 3 dari 5 candle terakhir searah.
-- Long/Short ratio tidak ekstrem.
-
-Kondisi WAJIB AVOID:
-- Volume ratio < 0.5x (Volume benar-benar mati/kering).
-- Candle bolak-balik tanpa arah jelas (Sangat Choppy).
-- RSI netral (45-55) + MACD histogram mendekati nol (Tidak ada tren).
-*(Catatan: Jika RSI dan MACD berlawanan arah, ini sangat berisiko. Namun, jika ada Orderbook Wall Raksasa atau Liquidation massal yang mendukung salah satu arah, kamu BOLEH mengambil keputusan PLAY).*
+ATURAN MUTLAK:
+- JANGAN MENEBAK REVERSAL. Harga bergerak berdasarkan volume, bukan tebakan. Jika tren sedang kuat menuju target, ikuti.
+- Jika EV dihitung Negatif atau Nol, WAJIB 'AVOID'.
+- Jika harga token Polymarket (MarketOutcomePrice) tidak tersedia/N/A, buat asumsi 50% ($0.50) untuk menghitung EV kasaran, dan fokus pada Distance to Target untuk menentukan 'estimated_fair_probability'.
+- Jika Liquidasi besar searah dengan target, itu menambah 'estimated_fair_probability'.
 
 Format JSON wajib:
 {
-  "condition": "VOLATILE" atau "SIDEWAYS" atau "CHOPPY",
+  "condition": "TRENDING" atau "CHOPPY",
   "recommendation": "PLAY" atau "AVOID",
   "direction": "UP" atau "DOWN" atau "NEUTRAL",
-  "confidence": 75,
-  "reason": "Analisis mendalam multi-paragraf yang mencakup semua 7 langkah.",
+  "confidence": 80,
+  "estimated_fair_probability": 85,
+  "expected_value_cents": 9,
+  "reason": "Analisis mendalam berdasarkan Jarak ke Target, Tembok Binance, Momentum Market, dan hitungan EV. Buktikan kenapa EV Positif/Negatif.",
   "key_signals": {
-    "rsi_verdict": "BULLISH / BEARISH / NEUTRAL",
-    "macd_verdict": "BULLISH / BEARISH / NEUTRAL",
-    "volume_verdict": "STRONG / WEAK / NORMAL",
-    "futures_verdict": "LONG_DOMINANT / SHORT_DOMINANT / BALANCED",
+    "depth_verdict": "BULLISH_WALL / BEARISH_WALL / CLEAR_PATH",
     "liquidation_verdict": "SQUEEZE_UP / SQUEEZE_DOWN / NORMAL",
-    "depth_verdict": "BULLISH_WALL / BEARISH_WALL / NEUTRAL",
-    "alignment_score": "STRONG / MIXED / CONFLICT"
+    "flow_verdict": "STRONG_MOMENTUM / CHOPPY / REVERSAL_RISK"
   },
-  "sentiment": "BULLISH / BEARISH / NEUTRAL / MIXED",
-  "memory_reflection": "Apa yang dipelajari dari memori sebelumnya, atau 'Belum ada memori'.",
-  "risk_warning": "Peringatan khusus: potensi squeeze, fake breakout, atau kondisi berbahaya."
+  "risk_warning": "Peringatan khusus jika ada tembok besar atau anomali spread."
 }
   `.trim();
 

@@ -486,14 +486,44 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
   const researchContext = await buildResearchContext({ market: scored.market });
 
   throwIfAborted(signal);
-  setStep("Running Qwen market pipeline");
-  const qwenResult = await askQwen({
-    market: scored.market,
-    score: scored.score,
-    orderBook: scored.yesBook,
-    researchContext,
-    signal,
-  });
+  
+  const isShortCryptoMarket = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below)/i.test(scored.market.question || "");
+  let qwenResult;
+
+  if (isShortCryptoMarket) {
+    setStep("Running Qwen SHORT MARKET Sniper pipeline");
+    const asset = /ethereum|eth/i.test(scored.market.question) ? "ETH" : /doge/i.test(scored.market.question) ? "DOGE" : "BTC";
+    const shortRes = await evaluateShortMarketCondition({
+      signal,
+      asset,
+      marketQuestion: scored.market.question,
+      marketOutcomePrice: scored.score.marketProbability / 100
+    });
+    
+    qwenResult = {
+      model: "Sniper V2",
+      usage: "N/A",
+      analysis: {
+        verdict: shortRes.evaluation.recommendation === "PLAY" ? "VALUE CANDIDATE" : "SKIP",
+        confidence: shortRes.evaluation.confidence,
+        estimatedFairProbability: shortRes.evaluation.estimated_fair_probability,
+        expectedValueCents: shortRes.evaluation.expected_value_cents,
+        finalReason: shortRes.evaluation.reason,
+        summary: shortRes.evaluation.reason ? shortRes.evaluation.reason.substring(0, 150) + "..." : "Short Market Sniper V2",
+        bullishCase: ["Flow Momentum: " + (shortRes.evaluation.key_signals?.flow_verdict || "")],
+        bearishCase: ["Orderbook/Liq: " + (shortRes.evaluation.key_signals?.depth_verdict || "")]
+      }
+    };
+  } else {
+    setStep("Running Qwen market pipeline (Hedge Fund Mode)");
+    qwenResult = await askQwen({
+      market: scored.market,
+      score: scored.score,
+      orderBook: scored.yesBook,
+      researchContext,
+      signal,
+    });
+  }
 
   appendAnalysisLog({
     query,
@@ -511,7 +541,6 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
   // For short crypto markets (Up/Down), derive direction from Qwen Bull/Bear debate result
   // since Polymarket probability is always ~50% and useless for direction.
   // For all other markets, use the standard directionSignal based on orderbook midpoint.
-  const isShortCryptoMarket = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*up.or.down/i.test(scored.market.question || "");
   
   let finalPrediction;
   
@@ -646,14 +675,43 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
   const bestResearchContext = await buildResearchContext({ market: best.market });
 
   throwIfAborted(signal);
-  setStep("Running Qwen final market pipeline");
-  const bestQwen = await askQwen({
-    market: best.market,
-    score: best.score,
-    orderBook: best.yesBook,
-    researchContext: bestResearchContext,
-    signal,
-  });
+  
+  const isShortCryptoMarketBest = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below)/i.test(best.market.question || "");
+  let bestQwen;
+
+  if (isShortCryptoMarketBest) {
+    setStep("Running Qwen SHORT MARKET Sniper pipeline for best candidate");
+    const asset = /ethereum|eth/i.test(best.market.question) ? "ETH" : /doge/i.test(best.market.question) ? "DOGE" : "BTC";
+    const shortRes = await evaluateShortMarketCondition({
+      signal,
+      asset,
+      marketQuestion: best.market.question,
+      marketOutcomePrice: best.score.marketProbability / 100
+    });
+    bestQwen = {
+      model: "Sniper V2",
+      usage: "N/A",
+      analysis: {
+        verdict: shortRes.evaluation.recommendation === "PLAY" ? "VALUE CANDIDATE" : "SKIP",
+        confidence: shortRes.evaluation.confidence,
+        estimatedFairProbability: shortRes.evaluation.estimated_fair_probability,
+        expectedValueCents: shortRes.evaluation.expected_value_cents,
+        finalReason: shortRes.evaluation.reason,
+        summary: shortRes.evaluation.reason ? shortRes.evaluation.reason.substring(0, 150) + "..." : "Short Market Sniper V2",
+        bullishCase: ["RSI/MACD: " + (shortRes.evaluation.key_signals?.rsi_verdict || "")],
+        bearishCase: ["Orderbook/Liq: " + (shortRes.evaluation.key_signals?.depth_verdict || "")]
+      }
+    };
+  } else {
+    setStep("Running Qwen final market pipeline");
+    bestQwen = await askQwen({
+      market: best.market,
+      score: best.score,
+      orderBook: best.yesBook,
+      researchContext: bestResearchContext,
+      signal,
+    });
+  }
 
   appendAnalysisLog({
     query,
@@ -677,7 +735,6 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
     },
   });
 
-  const isShortCryptoMarketBest = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*up.or.down/i.test(best.market.question || "");
   let bestFinalPrediction;
 
   if (isShortCryptoMarketBest && bestQwen?.analysis) {

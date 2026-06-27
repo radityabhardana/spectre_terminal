@@ -467,7 +467,7 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction }) {
   const researchType = qwenResult?.researchContext?.type || "general";
   const isCryptoMarket = researchType === "crypto";
   const isUfcMarket = researchType === "sports_ufc";
-  const isShortCrypto = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*up.or.down/i.test(market.question || "");
+  const isShortCrypto = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below)/i.test(market.question || "");
 
   // For short crypto markets, derive shown direction from Qwen fairProb (same logic as index.js)
   let shownDirection = direction.side;
@@ -505,8 +505,8 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction }) {
     `Catatan: Arah market = bacaan probabilitas/sentimen. Entry status = layak masuk atau tidak.`,
     "",
     "ARAH MARKET - SCOUTING",
-    `Dominan: ${shownDirection}`,
-    `Confidence ${direction.primaryLabel}: ${pct(direction.yesConfidence)} | Confidence ${direction.secondaryLabel}: ${pct(
+    `Dominan: ${direction.side}`,
+    `Market Price ${direction.primaryLabel}: ${pct(direction.yesConfidence)} | Market Price ${direction.secondaryLabel}: ${pct(
       direction.noConfidence
     )}`,
     `Gap dominansi: ${points(direction.dominanceGap)} (semakin besar = arah makin tegas)`,

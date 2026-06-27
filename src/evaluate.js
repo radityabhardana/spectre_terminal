@@ -164,7 +164,11 @@ export async function evaluateResolutions(ctx = null) {
   for (const event of unresolved) {
     try {
       const market = await getMarketById(event.market_id, true);
-      if (!market || !market.closed) continue;
+      if (!market) continue;
+      
+      // Cek apakah market sudah ditutup oleh Polymarket ATAU waktunya sudah habis (expired)
+      const isExpired = market.endDate && new Date(market.endDate).getTime() < Date.now();
+      if (!market.closed && !isExpired) continue;
 
       countChecked++;
       const tokens = pickYesNoTokens(market);

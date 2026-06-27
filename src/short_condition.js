@@ -1,5 +1,6 @@
 import { askQwenShortCondition } from "./qwen.js";
 import { scrapeTwitter } from "./twitter_scraper.js";
+import { getRecentLiquidations } from "./binance_ws.js";
 
 const BINANCE_BASE_URLS = [
   'https://api.binance.com',
@@ -197,8 +198,11 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
     scrapeTwitter("Bitcoin OR Crypto").catch(() => []),
   ]);
 
-  // Ask Qwen
-  const result = await askQwenShortCondition({ techData, longShort, fearGreed, tweets, signal });
+  // Liquidations (Websocket 15m)
+  const liqData = getRecentLiquidations(symbol, 15);
 
-  return { techData, longShort, fearGreed, evaluation: result };
+  // Ask Qwen
+  const result = await askQwenShortCondition({ techData, longShort, fearGreed, tweets, signal, liquidations: liqData });
+
+  return { techData, longShort, fearGreed, liquidations: liqData, evaluation: result };
 }

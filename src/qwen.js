@@ -1229,7 +1229,7 @@ Format JSON wajib:
   return parseJsonOr(json.text, { reason_found: false, sentiment: "UNCLEAR", summary: "Gagal memproses sentimen Twitter." });
 }
 
-export async function askQwenShortCondition({ techData, longShort, fearGreed, tweets, signal = null, liquidations = null }) {
+export async function askQwenShortCondition({ techData, longShort, fearGreed, tweets, signal = null, liquidations = null, orderbookDepth = null }) {
   throwIfAborted(signal);
 
   let historyContext = "";
@@ -1272,6 +1272,9 @@ ${fearGreed ? `Value: ${fearGreed.value}/100 → ${fearGreed.label}` : 'Fear & G
 LIVE LIQUIDATIONS (Binance 15m):
 ${liquidations ? `Longs Liq: $${liquidations.longsLiqValue.toFixed(2)} | Shorts Liq: $${liquidations.shortsLiqValue.toFixed(2)} | Total Events: ${liquidations.totalCount}` : 'Liquidations data: unavailable'}
 
+LIVE ORDERBOOK DEPTH (Binance 20-levels):
+${orderbookDepth ? `Total Bid Volume (Nahan Turun): $${orderbookDepth.bidsValue.toFixed(2)} | Total Ask Volume (Nahan Naik): $${orderbookDepth.asksValue.toFixed(2)} | Ratio (Bid/Ask): ${orderbookDepth.imbalanceRatio.toFixed(2)}x` : 'Depth data: unavailable'}
+
 TWITTER/X SENTIMENT (recent):
 ${tweets && tweets.length > 0 ? JSON.stringify(tweets.slice(0, 5), null, 2) : 'No tweets available'}
 ${historyContext}`.trim();
@@ -1286,22 +1289,23 @@ Langkah Analisis (chain-of-thought WAJIB):
 2. [Volume Confirmation] Volume candle terakhir > rata-rata? Volume tinggi = momentum nyata. Volume rendah = gerakan palsu/chop.
 3. [Futures Positioning] Long/Short ratio mendukung atau berlawanan tren? Long dominan saat harga turun = squeeze risk. Short dominan saat harga naik = potential squeeze.
 4. [Fear & Greed + Sentiment] Selaras dengan indikator teknikal = konfirmasi. Berlawanan = waspadai reversal.
-5. [Liquidation Flow] Apakah ada Short Liq massal (magnet buat naik)? Atau Long Liq (flush ke bawah)?
-6. [Candle Pattern] 5 candle terakhir konsisten satu arah atau bolak-balik (chop)?
-7. [Directional Bias] Berdasarkan SEMUA data, arah mana lebih mungkin dalam 5-15 menit ke depan?
-8. [Kesimpulan] PLAY atau AVOID? Jika PLAY, sisi mana (UP/DOWN)?
+5. [Orderbook Depth Imbalance] Apakah ada tembok (wall) tebal? Bid wall menahan harga turun (dorong UP). Ask wall menahan harga naik (dorong DOWN). Ratio > 2x = banteng dominan. Ratio < 0.5x = beruang dominan.
+6. [Liquidation Flow] Apakah ada Short Liq massal (magnet buat naik)? Atau Long Liq (flush ke bawah)?
+7. [Candle Pattern] 5 candle terakhir konsisten satu arah atau bolak-balik (chop)?
+8. [Directional Bias] Berdasarkan SEMUA data, arah mana lebih mungkin dalam 5-15 menit ke depan?
+9. [Kesimpulan] PLAY atau AVOID? Jika PLAY, sisi mana (UP/DOWN)?
 
 Kondisi IDEAL untuk PLAY:
 - RSI dan MACD searah (keduanya bullish atau bearish).
-- Volume ratio > 1.3x.
+- Volume ratio > 1.0x.
 - Minimal 3 dari 5 candle terakhir searah.
 - Long/Short ratio tidak ekstrem.
 
 Kondisi WAJIB AVOID:
-- RSI dan MACD berlawanan arah.
-- Volume ratio < 0.8x.
-- Candle bolak-balik tanpa arah jelas.
-- RSI netral (45-55) + MACD histogram mendekati nol.
+- Volume ratio < 0.5x (Volume benar-benar mati/kering).
+- Candle bolak-balik tanpa arah jelas (Sangat Choppy).
+- RSI netral (45-55) + MACD histogram mendekati nol (Tidak ada tren).
+*(Catatan: Jika RSI dan MACD berlawanan arah, ini sangat berisiko. Namun, jika ada Orderbook Wall Raksasa atau Liquidation massal yang mendukung salah satu arah, kamu BOLEH mengambil keputusan PLAY).*
 
 Format JSON wajib:
 {
@@ -1316,6 +1320,7 @@ Format JSON wajib:
     "volume_verdict": "STRONG / WEAK / NORMAL",
     "futures_verdict": "LONG_DOMINANT / SHORT_DOMINANT / BALANCED",
     "liquidation_verdict": "SQUEEZE_UP / SQUEEZE_DOWN / NORMAL",
+    "depth_verdict": "BULLISH_WALL / BEARISH_WALL / NEUTRAL",
     "alignment_score": "STRONG / MIXED / CONFLICT"
   },
   "sentiment": "BULLISH / BEARISH / NEUTRAL / MIXED",

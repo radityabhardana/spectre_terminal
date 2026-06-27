@@ -1,6 +1,6 @@
 import { askQwenShortCondition } from "./qwen.js";
 import { scrapeTwitter } from "./twitter_scraper.js";
-import { getRecentLiquidations } from "./binance_ws.js";
+import { getRecentLiquidations, getOrderbookImbalance } from "./binance_ws.js";
 
 const BINANCE_BASE_URLS = [
   'https://api.binance.com',
@@ -201,8 +201,11 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
   // Liquidations (Websocket 15m)
   const liqData = getRecentLiquidations(symbol, 15);
 
-  // Ask Qwen
-  const result = await askQwenShortCondition({ techData, longShort, fearGreed, tweets, signal, liquidations: liqData });
+  // Orderbook Depth (Websocket 100ms)
+  const depthData = getOrderbookImbalance(symbol);
 
-  return { techData, longShort, fearGreed, liquidations: liqData, evaluation: result };
+  // Ask Qwen
+  const result = await askQwenShortCondition({ techData, longShort, fearGreed, tweets, signal, liquidations: liqData, orderbookDepth: depthData });
+
+  return { techData, longShort, fearGreed, liquidations: liqData, depth: depthData, evaluation: result };
 }

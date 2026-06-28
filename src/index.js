@@ -502,12 +502,14 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
     
     qwenResult = {
       model: "Sniper V2",
-      usage: "N/A",
+      usage: shortRes.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 },
       analysis: {
         verdict: shortRes.evaluation.recommendation === "PLAY" ? "VALUE CANDIDATE" : "SKIP",
         confidence: shortRes.evaluation.confidence,
         estimatedFairProbability: shortRes.evaluation.estimated_fair_probability,
         expectedValueCents: shortRes.evaluation.expected_value_cents,
+        scoutDirection: shortRes.evaluation.direction,
+        scoutRecommendation: shortRes.evaluation.recommendation,
         finalReason: shortRes.evaluation.reason,
         summary: shortRes.evaluation.reason ? shortRes.evaluation.reason.substring(0, 150) + "..." : "Short Market Sniper V2",
         bullishCase: ["Flow Momentum: " + (shortRes.evaluation.key_signals?.flow_verdict || "")],
@@ -538,36 +540,27 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
     },
   });
 
-  // For short crypto markets (Up/Down), derive direction from Qwen Bull/Bear debate result
-  // since Polymarket probability is always ~50% and useless for direction.
-  // For all other markets, use the standard directionSignal based on orderbook midpoint.
-  
   let finalPrediction;
   
   if (isShortCryptoMarket && qwenResult?.analysis) {
-    // For short crypto markets, prioritize Qwen's estimated_fair_probability to decide direction
-    // even if the final verdict is SKIP (because prices change too fast for the verdict to be reliable).
-    // >50 = bullish = primary outcome (Up), <50 = bearish = secondary outcome (Down)
-    const fairProb = Number(qwenResult.analysis.estimatedFairProbability);
-    const primaryLabel = String(scored.score?.primaryOutcomeLabel || "UP").toUpperCase();
-    const secondaryLabel = String(scored.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
+    const scoutDirection = String(qwenResult.analysis.scoutDirection || "").toUpperCase();
+    const scoutRec = String(qwenResult.analysis.scoutRecommendation || "").toUpperCase();
     
-    if (Number.isFinite(fairProb)) {
-      if (fairProb >= 55) finalPrediction = primaryLabel;       // Clearly bullish → Up
-      else if (fairProb <= 45) finalPrediction = secondaryLabel; // Clearly bearish → Down
-      else finalPrediction = "=";                                // 45-55% → too uncertain, skip
+    if (scoutRec === "AVOID" || scoutDirection === "NEUTRAL") {
+      finalPrediction = "=";
+    } else if (scoutDirection === "UP" || scoutDirection === "YES") {
+      finalPrediction = String(scored.score?.primaryOutcomeLabel || "UP").toUpperCase();
+    } else if (scoutDirection === "DOWN" || scoutDirection === "NO") {
+      finalPrediction = String(scored.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
     } else {
-      // Fallback to directionSignal if fair_probability unavailable
-      const direction = directionSignal(scored.score);
-      finalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+      finalPrediction = "=";
     }
   } else if (qwenResult?.analysis?.verdict === "SKIP") {
-    finalPrediction = "="; // For non-short markets, force netral/skip if Risk Manager explicitly skips
+    finalPrediction = "=";
   } else {
-    // Confidence Guardrail
     const confidence = Number(qwenResult?.analysis?.confidence);
     if (!Number.isNaN(confidence) && confidence < config.minQwenConfidence) {
-      finalPrediction = "="; // Force netral if AI is overthinking/uncertain
+      finalPrediction = "=";
       if (qwenResult?.analysis) {
         qwenResult.analysis.final_reason = `[OVERRIDE] Confidence terlalu rendah (${confidence}% < ${config.minQwenConfidence}%). Mencegah halusinasi AI. Alasan asli: ` + qwenResult.analysis.final_reason;
       }
@@ -577,7 +570,6 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
     }
   }
 
-  // Aggressive Mode: force = to UP or DOWN
   if (finalPrediction === "=" && getAggressiveMode()) {
     const primaryLabelAgg = String(scored.score?.primaryOutcomeLabel || "UP").toUpperCase();
     const secondaryLabelAgg = String(scored.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
@@ -586,7 +578,6 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
     if (Number.isFinite(fairProbAgg) && fairProbAgg !== 50) {
       finalPrediction = fairProbAgg > 50 ? primaryLabelAgg : secondaryLabelAgg;
     } else {
-      // Fallback to data score if fairProb missing or 50
       const scoreNum = Number(scored.score?.score || 50);
       finalPrediction = scoreNum >= 50 ? primaryLabelAgg : secondaryLabelAgg;
     }
@@ -690,7 +681,7 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
     });
     bestQwen = {
       model: "Sniper V2",
-      usage: "N/A",
+      usage: shortRes.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 },
       analysis: {
         verdict: shortRes.evaluation.recommendation === "PLAY" ? "VALUE CANDIDATE" : "SKIP",
         confidence: shortRes.evaluation.confidence,
@@ -753,7 +744,6 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
   } else if (bestQwen?.analysis?.verdict === "SKIP") {
     bestFinalPrediction = "=";
   } else {
-    // Confidence Guardrail
     const confidence = Number(bestQwen?.analysis?.confidence);
     if (!Number.isNaN(confidence) && confidence < config.minQwenConfidence) {
       bestFinalPrediction = "=";

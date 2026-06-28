@@ -1,10 +1,8 @@
-import { startTelegramBot, stopTelegramBot } from "./index.js";
 import { startWebServer } from "./web.js";
 import { startSniffer } from "./sniffer.js";
 import { startBinanceLiquidationStream, stopBinanceLiquidationStream, startBinanceDepthStream, stopBinanceDepthStream } from "./binance_ws.js";
 
 const webServer = startWebServer();
-startTelegramBot();
 
 // Initialize global.livePrices before sniffer starts writing to it
 if (!global.livePrices) global.livePrices = {};
@@ -13,7 +11,7 @@ startSniffer(); // Start the live whale sniffer
 startBinanceLiquidationStream(); // Start binance websocket liquidations
 startBinanceDepthStream(); // Start binance websocket depth
 
-console.log("Telegram bot and Web UI are running.");
+console.log("Web UI is running (Telegram disabled).");
 
 let shuttingDown = false;
 function shutdown() {
@@ -22,7 +20,6 @@ function shutdown() {
   console.log("Shutting down gracefully...");
   stopBinanceLiquidationStream();
   stopBinanceDepthStream();
-  stopTelegramBot();
   webServer.close(() => {
     process.exit(0);
   });

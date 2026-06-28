@@ -191,10 +191,13 @@ export async function evaluateResolutions(ctx = null) {
       let statusText = "kalah";
       const p = (event.prediction || "").toUpperCase();
       const isNeutralPrediction = p === "=" || p === "SKIP" || p === "NETRAL" || p === "WATCHLIST";
+      const w = (actualOutcome || "").toUpperCase();
+      const directMatch = p && w && p === w;
+      const aliasMatch = (p === "UP" && w === "YES") || (p === "YES" && w === "UP") || (p === "DOWN" && w === "NO") || (p === "NO" && w === "DOWN");
       
       if (isNeutralPrediction) {
         statusText = "netral";
-      } else if (p === actualOutcome.toUpperCase()) {
+      } else if (directMatch || aliasMatch) {
         statusText = "menang";
       }
       

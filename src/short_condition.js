@@ -187,23 +187,46 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
     }
   }
 
-  // Fetch Pyth Oracle Data
-  let pythPrice = null;
-  if (asset === "BTC") {
-    try {
-      const pid = "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
-      const pRes = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${pid}`);
-      if (pRes.ok) {
-        const pData = await pRes.json();
-        const pInfo = pData.parsed?.[0]?.price;
-        if (pInfo) {
-          pythPrice = parseFloat(pInfo.price) * Math.pow(10, pInfo.expo);
+    // Fetch Pyth Oracle Data
+    let pythPrice = null;
+    const pythIds = {
+      BTC: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+      ETH: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+      DOGE: "dcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c"
+    };
+    const pid = pythIds[asset];
+    if (pid) {
+      try {
+        const pRes = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${pid}`);
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          const pInfo = pData.parsed?.[0]?.price;
+          if (pInfo) {
+            pythPrice = parseFloat(pInfo.price) * Math.pow(10, pInfo.expo);
+          }
         }
+        
+        // Dynamically fetch Target Price (Opening Price) for 5-minute Up/Down markets
+        if (!targetPrice && marketQuestion.toLowerCase().includes("up or down")) {
+           let msInterval = 5 * 60 * 1000;
+           if (marketQuestion.toLowerCase().includes("15m") || marketQuestion.toLowerCase().includes("15 min")) {
+               msInterval = 15 * 60 * 1000;
+           }
+           const startTs = Math.floor((Math.floor(Date.now() / msInterval) * msInterval) / 1000);
+           let kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs}?ids[]=${pid}`);
+           if (!kRes.ok) kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs - 5}?ids[]=${pid}`);
+           if (kRes.ok) {
+              const kData = await kRes.json();
+              const kInfo = kData.parsed?.[0]?.price;
+              if (kInfo) {
+                 targetPrice = parseFloat(kInfo.price) * Math.pow(10, kInfo.expo);
+              }
+           }
+        }
+      } catch(err) {
+        console.warn("[Short Condition] Failed to fetch Pyth Oracle:", err.message);
       }
-    } catch(err) {
-      console.warn("[Short Condition] Failed to fetch Pyth Oracle:", err.message);
     }
-  }
 
   // We only need the current price and 24h stats. Klines (RSI/MACD) are removed for 5-minute short markets.
   let tickerData = await fetchBinanceTickerOnly(symbol);
@@ -242,5 +265,5 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
     marketOutcomePrice
   });
 
-  return { tickerData, liquidations: liqData, depth: depthData, pythPrice, targetPrice, evaluation: result };
+  return { tickerData, liquidations: liqData, depth: depthData, pythPrice, targetPrice, evaluation: result, usage: result.usage };
 }

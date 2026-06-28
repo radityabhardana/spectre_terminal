@@ -148,16 +148,35 @@ export function addAnalyzedEvent(event) {
   }
 }
 
-export function getAnalyzedEvents(limit = 100) {
+export function getAnalyzedEvents(limit = 100, startDate = null, endDate = null) {
   try {
-    return db.prepare(`
+    let query = `
       SELECT a.*, 
         CASE WHEN EXISTS (
           SELECT 1 FROM prediction_reflections p WHERE p.market_id = a.market_id
         ) THEN 1 ELSE 0 END as has_reflection
-      FROM analyzed_events a 
-      ORDER BY a.id DESC LIMIT ?
-    `).all(limit);
+      FROM analyzed_events a
+    `;
+    const params = [];
+    const conditions = [];
+
+    if (startDate) {
+      conditions.push(`a.created_at >= ?`);
+      params.push(`${startDate}T00:00:00.000Z`);
+    }
+    if (endDate) {
+      conditions.push(`a.created_at <= ?`);
+      params.push(`${endDate}T23:59:59.999Z`);
+    }
+
+    if (conditions.length > 0) {
+      query += ` WHERE ` + conditions.join(' AND ');
+    }
+
+    query += ` ORDER BY a.id DESC LIMIT ?`;
+    params.push(limit);
+
+    return db.prepare(query).all(...params);
   } catch (error) {
     console.error("[Storage] getAnalyzedEvents error:", error.message);
     return [];

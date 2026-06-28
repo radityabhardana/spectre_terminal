@@ -955,7 +955,31 @@ const SoundManager = {
 };
 
 window.playAlertSound = () => SoundManager.play('alerts');
-window.playQueueDoneSound = () => SoundManager.play('queue');
+window.playQueueDoneSound = () => {
+    if (!SoundManager.config.enabled || !SoundManager.config.queueEnabled) return;
+    if (!SoundManager.ctx) SoundManager.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (SoundManager.ctx.state === 'suspended') SoundManager.ctx.resume();
+    
+    // Generate a unique random tone for each completed analysis
+    const freq = Math.floor(Math.random() * 800) + 400;
+    const osc = SoundManager.ctx.createOscillator();
+    const gain = SoundManager.ctx.createGain();
+    
+    osc.type = Math.random() > 0.5 ? 'sine' : 'triangle';
+    osc.frequency.setValueAtTime(freq, SoundManager.ctx.currentTime);
+    
+    // Add a pitch slide 50% of the time for extra uniqueness
+    if (Math.random() > 0.5) {
+      osc.frequency.setValueAtTime(freq * 1.25, SoundManager.ctx.currentTime + 0.1);
+    }
+    
+    gain.gain.setValueAtTime(0.1, SoundManager.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, SoundManager.ctx.currentTime + 0.3);
+    osc.connect(gain);
+    gain.connect(SoundManager.ctx.destination);
+    osc.start();
+    osc.stop(SoundManager.ctx.currentTime + 0.3);
+  };
 window.playSnifferSound = () => SoundManager.play('sniffer');
 
 document.addEventListener('DOMContentLoaded', () => SoundManager.init());
@@ -1609,6 +1633,11 @@ if (menuBtnX) {
 const btnShortMarket = document.querySelector("#btnShortMarket");
 const shortMarketPanel = document.querySelector("#shortMarketPanel");
 const btnRefreshShortMarket = document.querySelector("#btnRefreshShortMarket");
+const btnBulkAddQueue = document.querySelector("#btnBulkAddQueue");
+const bulkAddDropdown = document.querySelector("#bulkAddDropdown");
+const btnConfirmBulkAdd = document.querySelector("#btnConfirmBulkAdd");
+const inputBulkCount = document.querySelector("#inputBulkCount");
+const selectBulkStart = document.querySelector("#selectBulkStart");
 const btnCheckShortCondition = document.querySelector("#btnCheckShortCondition");
 const shortMarketList = document.querySelector("#shortMarketList");
 const shortMarketStatus = document.querySelector("#shortMarketStatus");
@@ -1898,8 +1927,8 @@ if (queueDropzone) {
 
 function addToQueue(marketData) {
   if (analysisQueue.some(m => m.id === marketData.id)) return;
-  if (analysisQueue.length >= 10) {
-    showCustomAlert("Antrian maksimal 10 market.");
+  if (analysisQueue.length >= 50) {
+    showCustomAlert("Antrian maksimal 50 market.");
     return;
   }
   
@@ -2217,6 +2246,102 @@ if (shortDurationSelect) {
 if (btnRefreshShortMarket) {
   btnRefreshShortMarket.addEventListener("click", () => {
     fetchShortMarkets();
+  });
+}
+
+if (btnBulkAddQueue && bulkAddDropdown) {
+  btnBulkAddQueue.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isHidden = bulkAddDropdown.style.display === "none";
+    bulkAddDropdown.style.display = isHidden ? "flex" : "none";
+    
+    if (isHidden && selectBulkStart) {
+      selectBulkStart.innerHTML = "";
+      
+      let durationLimit = 5 * 60 * 1000;
+      if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
+      else if (activeShortDuration === '1h') durationLimit = 60 * 60 * 1000;
+
+      const validMarkets = currentShortMarkets.filter(m => {
+        if (m.duration_type && m.duration_type !== activeShortDuration) return false;
+        const timeToClose = new Date(m.endDate).getTime() - Date.now();
+        return timeToClose > 0;
+      });
+
+      validMarkets.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
+      
+      if (validMarkets.length === 0) {
+        selectBulkStart.innerHTML = `<option value="0">Tidak ada market valid</option>`;
+      } else {
+        validMarkets.forEach((m, index) => {
+          const rawTitle = m.groupItemTitle || m.question || "";
+          const cleanTitle = rawTitle.replace(/(Bitcoin|BTC|Ethereum|ETH|Dogecoin|DOGE) Up or Down -? ?/i, '').trim() || "Unknown Event";
+          
+          const opt = document.createElement("option");
+          opt.value = index;
+          opt.textContent = cleanTitle;
+          selectBulkStart.appendChild(opt);
+        });
+      }
+    }
+  });
+  
+  // Close when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!bulkAddDropdown.contains(e.target) && e.target !== btnBulkAddQueue && !btnBulkAddQueue.contains(e.target)) {
+      bulkAddDropdown.style.display = "none";
+    }
+  });
+}
+
+if (btnConfirmBulkAdd && inputBulkCount) {
+  btnConfirmBulkAdd.addEventListener("click", () => {
+    bulkAddDropdown.style.display = "none";
+    if (!currentShortMarkets || currentShortMarkets.length === 0) {
+      showCustomAlert("Tidak ada market yang tersedia untuk ditambahkan.");
+      return;
+    }
+    const countStr = inputBulkCount.value;
+    const skipStr = selectBulkStart ? selectBulkStart.value : "0";
+    if (!countStr) return;
+    const count = parseInt(countStr);
+    const skip = parseInt(skipStr) || 0;
+    if (isNaN(count) || count <= 0) {
+      showCustomAlert("Jumlah tidak valid.");
+      return;
+    }
+
+    let durationLimit = 5 * 60 * 1000;
+    if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
+    else if (activeShortDuration === '1h') durationLimit = 60 * 60 * 1000;
+
+    const validMarkets = currentShortMarkets.filter(m => {
+      if (m.duration_type && m.duration_type !== activeShortDuration) return false;
+      const timeToClose = new Date(m.endDate).getTime() - Date.now();
+      return timeToClose > 0;
+    });
+
+    validMarkets.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
+
+    const toAdd = validMarkets.slice(skip, skip + Math.min(count, 50));
+    let addedCount = 0;
+    for (const m of toAdd) {
+      if (!analysisQueue.some(q => String(q.id) === String(m.id))) {
+        if (analysisQueue.length >= 50) break;
+        analysisQueue.push(m);
+        addedCount++;
+      }
+    }
+    
+    if (addedCount > 0) {
+      renderQueue();
+      showCustomAlert(`Berhasil menambahkan ${addedCount} market ke antrean.`);
+      if (typeof queueDropzone !== 'undefined' && queueDropzone) {
+        queueDropzone.scrollIntoView({ behavior: 'smooth' });
+      }
+    } else {
+      showCustomAlert("Tidak ada market baru yang ditambahkan (antrean mungkin sudah penuh atau market sudah ada).");
+    }
   });
 }
 
@@ -2624,7 +2749,17 @@ function applyHistoryFilter() {
 
 async function fetchHistoryEvents() {
   try {
-    const res = await fetch("/api/history/events");
+    let url = "/api/history/events";
+    const startDate = document.getElementById("historyStartDate")?.value;
+    const endDate = document.getElementById("historyEndDate")?.value;
+    if (startDate && endDate) {
+      url += `?startDate=${startDate}&endDate=${endDate}`;
+    } else if (startDate) {
+      url += `?startDate=${startDate}`;
+    } else if (endDate) {
+      url += `?endDate=${endDate}`;
+    }
+    const res = await fetch(url);
     const data = await res.json();
     if (data.ok) {
       allHistoryEvents = data.events;
@@ -2636,6 +2771,26 @@ async function fetchHistoryEvents() {
     console.error("Failed to fetch history events:", error);
   }
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+  const btnFilterHistoryDate = document.getElementById("btnFilterHistoryDate");
+  if (btnFilterHistoryDate) {
+    btnFilterHistoryDate.addEventListener("click", () => {
+      fetchHistoryEvents();
+    });
+  }
+
+  const btnClearHistoryDate = document.getElementById("btnClearHistoryDate");
+  if (btnClearHistoryDate) {
+    btnClearHistoryDate.addEventListener("click", () => {
+      const sd = document.getElementById("historyStartDate");
+      const ed = document.getElementById("historyEndDate");
+      if (sd) sd.value = "";
+      if (ed) ed.value = "";
+      fetchHistoryEvents();
+    });
+  }
+});
 
 function renderHistoryListPanel() {
   const container = document.querySelector("#historyListContainer");
@@ -2667,7 +2822,9 @@ function renderHistoryListPanel() {
         <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
           <span style="font-size:10px; color:var(--text-tertiary);">${dateStr} ${timeStr}</span>
           <div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;">
-            ${predBadge} ${resultBadge}
+            ${predBadge}
+            ${event.actual_outcome ? `<span title="Realita" style="color:var(--text-primary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.2); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">R: ${event.actual_outcome}</span>` : ''}
+            ${resultBadge}
             ${event.qwen_confidence ? `<span title="Qwen Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">Q: ${event.qwen_confidence}</span>` : ''}
             ${event.data_confidence ? `<span title="Data Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">D: ${event.data_confidence}</span>` : ''}
           </div>
@@ -2729,7 +2886,10 @@ function renderHistoryEvents(events) {
         <td style="padding:10px 0;">
           <a href="${event.url}" target="_blank" style="color:var(--text-primary); text-decoration:none;">${event.question}</a>
         </td>
-        <td style="padding:10px 0; color:var(--text-secondary); font-weight:bold;">${event.prediction || '-'}</td>
+        <td style="padding:10px 0; color:var(--text-secondary); font-weight:bold;">
+          ${event.prediction || '-'}
+          ${event.actual_outcome ? `<div style="font-size:10px; color:var(--text-tertiary); margin-top:4px; font-weight:normal;">Realita: <span style="color:var(--text-primary);">${event.actual_outcome}</span></div>` : ''}
+        </td>
         <td style="padding:10px 0; color:var(--text-tertiary); text-transform:capitalize;">${event.status}</td>
         <td style="padding:10px 0;">
           <span style="color:${statusColor}; font-weight:bold; text-transform:capitalize;">${event.result || '-'}</span>

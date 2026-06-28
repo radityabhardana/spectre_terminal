@@ -535,6 +535,33 @@
                       <button type="button" id="btnRefreshShortMarket" style="background:none; border:none; padding:2px; cursor:pointer; color:var(--text-secondary); display:flex; align-items:center; justify-content:center; transition:color 0.2s;" title="Refresh Market" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-secondary)'">
                         <i data-lucide="refresh-cw" style="width:13px; height:13px;"></i>
                       </button>
+                      <div style="width:1px; height:12px; background:var(--border);"></div>
+                      <div style="position:relative; display:flex;">
+                        <button type="button" id="btnBulkAddQueue" style="background:none; border:none; padding:2px; cursor:pointer; color:var(--text-secondary); display:flex; align-items:center; justify-content:center; transition:color 0.2s;" title="Bulk Add Markets to Queue" onmouseover="this.style.color='var(--neon-purple)'" onmouseout="this.style.color='var(--text-secondary)'">
+                          <i data-lucide="layers" style="width:13px; height:13px;"></i>
+                        </button>
+                        <div id="bulkAddDropdown" style="display:none; position:absolute; top:100%; right:0; margin-top:8px; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:8px; box-shadow:0 8px 32px rgba(0,0,0,0.6); z-index:9999; width:260px; flex-direction:column; overflow:hidden;">
+                          <div style="background:rgba(245,158,11,0.1); padding:8px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:6px;">
+                            <i data-lucide="layers" style="width:14px; height:14px; color:var(--neon-amber);"></i>
+                            <span style="font-size:11px; color:var(--text-primary); font-weight:700; letter-spacing:0.5px;">BULK ADD MANAGER</span>
+                          </div>
+                          <div style="padding:12px; display:flex; flex-direction:column; gap:12px;">
+                            <div style="display:flex; flex-direction:column; gap:6px;">
+                              <span style="font-size:10px; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Start from event:</span>
+                              <select id="selectBulkStart" style="width:100%; padding:6px 8px; font-size:11px; background:var(--bg-base); border:1px solid var(--border-bright); color:var(--text-primary); border-radius:4px; outline:none; cursor:pointer;" title="Pilih event pertama yang akan ditambahkan">
+                                <option value="0">Loading...</option>
+                              </select>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px;">
+                              <span style="font-size:10px; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Markets to Queue:</span>
+                              <div style="display:flex; align-items:center; gap:8px;">
+                                <input type="number" id="inputBulkCount" value="50" min="1" max="50" style="flex:1; padding:6px 8px; font-size:12px; background:var(--bg-base); border:1px solid var(--border-bright); color:var(--neon-green); font-weight:bold; border-radius:4px; outline:none; text-align:center;">
+                                <button type="button" id="btnConfirmBulkAdd" class="btn-primary" style="padding:6px 14px; font-size:11px; height:auto; background:var(--neon-green); color:#000; font-weight:bold; border:none; border-radius:4px;">Inject</button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -735,7 +762,18 @@
               </div>
             </div>
 
-            <!-- Duration filter -->
+            <!-- Date filter -->
+              <div style="display:flex; align-items:center; gap:12px; margin-left:20px;">
+                <div style="color:var(--text-tertiary); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Tanggal</div>
+                <div style="display:flex; gap:6px; align-items:center; background:rgba(0,0,0,0.4); padding:4px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+                  <input type="date" id="historyStartDate" style="padding:4px 8px; border-radius:6px; background:var(--bg-input, transparent); border:1px solid var(--border); color:var(--text-primary, #fff); font-size:12px; font-family:inherit;">
+                  <span style="color:var(--text-tertiary); font-size:12px;">s/d</span>
+                  <input type="date" id="historyEndDate" style="padding:4px 8px; border-radius:6px; background:var(--bg-input, transparent); border:1px solid var(--border); color:var(--text-primary, #fff); font-size:12px; font-family:inherit;">
+                  <button id="btnFilterHistoryDate" style="padding:6px 12px; border-radius:6px; background:rgba(168,85,247,0.1); color:var(--neon-purple); border:1px solid rgba(168,85,247,0.3); cursor:pointer; font-size:12px; font-weight:bold; margin-left:4px;">Filter</button>
+                </div>
+              </div>
+
+              <!-- Duration filter -->
             <div style="display:flex; align-items:center; gap:12px;">
               <div style="color:var(--text-tertiary); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Durasi</div>
               <div style="display:flex; gap:6px; background:rgba(0,0,0,0.4); padding:4px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">

@@ -1372,5 +1372,5 @@ Format JSON wajib:
     }
   }
 
-  return result;
+  return { ...result, usage: json.usage };
 }

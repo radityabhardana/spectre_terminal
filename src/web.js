@@ -410,10 +410,15 @@ export function startWebServer(options = {}) {
         return sendJson(res, 200, { ok: true, tweets });
       }
 
-      if (req.method === "GET" && req.url === "/api/history/events") {
-        const events = getAnalyzedEvents(2000); // Increased limit so UI shows correct overall stats
-        sendJson(res, 200, { ok: true, events });
-        return;
+      if (req.method === "GET" && req.url.startsWith("/api/history/events")) {
+        const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        if (parsedUrl.pathname === "/api/history/events") {
+          const startDate = parsedUrl.searchParams.get("startDate");
+          const endDate = parsedUrl.searchParams.get("endDate");
+          const events = getAnalyzedEvents(2000, startDate, endDate); // Increased limit so UI shows correct overall stats
+          sendJson(res, 200, { ok: true, events });
+          return;
+        }
       }
 
       if (req.method === "POST" && req.url === "/api/history/events/check") {
@@ -449,17 +454,8 @@ export function startWebServer(options = {}) {
             let result = 'menunggu hasil';
             let actualOutcome = null;
             
-            if (winnerIndex === -1 && market.closed) {
-               let maxPrice = -1;
-               for (let i = 0; i < market.outcomePrices.length; i++) {
-                 if (Number(market.outcomePrices[i]) > maxPrice) {
-                   maxPrice = Number(market.outcomePrices[i]);
-                   winnerIndex = i;
-                 }
-               }
-            }
-            
             if (winnerIndex !== -1) {
+              status = 'selesai';
               const winningOutcome = market.outcomes[winnerIndex];
               actualOutcome = winningOutcome; // Set actual outcome
               const p = (prediction || "").trim().toUpperCase();
@@ -478,8 +474,10 @@ export function startWebServer(options = {}) {
               } else {
                 result = 'kalah';
               }
-            } else if (isTimeClosed && !market.closed) {
-              status = 'resolving';
+            } else {
+              // Not resolved yet, even if market.closed is true.
+              status = 'belum selesai';
+              result = 'menunggu hasil';
             }
             
             updateAnalyzedEventStatus(eventId, status, result, actualOutcome);

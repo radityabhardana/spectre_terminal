@@ -373,7 +373,8 @@ export async function getShortTermMarkets(asset = "btc") {
       m.duration_type = durationType;
       
       const endTime = new Date(m.endDate).getTime();
-      if (now - endTime <= 24 * 60 * 60 * 1000) {
+      // Hanya simpan event future atau yang max 15 menit lalu
+      if (now - endTime <= 15 * 60 * 1000) {
         shortMarkets.push(m);
       }
     }

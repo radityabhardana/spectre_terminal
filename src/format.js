@@ -500,7 +500,7 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction }) {
     market.url ? `URL: ${market.url}` : null,
     "",
     "KESIMPULAN CEPAT",
-    `Arah market: ${shownDirection} (${isShortCrypto ? 'dari Qwen RSI/MACD analysis' : strength})`,
+    `Arah market: ${shownDirection} (${isShortCrypto ? 'dari Qwen Kuantitatif / EV analysis' : strength})`,
     `Entry status: ${entryVerdictMeaning(verdict)}`,
     `Catatan: Arah market = bacaan probabilitas/sentimen. Entry status = layak masuk atau tidak.`,
     "",
@@ -531,7 +531,7 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction }) {
     "ALASAN SINGKAT",
     `Qwen summary: ${qwen.summary || "n/a"}`,
     // Only show fair probability context for crypto markets
-    isCryptoMarket && qwen.estimatedFairProbability != null
+    (isCryptoMarket || isShortCrypto) && qwen.estimatedFairProbability != null
       ? `Est. Fair Prob: ${qwen.estimatedFairProbability}% | Market Prob: ${score.marketProbability?.toFixed(1) ?? "n/a"}%`
       : null,
     qwen.expectedValueCents != null ? `Expected Value (EV): ${qwen.expectedValueCents.toFixed(2)} cents per share` : null,

@@ -251,19 +251,32 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
   const depthData = getOrderbookImbalance(symbol);
 
   // Ask Qwen
-  const result = await askQwenShortCondition({ 
-    tickerData, 
-    longShort, 
-    fearGreed, 
-    tweets, 
-    signal, 
-    liquidations: liqData, 
-    orderbookDepth: depthData,
-    targetPrice,
-    pythPrice,
-    marketQuestion,
-    marketOutcomePrice
-  });
+    const result = await askQwenShortCondition({ 
+      tickerData, 
+      longShort, 
+      fearGreed, 
+      tweets, 
+      signal, 
+      liquidations: liqData, 
+      orderbookDepth: depthData,
+      targetPrice,
+      pythPrice,
+      marketQuestion,
+      marketOutcomePrice
+    });
 
-  return { tickerData, liquidations: liqData, depth: depthData, pythPrice, targetPrice, evaluation: result, usage: result.usage };
+    // Mechanical Scout Override (Optimize WR by trusting crowd/market over AI if strong)
+    if (marketOutcomePrice !== null) {
+      if (marketOutcomePrice >= 0.65) {
+        result.direction = "UP";
+        result.recommendation = "PLAY";
+        result.reason = `[SCOUT OVERRIDE] Probabilitas arah UP sangat kuat (${(marketOutcomePrice * 100).toFixed(0)}%). Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
+      } else if (marketOutcomePrice <= 0.35) {
+        result.direction = "DOWN";
+        result.recommendation = "PLAY";
+        result.reason = `[SCOUT OVERRIDE] Probabilitas arah DOWN sangat kuat (${(marketOutcomePrice * 100).toFixed(0)}%). Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
+      }
+    }
+  
+    return { tickerData, liquidations: liqData, depth: depthData, pythPrice, targetPrice, evaluation: result, usage: result.usage };
 }

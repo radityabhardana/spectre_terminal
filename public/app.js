@@ -6,7 +6,7 @@
   const icon = document.querySelector("#toggleModeIcon");
 
   // Restore from localStorage (default = dark)
-  const saved = localStorage.getItem("razorbot_mode") || "dark";
+  const saved = localStorage.getItem("icarusbot_mode") || "dark";
   applyMode(saved);
 
   if (btn) {
@@ -14,7 +14,7 @@
       const current = html.getAttribute("data-mode") || "dark";
       const next = current === "dark" ? "light" : "dark";
       applyMode(next);
-      localStorage.setItem("razorbot_mode", next);
+      localStorage.setItem("icarusbot_mode", next);
     });
   }
 
@@ -731,9 +731,18 @@ let activeShortAsset = 'btc';
 let activeShortDuration = '5m';
 
 function updateActiveAssetTab() {
-  if (tabAssetBtc) tabAssetBtc.style.color = activeShortAsset === 'btc' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
-  if (tabAssetEth) tabAssetEth.style.color = activeShortAsset === 'eth' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
-  if (tabAssetDoge) tabAssetDoge.style.color = activeShortAsset === 'doge' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+  if (tabAssetBtc) {
+    tabAssetBtc.style.color = activeShortAsset === 'btc' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+    tabAssetBtc.style.background = activeShortAsset === 'btc' ? 'rgba(245,158,11,0.1)' : 'transparent';
+  }
+  if (tabAssetEth) {
+    tabAssetEth.style.color = activeShortAsset === 'eth' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+    tabAssetEth.style.background = activeShortAsset === 'eth' ? 'rgba(245,158,11,0.1)' : 'transparent';
+  }
+  if (tabAssetDoge) {
+    tabAssetDoge.style.color = activeShortAsset === 'doge' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+    tabAssetDoge.style.background = activeShortAsset === 'doge' ? 'rgba(245,158,11,0.1)' : 'transparent';
+  }
 }
 
 if (btnShortMarket && shortMarketPanel) {

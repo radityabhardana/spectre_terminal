@@ -8,9 +8,9 @@
   color-scheme: dark;
 
   /* Backgrounds — proper depth separation */
-  --bg-base:     #070709;
-  --bg-surface:  #0f0f12;
-  --bg-elevated: #18181d;
+  --bg-base: #000000;
+  --bg-surface: #0a0a0a;
+  --bg-elevated: #111111;
   --bg-overlay:  #222228;
 
   /* Borders */
@@ -44,18 +44,18 @@
   --neon-purple: #9d7ede;
 
   /* Radius */
-  --radius-xs:   4px;
-  --radius-sm:   6px;
-  --radius-md:   8px;
-  --radius-lg:   10px;
-  --radius-xl:   12px;
-  --radius-full: 9999px;
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-full: 0px;
 
   /* Shadows — richer in deep dark */
-  --shadow-sm:   0 1px 2px rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.4);
-  --shadow-md:   0 4px 8px -2px rgba(0,0,0,0.6), 0 2px 4px -1px rgba(0,0,0,0.4);
-  --shadow-lg:   0 12px 20px -4px rgba(0,0,0,0.7), 0 5px 8px -2px rgba(0,0,0,0.4);
-  --shadow-xl:   0 24px 32px -6px rgba(0,0,0,0.8), 0 10px 12px -5px rgba(0,0,0,0.3);
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
   --shadow-card: var(--shadow-md);
 }
 
@@ -122,10 +122,10 @@
   --neon-purple: #7c3aed;
 
   /* Shadows — lighter for light mode */
-  --shadow-sm:   0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
-  --shadow-md:   0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
-  --shadow-lg:   0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
-  --shadow-xl:   0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
   --shadow-card: var(--shadow-md);
 }
 
@@ -152,7 +152,7 @@ html, body { height: 100%; overflow: hidden; }
 body {
   background: var(--bg-base);
   color: var(--text-primary);
-  font-family: "Outfit", system-ui, -apple-system, sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -175,7 +175,7 @@ button, select, textarea, input { font: inherit; color: inherit; }
 h1, h2, h3, h4, h5, h6, p { margin: 0; }
 
 h1, h2, h3 {
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: -0.01em;
@@ -224,8 +224,8 @@ h1, h2, h3 {
   height: 30px;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-md);
-  background: rgba(99, 91, 255, 0.1);
+  border-radius: 0px;
+  background: 0px;
   border: 1px solid rgba(99, 91, 255, 0.2);
   overflow: hidden;
   flex-shrink: 0;
@@ -286,8 +286,8 @@ h1 {
   border: 1px solid var(--border-strong);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  border-radius: var(--radius-sm);
-  font-family: "Outfit", sans-serif;
+  border-radius: 0px;
+  font-family: 0px;
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -298,7 +298,7 @@ h1 {
 .status-pill::before {
   content: "";
   width: 6px; height: 6px;
-  border-radius: 50%;
+  border-radius: 0px;
   background: var(--green);
   flex-shrink: 0;
   animation: dotPulse 2.5s ease-in-out infinite;
@@ -358,7 +358,7 @@ h1 {
 
 .section-icon {
   width: 6px; height: 6px;
-  border-radius: 50%;
+  border-radius: 0px;
   flex-shrink: 0;
 }
 
@@ -366,7 +366,7 @@ h1 {
 .input-icon    { background: var(--blue);  box-shadow: 0 0 6px var(--blue); }
 
 .section-label {
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -399,8 +399,8 @@ h1 {
   border: 1px solid var(--border-strong);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  border-radius: var(--radius-md);
-  font-family: "Outfit", sans-serif;
+  border-radius: 0px;
+  font-family: 0px;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -451,8 +451,8 @@ h1 {
   font-size: 9px;
   font-weight: 700;
   padding: 1px 5px;
-  border-radius: var(--radius-xs);
-  text-transform: uppercase;
+  border-radius: 0px;
+  text-transform: 0px;
   letter-spacing: 0.04em;
   background: rgba(161, 127, 224, 0.18);
   color: var(--purple);
@@ -477,8 +477,8 @@ textarea {
   border: 1px solid var(--border-strong);
   background: var(--bg-base);
   color: var(--text-primary);
-  border-radius: var(--radius-lg);
-  outline: none;
+  border-radius: 0px;
+  outline: 0px;
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   line-height: 1.6;
@@ -528,7 +528,7 @@ textarea:focus {
 }
 
 .group-label {
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 10px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -557,11 +557,11 @@ textarea:focus {
   background: var(--accent);
   border: 1px solid transparent;
   color: #fff;
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 13px;
   font-weight: 600;
-  border-radius: var(--radius-md);
-  cursor: pointer;
+  border-radius: 0px;
+  cursor: 0px;
   transition: all 0.15s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 0px var(--accent-glow);
   letter-spacing: 0.01em;
@@ -585,13 +585,13 @@ textarea:focus {
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   color: var(--text-secondary);
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 13px;
   font-weight: 500;
-  border-radius: var(--radius-md);
-  cursor: pointer;
+  border-radius: 0px;
+  cursor: 0px;
   transition: all 0.15s ease;
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-strong); box-shadow: none;
   letter-spacing: 0.01em;
 }
 
@@ -646,12 +646,12 @@ textarea:focus {
    ================================================================ */
 .theme-btn {
   padding: 16px;
-  border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
+  border-radius: 0px;
+  background: 0px;
   border: 1px solid var(--border);
   color: var(--text-secondary);
   cursor: pointer;
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-weight: 500;
   font-size: 12px;
   display: flex;
@@ -662,7 +662,7 @@ textarea:focus {
 }
 .theme-btn .color-indicator {
   width: 28px; height: 28px;
-  border-radius: 50%;
+  border-radius: 0px;
   border: 2px solid var(--border-strong);
 }
 .theme-btn:hover {
@@ -685,14 +685,14 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 11px;
   color: var(--text-tertiary);
 }
 
 .guard-dot {
   width: 6px; height: 6px;
-  border-radius: 50%;
+  border-radius: 0px;
   background: var(--green);
   flex-shrink: 0;
   animation: dotPulse 2.5s ease-in-out infinite;
@@ -718,7 +718,7 @@ textarea:focus {
 }
 
 .panel-kicker {
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 10px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -738,7 +738,7 @@ textarea:focus {
 }
 
 .console-head h2 {
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
@@ -756,9 +756,9 @@ textarea:focus {
   display: block;
   border: 1px solid var(--border-strong);
   background: var(--bg-overlay);
-  border-radius: var(--radius-xs);
+  border-radius: 0px;
 }
-.console-metrics span:nth-child(1) { height: 10px; }
+.console-metrics span: 0px; }
 .console-metrics span:nth-child(2) { height: 18px; background: rgba(99, 91, 255, 0.2); border-color: rgba(99, 91, 255, 0.3); }
 .console-metrics span:nth-child(3) { height: 8px; }
 
@@ -782,10 +782,10 @@ textarea:focus {
   padding: 0 16px;
   border: none;
   border-bottom: 2px solid transparent;
-  border-radius: 0;
+  border-radius: 0px;
   background: transparent;
   color: var(--text-tertiary);
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
@@ -812,8 +812,8 @@ textarea:focus {
   align-items: center;
   justify-content: center;
   width: 14px; height: 14px;
-  border-radius: var(--radius-xs);
-  font-size: 14px;
+  border-radius: 0px;
+  font-size: 0px;
   line-height: 1;
   color: var(--text-tertiary);
   margin-right: -4px;
@@ -882,12 +882,12 @@ textarea:focus {
   padding: 7px 14px;
   border: 1px solid var(--border-strong);
   background: var(--bg-surface);
-  border-radius: var(--radius-full);
-  box-shadow: var(--shadow-lg);
+  border-radius: 0px;
+  box-shadow: 0px;
   backdrop-filter: blur(12px);
 }
 .loading-state strong {
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -904,7 +904,7 @@ textarea:focus {
   flex: 0 0 14px;
   border: 2px solid var(--border-strong);
   border-top-color: var(--accent);
-  border-radius: 50%;
+  border-radius: 0px;
   animation: spin 700ms linear infinite;
 }
 
@@ -929,11 +929,11 @@ textarea:focus {
   flex: 0 0 auto;
   border: 1px solid var(--border);
   background: var(--bg-surface);
-  border-radius: var(--radius-xl);
-  overflow: hidden;
+  border-radius: 0px;
+  overflow: 0px;
   position: relative;
   animation: messageIn 180ms ease-out;
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-strong); box-shadow: none;
 }
 
 .message::before {
@@ -942,7 +942,7 @@ textarea:focus {
   left: 0; top: 0; bottom: 0;
   width: 2px;
   background: var(--accent);
-  border-radius: 0;
+  border-radius: 0px;
 }
 
 .message.user {
@@ -964,7 +964,7 @@ textarea:focus {
   gap: 12px;
   padding: 8px 14px 8px 16px;
   border-bottom: 1px solid var(--border);
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 11px;
   color: var(--text-tertiary);
   letter-spacing: 0.03em;
@@ -1021,14 +1021,14 @@ textarea:focus {
 }
 .action-grid button {
   min-height: 30px;
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 11px;
   font-weight: 500;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   color: var(--text-secondary);
-  border-radius: var(--radius-md);
-  cursor: pointer;
+  border-radius: 0px;
+  cursor: 0px;
   transition: all 0.15s ease;
 }
 .action-grid button:hover {
@@ -1062,7 +1062,7 @@ textarea:focus {
 }
 .poly-head strong {
   display: block;
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
@@ -1076,9 +1076,9 @@ textarea:focus {
   border: 1px solid var(--border-strong);
   color: var(--text-secondary);
   background: var(--bg-elevated);
-  border-radius: var(--radius-md);
-  text-decoration: none;
-  font-family: "Outfit", sans-serif;
+  border-radius: 0px;
+  text-decoration: 0px;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -1143,7 +1143,7 @@ textarea:focus {
 
 .status-bar-dot {
   width: 5px; height: 5px;
-  border-radius: 50%;
+  border-radius: 0px;
   background: var(--green);
   flex-shrink: 0;
   animation: dotPulse 2.5s ease-in-out infinite;
@@ -1171,7 +1171,7 @@ textarea::-webkit-scrollbar-track,
 .messages::-webkit-scrollbar-thumb,
 textarea::-webkit-scrollbar-thumb,
 .message-body::-webkit-scrollbar-thumb,
-.smart-actions::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+.smart-actions::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 0px; }
 
 /* ================================================================
    UTILITIES
@@ -1237,8 +1237,8 @@ textarea::-webkit-scrollbar-thumb,
   background: var(--bg-overlay);
   border: 1px solid var(--border-strong);
   padding: 12px 14px;
-  border-radius: var(--radius-lg);
-  color: var(--text-secondary);
+  border-radius: 0px;
+  color: 0px;
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   line-height: 1.6;
@@ -1246,7 +1246,7 @@ textarea::-webkit-scrollbar-thumb,
   width: 280px;
   z-index: 9999;
   transition: all 0.15s ease;
-  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border-strong); box-shadow: none;
   pointer-events: none;
 }
 .tooltip-container:hover .tooltip-content {
@@ -1261,24 +1261,24 @@ textarea::-webkit-scrollbar-thumb,
 .analysis-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: 18px 20px;
+  border-radius: 0px;
+  padding: 0px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-strong); box-shadow: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .analysis-card:hover {
   border-color: var(--border-strong);
-  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-strong); box-shadow: none;
 }
 
 .analysis-card-title {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 11px;
   font-weight: 700;
   color: var(--text-tertiary);
@@ -1296,8 +1296,8 @@ textarea::-webkit-scrollbar-thumb,
   background: rgba(48, 199, 127, 0.06);
   border: 1px solid rgba(48, 199, 127, 0.2);
   border-left: 3px solid var(--green);
-  border-radius: var(--radius-lg);
-  padding: 14px 16px;
+  border-radius: 0px;
+  padding: 0px;
   margin-bottom: 8px;
 }
 .verdict-banner.danger {
@@ -1312,7 +1312,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .verdict-title {
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 13px;
   font-weight: 700;
   color: var(--text-primary);
@@ -1324,8 +1324,8 @@ textarea::-webkit-scrollbar-thumb,
 .visual-bar-container {
   background: var(--bg-base);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  height: 16px;
+  border-radius: 0px;
+  height: 0px;
   display: flex;
   overflow: hidden;
   margin: 5px 0;
@@ -1367,14 +1367,14 @@ textarea::-webkit-scrollbar-thumb,
 .metric-box {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 10px 12px;
+  border-radius: 0px;
+  padding: 0px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 .metric-label {
-  font-family: "Outfit", sans-serif;
+  font-family: "JetBrains Mono", "Courier New", monospace;
   font-size: 10px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -1426,7 +1426,7 @@ textarea::-webkit-scrollbar-thumb,
   align-items: center !important;
   justify-content: flex-start !important;
   padding: 16px 20px !important;
-  border-radius: 16px !important;
+  border-radius: 0px;
   background: rgba(255, 255, 255, 0.02) !important;
   border: 1px solid rgba(255, 255, 255, 0.05) !important;
   color: var(--text-secondary) !important;
@@ -1462,9 +1462,29 @@ textarea::-webkit-scrollbar-thumb,
 .theme-swatch {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: 0px;
   flex-shrink: 0;
 }
 
 @keyframes radar-spin { 100% { transform: rotate(360deg); } }
 .radar-anim { animation: radar-spin 2s linear infinite; }
+
+/* Polymarket Widget Taste Skill Container */
+
+
+
+
+/* Polymarket Widget Taste Skill Styling */
+#polyFrame {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-xl) !important;
+  box-shadow: var(--shadow-xl) !important;
+  filter: brightness(0.9) contrast(1.05); /* Slight dim to blend with dark mode */
+  background: var(--bg-surface);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  width: 100%;
+}
+#polyFrame:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 25px 35px -5px rgba(0,0,0,0.8) !important;
+}

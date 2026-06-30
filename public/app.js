@@ -1326,8 +1326,8 @@ function markQueueItemsFailed(cmdText) {
   if (cmdText.startsWith("/analyze ")) urls.push(cmdText.replace("/analyze ", "").trim());
   if (cmdText.startsWith("/analyzequeue ")) urls.push(...cmdText.replace("/analyzequeue ", "").split(",").map(s => s.trim()));
   let changed = false;
-  urls.forEach(url => {
-    const item = analysisQueue.find(m => m.url === url);
+  urls.forEach(target => {
+    const item = analysisQueue.find(m => m.url === target || String(m.id) === target);
     if (item) {
       item.isFailed = true;
       changed = true;
@@ -2206,7 +2206,7 @@ function startSniper() {
               m.isLateFired = true;
             }
             m.snipeFired = true;
-            sniperExecutionQueue.push(m.url);
+            sniperExecutionQueue.push(String(m.id));
             triggered = true;
           }
         }

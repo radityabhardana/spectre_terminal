@@ -564,6 +564,9 @@ export async function getMarketsFromPolymarketLink(value) {
 
   const trySearchSlug = async () => {
     try {
+      if (/(updown|up-or-down)-\d+m-\d+$/i.test(parsed.slug)) {
+        return null;
+      }
       const query = parsed.slug.replace(/-/g, " ");
       const markets = await searchMarkets(query, 10);
       if (!markets.length) return null;

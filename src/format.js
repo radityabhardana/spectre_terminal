@@ -96,9 +96,9 @@ function usageLine(qwenResult) {
 
 function modelLine(qwenResult) {
   if (qwenResult?.models) {
-    return `Qwen pipeline: fast ${qwenResult.models.fast} -> analyst ${qwenResult.models.analyst} -> final ${qwenResult.models.final}`;
+    return `AI Pipeline: fast [${qwenResult.models.fast}] -> analyst [${qwenResult.models.analyst}] -> final [${qwenResult.models.final}]`;
   }
-  return `Qwen model: ${qwenResult?.model || "n/a"}`;
+  return `AI Model: ${qwenResult?.model || "n/a"}`;
 }
 
 function researchLines(qwenResult) {

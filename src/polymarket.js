@@ -373,6 +373,10 @@ export async function getShortTermMarkets(asset = "btc") {
       m.duration_type = durationType;
       
       const endTime = new Date(m.endDate).getTime();
+        
+      // Cache the raw market so getMarketById avoids network calls (prevents timeouts during snipe)
+      setCache(new URL(`/markets/${rawMarket.id}`, config.gammaUrl).toString(), rawMarket);
+
       // Hanya simpan event future atau yang max 15 menit lalu
       if (now - endTime <= 15 * 60 * 1000) {
         shortMarkets.push(m);

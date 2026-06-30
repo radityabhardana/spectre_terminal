@@ -2888,6 +2888,31 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const archiveFilterDate = document.getElementById("archiveFilterDate");
+  const btnResetArchiveDate = document.getElementById("btnResetArchiveDate");
+  
+  if (archiveFilterDate) {
+    archiveFilterDate.addEventListener("change", () => {
+      const val = archiveFilterDate.value;
+      const sd = document.getElementById("historyStartDate");
+      const ed = document.getElementById("historyEndDate");
+      if (sd) sd.value = val;
+      if (ed) ed.value = val;
+      fetchHistoryEvents();
+    });
+  }
+
+  if (btnResetArchiveDate) {
+    btnResetArchiveDate.addEventListener("click", () => {
+      if (archiveFilterDate) archiveFilterDate.value = "";
+      const sd = document.getElementById("historyStartDate");
+      const ed = document.getElementById("historyEndDate");
+      if (sd) sd.value = "";
+      if (ed) ed.value = "";
+      fetchHistoryEvents();
+    });
+  }
+
   const btnResetHistoryFilters = document.getElementById("btnResetHistoryFilters");
   if (btnResetHistoryFilters) {
     btnResetHistoryFilters.addEventListener("click", () => {
@@ -2895,6 +2920,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const ed = document.getElementById("historyEndDate");
       if (sd) sd.value = "";
       if (ed) ed.value = "";
+      if (archiveFilterDate) archiveFilterDate.value = "";
       
       // Reset Asset Filter to 'all'
       document.querySelectorAll(".history-asset-btn").forEach(b => {
@@ -2962,6 +2988,7 @@ function renderHistoryListPanel() {
             ${resultBadge}
             ${event.qwen_confidence ? `<span title="Qwen Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">Q: ${event.qwen_confidence}</span>` : ''}
             ${event.data_confidence ? `<span title="Data Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">D: ${event.data_confidence}</span>` : ''}
+            ${event.execution_time ? `<span title="Execution Time" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;"><i data-lucide="timer" style="width:8px; height:8px; margin-right:4px;"></i>${event.execution_time}s</span>` : ''}
           </div>
         </div>
         <div style="font-size:11px; font-weight:600; color:var(--text-primary); line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
@@ -3030,6 +3057,7 @@ function renderHistoryEvents(events) {
           <span style="color:${statusColor}; font-weight:bold; text-transform:capitalize;">${event.result || '-'}</span>
           ${event.qwen_confidence ? `<div style="font-size:9px; color:var(--text-tertiary); margin-top:4px;">Qwen Conf: ${event.qwen_confidence}/100</div>` : ''}
           ${event.data_confidence ? `<div style="font-size:9px; color:var(--text-tertiary);">Data Conf: ${event.data_confidence}/100</div>` : ''}
+          ${event.execution_time ? `<div style="font-size:9px; color:var(--text-tertiary); display:flex; align-items:center; justify-content:center; gap:4px;"><i data-lucide="timer" style="width:10px; height:10px;"></i> ${event.execution_time}s</div>` : ''}
         </td>
         <td style="padding:10px 0; text-align:right;">
           <button class="action-chip" style="height:24px; font-size:10px; padding:0 8px; ${event.status === 'selesai' && event.result !== 'menunggu hasil' ? 'opacity:0.5; cursor:not-allowed;' : ''}" 

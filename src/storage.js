@@ -78,6 +78,11 @@ try {
 try {
   db.prepare("ALTER TABLE analyzed_events ADD COLUMN data_confidence TEXT").run();
 } catch (e) {}
+
+try {
+  db.prepare("ALTER TABLE analyzed_events ADD COLUMN execution_time INTEGER").run();
+} catch (e) {}
+
 export function getCache(key, ttlSeconds = config.cacheTtlSeconds) {
   try {
     const row = db.prepare('SELECT value, saved_at FROM cache WHERE key = ?').get(key);
@@ -138,9 +143,9 @@ export function addAnalyzedEvent(event) {
   try {
     const createdAt = new Date().toISOString();
     const info = db.prepare(`
-      INSERT INTO analyzed_events (market_id, question, url, prediction, status, analysis_conclusion, qwen_confidence, data_confidence, created_at)
-      VALUES (?, ?, ?, ?, 'belum selesai', ?, ?, ?, ?)
-    `).run(event.market_id, event.question, event.url, event.prediction, event.analysis_conclusion, event.qwen_confidence || null, event.data_confidence || null, createdAt);
+      INSERT INTO analyzed_events (market_id, question, url, prediction, status, analysis_conclusion, qwen_confidence, data_confidence, execution_time, created_at)
+      VALUES (?, ?, ?, ?, 'belum selesai', ?, ?, ?, ?, ?)
+    `).run(event.market_id, event.question, event.url, event.prediction, event.analysis_conclusion, event.qwen_confidence || null, event.data_confidence || null, event.execution_time || null, createdAt);
     return info.lastInsertRowid;
   } catch (error) {
     console.error("[Storage] addAnalyzedEvent error:", error.message);

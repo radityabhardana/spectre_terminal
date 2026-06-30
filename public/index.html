@@ -734,10 +734,16 @@
 
             <!-- History List Panel (replaces poly-panel in History Tab) -->
             <aside id="historyListPanel" class="poly-panel" style="display:none; flex-direction:column; background:var(--bg-elevated); border-left:1px solid var(--border);">
-              <div class="poly-head" style="border-bottom:1px solid var(--border); padding:12px 16px;">
+              <div class="poly-head" style="border-bottom:1px solid var(--border); padding:12px 16px; display:flex; justify-content:space-between; align-items:center;">
                 <div>
                   <span class="panel-kicker" style="color:var(--neon-purple);">Archive</span>
                   <strong style="color:var(--text-primary); display:block; font-size:13px; margin-top:2px;">Analisis Sebelumnya</strong>
+                </div>
+                <div style="display:flex; gap:4px; align-items:center;">
+                  <input type="date" id="archiveFilterDate" style="padding:4px 6px; border-radius:4px; background:var(--bg-input, transparent); border:1px solid var(--border); color:var(--text-primary, #fff); font-size:10px; font-family:inherit;">
+                  <button id="btnResetArchiveDate" title="Reset Filter" style="padding:4px; border-radius:4px; background:transparent; color:var(--text-tertiary); border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">
+                    <i data-lucide="x" style="width:12px; height:12px;"></i>
+                  </button>
                 </div>
               </div>
               <div id="historyListContainer" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:12px;">

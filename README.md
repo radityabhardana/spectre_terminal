@@ -1,4 +1,4 @@
-# Polymarket Telegram Analyzer
+ed# Polymarket Telegram Analyzer
 
 Bot Telegram lokal untuk analisis manual market Polymarket. Versi ini tidak melakukan auto-entry, tidak menyimpan private key wallet, dan memakai Qwen multi-role saat command analisis.
 
@@ -17,7 +17,7 @@ Bot Telegram lokal untuk analisis manual market Polymarket. Versi ini tidak mela
 copy .env.example .env
 ```
 
-Edit `.env`, lalu isi:
+4zcit `.env`, lalu isi:
 
 ```text
 TELEGRAM_BOT_TOKEN=token_dari_botfather

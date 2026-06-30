@@ -63,6 +63,10 @@ export const config = {
   customApiKey: process.env.CUSTOM_API_KEY || "",
   customBaseUrl: process.env.CUSTOM_BASE_URL || "",
   customFinalModel: process.env.CUSTOM_FINAL_MODEL || "",
+
+  conduitApiKey: process.env.CONDUIT_API_KEY || "",
+  conduitBaseUrl: process.env.CONDUIT_BASE_URL || "https://conduit.ozdoev.net/v1",
+  conduitModel: process.env.CONDUIT_MODEL || "claude-3-5-sonnet",
   gammaUrl:
     process.env.POLYMARKET_GAMMA_URL || "https://gamma-api.polymarket.com",
   clobUrl: process.env.POLYMARKET_CLOB_URL || "https://clob.polymarket.com",

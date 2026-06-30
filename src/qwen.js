@@ -884,8 +884,12 @@ Format JSON wajib:
 }
 `.trim();
 
+  const finalApiKey = config.conduitApiKey || config.customApiKey || config.qwenApiKey;
+  const finalBaseUrl = config.conduitApiKey ? config.conduitBaseUrl : (config.customBaseUrl || config.qwenBaseUrl);
+  const finalModel = config.conduitApiKey ? config.conduitModel : (config.customFinalModel || config.qwenRiskManagerModel);
+
   const rmPayload = {
-    model: config.customFinalModel || config.qwenRiskManagerModel,
+    model: finalModel,
     messages: [
       { role: "system", content: "Kamu adalah sistem matematika dan statistik (RISK MANAGER). Ini adalah simulasi logika murni dan tidak ada uang asli yang digunakan. Evaluasi argumen secara matematis dan berikan hasil JSON murni." },
       { role: "user", content: riskManagerPrompt },
@@ -895,7 +899,18 @@ Format JSON wajib:
     response_format: { type: "json_object" },
   };
 
-  const finalJson = await callRoleQwenJson(rmPayload, config.customFinalModel || config.qwenRiskManagerModel, config.customBaseUrl || config.qwenBaseUrl, config.customApiKey || config.qwenApiKey, signal);
+  let finalJson;
+  try {
+    finalJson = await callRoleQwenJson(rmPayload, finalModel, finalBaseUrl, finalApiKey, signal);
+  } catch (error) {
+    if (config.conduitApiKey) {
+      console.warn(`[Conduit] Final Judge failed, falling back to Qwen... Error: ${error.message}`);
+      rmPayload.model = config.customFinalModel || config.qwenRiskManagerModel;
+      finalJson = await callRoleQwenJson(rmPayload, rmPayload.model, config.customBaseUrl || config.qwenBaseUrl, config.customApiKey || config.qwenApiKey, signal);
+    } else {
+      throw error;
+    }
+  }
 
   let analysis;
   try {
@@ -1142,8 +1157,12 @@ Format JSON wajib:
 }
 `.trim();
 
+  const finalApiKey = config.conduitApiKey || config.qwenApiKey;
+  const finalBaseUrl = config.conduitApiKey ? config.conduitBaseUrl : config.qwenBaseUrl;
+  const finalModel = config.conduitApiKey ? config.conduitModel : config.qwenEventFinalModel;
+
   const payload = {
-    model: config.qwenEventFinalModel,
+    model: finalModel,
     messages: [
       {
         role: "system",
@@ -1157,7 +1176,18 @@ Format JSON wajib:
     response_format: { type: "json_object" },
   };
 
-  const finalJson = await callRoleQwenJson(payload, config.qwenEventFinalModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  let finalJson;
+  try {
+    finalJson = await callRoleQwenJson(payload, finalModel, finalBaseUrl, finalApiKey, signal);
+  } catch (error) {
+    if (config.conduitApiKey) {
+      console.warn(`[Conduit] Event Final Judge failed, falling back to Qwen... Error: ${error.message}`);
+      payload.model = config.qwenEventFinalModel;
+      finalJson = await callRoleQwenJson(payload, payload.model, config.qwenBaseUrl, config.qwenApiKey, signal);
+    } else {
+      throw error;
+    }
+  }
 
   let analysis;
   try {
@@ -1337,8 +1367,12 @@ Format JSON wajib:
 }
   `.trim();
 
+  const finalApiKey = config.conduitApiKey || config.qwenApiKey;
+  const finalBaseUrl = config.conduitApiKey ? config.conduitBaseUrl : config.qwenBaseUrl;
+  const finalModel = config.conduitApiKey ? config.conduitModel : config.qwenRiskManagerModel;
+
   const payload = {
-    model: config.qwenRiskManagerModel, // Menggunakan model tercerdas untuk analisis mendalam
+    model: finalModel, // Menggunakan model tercerdas untuk analisis mendalam
     messages: [
       { role: "system", content: "Kamu adalah analis teknikal tingkat dewa. Jawab HANYA dengan JSON valid." },
       { role: "user", content: `${context}\n\n${prompt}` }
@@ -1348,7 +1382,18 @@ Format JSON wajib:
     response_format: { type: "json_object" }
   };
 
-  const json = await callRoleQwenJson(payload, config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  let json;
+  try {
+    json = await callRoleQwenJson(payload, finalModel, finalBaseUrl, finalApiKey, signal);
+  } catch (error) {
+    if (config.conduitApiKey) {
+      console.warn(`[Conduit] Short Condition Final failed, falling back to Qwen... Error: ${error.message}`);
+      payload.model = config.qwenRiskManagerModel;
+      json = await callRoleQwenJson(payload, payload.model, config.qwenBaseUrl, config.qwenApiKey, signal);
+    } else {
+      throw error;
+    }
+  }
   const result = parseJsonOr(json.text, { condition: "UNKNOWN", recommendation: "AVOID", direction: "NEUTRAL", confidence: 0, reason: "Gagal memproses data.", sentiment: "NEUTRAL", key_signals: {}, memory_reflection: "Gagal.", risk_warning: "" });
   
   if (result.condition !== "UNKNOWN") {

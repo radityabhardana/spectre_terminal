@@ -693,7 +693,7 @@ function appendMessageElement(message) {
       } else {
         if (currentSection === "KESIMPULAN CEPAT" || currentSection === "ENTRY VERDICT") {
           const isDanger = sectionContent.includes("SKIP") || sectionContent.includes("TIDAK LAYAK");
-          const isWarn = sectionContent.includes("WAIT") || sectionContent.includes("HATI-HATI");
+          const isWarn = sectionContent.includes("WAIT") || sectionContent.includes("HATI-HATI") || sectionContent.includes("WATCHLIST");
           const cls = isDanger ? "danger" : (isWarn ? "warning" : "");
           html += `<div class="verdict-banner ${cls}">
             <div class="verdict-title">${currentSection}</div>

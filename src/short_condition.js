@@ -291,11 +291,11 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
       if (marketOutcomePrice >= 0.65) {
         result.direction = "UP";
         result.recommendation = "PLAY";
-        result.reason = `[SCOUT OVERRIDE] Probabilitas arah UP sangat kuat (${(marketOutcomePrice * 100).toFixed(0)}%). Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
+        result.reason = `[SCOUT OVERRIDE] Probabilitas arah UP sangat kuat (${(marketOutcomePrice * 100).toFixed(1)}%). Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
       } else if (marketOutcomePrice <= 0.35) {
         result.direction = "DOWN";
         result.recommendation = "PLAY";
-        result.reason = `[SCOUT OVERRIDE] Probabilitas arah DOWN sangat kuat (${(marketOutcomePrice * 100).toFixed(0)}%). Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
+        result.reason = `[SCOUT OVERRIDE] Probabilitas arah DOWN sangat kuat (${(marketOutcomePrice * 100).toFixed(1)}%). Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
       }
     }
   

@@ -571,19 +571,26 @@ async function deepAnalyzeMarket({ market, query, setStep, signal = null }) {
   }
 
   if (finalPrediction === "=" && getAggressiveMode()) {
-    const primaryLabelAgg = String(scored.score?.primaryOutcomeLabel || "UP").toUpperCase();
-    const secondaryLabelAgg = String(scored.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
-    
-    const fairProbAgg = Number(qwenResult?.analysis?.estimatedFairProbability);
-    if (Number.isFinite(fairProbAgg) && fairProbAgg !== 50) {
-      finalPrediction = fairProbAgg > 50 ? primaryLabelAgg : secondaryLabelAgg;
-    } else {
-      const scoreNum = Number(scored.score?.score || 50);
-      finalPrediction = scoreNum >= 50 ? primaryLabelAgg : secondaryLabelAgg;
-    }
-    
-    if (qwenResult?.analysis) {
-      qwenResult.analysis.final_reason = `[AGGRESSIVE MODE] Memaksa trade. Awalnya NETRAL, dipaksa ke ${finalPrediction}. ` + (qwenResult.analysis.final_reason || "");
+    const qwenConf = Number(qwenResult?.analysis?.confidence);
+    const hasValidConfidence = Number.isNaN(qwenConf) || qwenConf >= config.minQwenConfidence;
+
+    if (hasValidConfidence) {
+      const primaryLabelAgg = String(scored.score?.primaryOutcomeLabel || "YES").toUpperCase();
+      const secondaryLabelAgg = String(scored.score?.secondaryOutcomeLabel || "NO").toUpperCase();
+      
+      const fairProbAgg = Number(qwenResult?.analysis?.estimatedFairProbability);
+      if (Number.isFinite(fairProbAgg) && fairProbAgg !== 50) {
+        finalPrediction = fairProbAgg > 50 ? primaryLabelAgg : secondaryLabelAgg;
+      } else {
+        const scoreNum = Number(scored.score?.score || 50);
+        finalPrediction = scoreNum >= 50 ? primaryLabelAgg : secondaryLabelAgg;
+      }
+      
+      if (qwenResult?.analysis) {
+        qwenResult.analysis.final_reason = `[AGGRESSIVE MODE] Memaksa trade. Awalnya NETRAL, dipaksa ke ${finalPrediction}. ` + (qwenResult.analysis.final_reason || "");
+      }
+    } else if (qwenResult?.analysis) {
+      qwenResult.analysis.final_reason = `[AGGRESSIVE MODE BLOCKED] Mode Agresif tidak dapat memaksa trade karena confidence terlalu rendah (${qwenConf}% < ${config.minQwenConfidence}%). ` + (qwenResult.analysis.final_reason || "");
     }
   }
 
@@ -758,19 +765,26 @@ async function bestCandidateAnalysis({ result, query, setStep, signal = null }) 
 
   // Aggressive Mode override for bestFinalPrediction
   if (bestFinalPrediction === "=" && getAggressiveMode()) {
-    const pLabelAgg = String(best.score?.primaryOutcomeLabel || "UP").toUpperCase();
-    const sLabelAgg = String(best.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
-    
-    const fairProbAgg = Number(bestQwen?.analysis?.estimatedFairProbability);
-    if (Number.isFinite(fairProbAgg) && fairProbAgg !== 50) {
-      bestFinalPrediction = fairProbAgg > 50 ? pLabelAgg : sLabelAgg;
-    } else {
-      const scoreNum = Number(best.score?.score || 50);
-      bestFinalPrediction = scoreNum >= 50 ? pLabelAgg : sLabelAgg;
-    }
+    const bestQwenConf = Number(bestQwen?.analysis?.confidence);
+    const hasValidBestConf = Number.isNaN(bestQwenConf) || bestQwenConf >= config.minQwenConfidence;
 
-    if (bestQwen?.analysis) {
-      bestQwen.analysis.final_reason = `[AGGRESSIVE MODE] Memaksa trade. Awalnya NETRAL, dipaksa ke ${bestFinalPrediction}. ` + (bestQwen.analysis.final_reason || "");
+    if (hasValidBestConf) {
+      const pLabelAgg = String(best.score?.primaryOutcomeLabel || "YES").toUpperCase();
+      const sLabelAgg = String(best.score?.secondaryOutcomeLabel || "NO").toUpperCase();
+      
+      const fairProbAgg = Number(bestQwen?.analysis?.estimatedFairProbability);
+      if (Number.isFinite(fairProbAgg) && fairProbAgg !== 50) {
+        bestFinalPrediction = fairProbAgg > 50 ? pLabelAgg : sLabelAgg;
+      } else {
+        const scoreNum = Number(best.score?.score || 50);
+        bestFinalPrediction = scoreNum >= 50 ? pLabelAgg : sLabelAgg;
+      }
+
+      if (bestQwen?.analysis) {
+        bestQwen.analysis.final_reason = `[AGGRESSIVE MODE] Memaksa trade. Awalnya NETRAL, dipaksa ke ${bestFinalPrediction}. ` + (bestQwen.analysis.final_reason || "");
+      }
+    } else if (bestQwen?.analysis) {
+      bestQwen.analysis.final_reason = `[AGGRESSIVE MODE BLOCKED] Mode Agresif tidak dapat memaksa trade karena confidence terlalu rendah (${bestQwenConf}% < ${config.minQwenConfidence}%). ` + (bestQwen.analysis.final_reason || "");
     }
   }
 

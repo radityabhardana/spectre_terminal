@@ -1,5 +1,5 @@
-/* ============================================================
-   MVPM Terminal — Smart Input App Logic
+﻿/* ============================================================
+   MVPM Terminal ΓÇö Smart Input App Logic
    v31: Unified input system
    ============================================================ */
 
@@ -201,36 +201,36 @@ function detectInputType(value) {
 
   // Slash command
   if (text.startsWith("/")) {
-    return { type: "command", label: `⌘ Command: ${text.split(/\s+/)[0]}` };
+    return { type: "command", label: `Γîÿ Command: ${text.split(/\s+/)[0]}` };
   }
 
   // Polymarket event URL
   if (/polymarket\.com\/event\//i.test(text)) {
-    return { type: "event-url", label: "🔗 Polymarket event link detected" };
+    return { type: "event-url", label: "≡ƒöù Polymarket event link detected" };
   }
 
   // Polymarket market URL
   if (/polymarket\.com\//i.test(text)) {
-    return { type: "market-url", label: "🔗 Polymarket market link detected" };
+    return { type: "market-url", label: "≡ƒöù Polymarket market link detected" };
   }
 
   // Any URL
   if (/^https?:\/\//i.test(text)) {
-    return { type: "url", label: "🔗 URL detected" };
+    return { type: "url", label: "≡ƒöù URL detected" };
   }
 
   // Market ID (numeric)
   if (/^\d{1,10}$/.test(text)) {
-    return { type: "market-id", label: `🆔 Market ID: ${text}` };
+    return { type: "market-id", label: `≡ƒåö Market ID: ${text}` };
   }
 
   // Slug-like (event slug)
   if (/^[a-z0-9-]{5,}$/.test(text)) {
-    return { type: "event-slug", label: `📂 Event slug: ${text}` };
+    return { type: "event-slug", label: `≡ƒôé Event slug: ${text}` };
   }
 
   // Keyword
-  return { type: "keyword", label: `🔍 Keyword search: "${text}"` };
+  return { type: "keyword", label: `≡ƒöì Keyword search: "${text}"` };
 }
 
 function updateInputDetection() {
@@ -287,19 +287,19 @@ function highlightRelevantActions(inputType) {
 
   // Highlight best action based on input type
   if (["event-url", "event-slug"].includes(inputType)) {
-    // Event inputs → highlight event actions, dim market-only
+    // Event inputs ΓåÆ highlight event actions, dim market-only
     [btnSearch].forEach(btn => { if (btn) btn.style.opacity = "0.4"; });
     if (btnAnalyzeBest) btnAnalyzeBest.classList.add("selected");
     selectedAction = "analyzebest";
   } else if (["market-url", "market-id"].includes(inputType)) {
-    // Market inputs → highlight market actions, dim event-only
+    // Market inputs ΓåÆ highlight market actions, dim event-only
     [btnQuickscan, btnTop3, btnAnalyzeBest, btnAnalyzeAll].forEach(btn => {
       if (btn) btn.style.opacity = "0.4";
     });
     if (btnAnalyze) btnAnalyze.classList.add("selected");
     selectedAction = "analyze";
   } else if (inputType === "keyword") {
-    // Keywords → search first, analyze second
+    // Keywords ΓåÆ search first, analyze second
     if (btnSearch) btnSearch.classList.add("selected");
     selectedAction = "search";
   } else {
@@ -394,7 +394,7 @@ function renderTabs() {
 
     if (tab.id !== "cmd:console" && tab.id !== "history-archive") {
       const closeSpan = document.createElement("span");
-      closeSpan.textContent = "×";
+      closeSpan.textContent = "├ù";
       closeSpan.className = "tab-close";
       closeSpan.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -460,7 +460,7 @@ function setBusy(nextBusy) {
   runButton.classList.toggle("cancel", busy);
   runButton.classList.remove("cooldown");
   if (runLabel) runLabel.textContent = busy ? "Cancel" : "Run";
-  if (runIcon) runIcon.textContent = busy ? "■" : "▶";
+  if (runIcon) runIcon.textContent = busy ? "Γûá" : "Γû╢";
   runButton.setAttribute("aria-label", busy ? "Cancel" : "Run analysis");
 
   // Disable action chips while busy
@@ -527,7 +527,7 @@ function updateCooldownUI() {
   }
 
   if (runLabel) runLabel.textContent = remaining > 0 ? `${remaining}s` : (busy ? "Cancel" : "Run");
-  if (runIcon) runIcon.textContent = remaining > 0 ? "⏳" : (busy ? "■" : "▶");
+  if (runIcon) runIcon.textContent = remaining > 0 ? "ΓÅ│" : (busy ? "Γûá" : "Γû╢");
 
   if (guardStatus) {
     if (maxRemaining > 0) {
@@ -732,7 +732,7 @@ function appendMessageElement(message) {
 
         if (key === "Realtime Ticker" && val.length > 0) {
           const payload = val;
-          sectionContent += `<div class="msg-kv" style="flex-direction:column; align-items:flex-start; margin-top:8px; background:rgba(0,0,0,0.2); padding:8px; border-radius:6px; border:1px solid var(--border);"><span class="live-ticker" data-tokens="${payload}" style="width:100%; display:flex; flex-direction:column; gap:6px;">⏳ Syncing CLOB & Crypto Feed...</span></div>`;
+          sectionContent += `<div class="msg-kv" style="flex-direction:column; align-items:flex-start; margin-top:8px; background:rgba(0,0,0,0.2); padding:8px; border-radius:6px; border:1px solid var(--border);"><span class="live-ticker" data-tokens="${payload}" style="width:100%; display:flex; flex-direction:column; gap:6px;">ΓÅ│ Syncing CLOB & Crypto Feed...</span></div>`;
           continue;
         }
 
@@ -1206,13 +1206,13 @@ setInterval(async () => {
       if (primaryMid != null) {
         displayHtml += `<div style="flex:1; background:var(--bg-surface); padding:6px; border-radius:4px; border:1px solid var(--border); text-align:center;">
           <div style="color:var(--text-tertiary); font-size:10px; margin-bottom:2px;">${primaryLabel}</div>
-          <div style="color:var(--neon-cyan); font-weight:bold; font-size:14px;">${Math.round(primaryMid * 100)}¢</div>
+          <div style="color:var(--neon-cyan); font-weight:bold; font-size:14px;">${Math.round(primaryMid * 100)}┬ó</div>
         </div>`;
       }
       if (secondaryMid != null) {
         displayHtml += `<div style="flex:1; background:var(--bg-surface); padding:6px; border-radius:4px; border:1px solid var(--border); text-align:center;">
           <div style="color:var(--text-tertiary); font-size:10px; margin-bottom:2px;">${secondaryLabel}</div>
-          <div style="color:var(--neon-purple); font-weight:bold; font-size:14px;">${Math.round(secondaryMid * 100)}¢</div>
+          <div style="color:var(--neon-purple); font-weight:bold; font-size:14px;">${Math.round(secondaryMid * 100)}┬ó</div>
         </div>`;
       }
       displayHtml += `</div>`;
@@ -1250,8 +1250,8 @@ setInterval(async () => {
             polyMidpoint.innerHTML = isMarketClosed ? `Live Market Data <span style="background:var(--bg-surface); border:1px solid var(--border); padding:2px 6px; border-radius:4px; font-size:9px; color:var(--text-tertiary); text-transform:uppercase;">Closed</span>` : "Live Market Data";
           }
           
-          polyBestBid.innerHTML = `${primaryLabel}: <span style="color:var(--neon-cyan); font-size:16px;">${primaryMid != null ? Math.round(primaryMid*100) + '¢' : '-'}</span>`;
-          polyBestAsk.innerHTML = `${secondaryLabel}: <span style="color:var(--neon-amber); font-size:16px;">${secondaryMid != null ? Math.round(secondaryMid*100) + '¢' : '-'}</span>`;
+          polyBestBid.innerHTML = `${primaryLabel}: <span style="color:var(--neon-cyan); font-size:16px;">${primaryMid != null ? Math.round(primaryMid*100) + '┬ó' : '-'}</span>`;
+          polyBestAsk.innerHTML = `${secondaryLabel}: <span style="color:var(--neon-amber); font-size:16px;">${secondaryMid != null ? Math.round(secondaryMid*100) + '┬ó' : '-'}</span>`;
         } else if (polyLiveTicker) {
           polyLiveTicker.style.display = "none";
         }
@@ -1381,11 +1381,7 @@ async function executeCommand(commandText, isBackground = false) {
     if (error.name === "AbortError") {
       addError("Prompt dibatalkan.", tabInfo.id);
     } else {
-      let errorMsg = error.message || String(error);
-      if (errorMsg === "Failed to fetch") {
-        errorMsg = "❌ Failed to fetch: Gagal menghubungi server backend.\n\nKemungkinan penyebab:\n1. Server backend mati (pastikan 'npm start' sedang berjalan)\n2. Port backend berubah atau tidak ter-expose\n3. Jaringan internet atau lokal terputus\n4. Ekstensi browser (adblocker/cors) memblokir request";
-      }
-      addError(errorMsg, tabInfo.id);
+      addError(error.message || String(error), tabInfo.id);
     }
   } finally {
     activeRequest = null;
@@ -1460,7 +1456,7 @@ async function loadHealth() {
       else sbLatency.style.color = 'var(--neon-red)';
     }
     if (sbQwenDot) sbQwenDot.className = qwenConfigured ? "status-bar-dot ai" : "status-bar-dot warn";
-    if (sbQwenLabel) sbQwenLabel.textContent = qwenConfigured ? "Qwen: • loaded" : "Qwen: ? missing";
+    if (sbQwenLabel) sbQwenLabel.textContent = qwenConfigured ? "Qwen: ΓÇó loaded" : "Qwen: ? missing";
   } catch {
     versionText.textContent = "Engine offline";
     qwenStatus.classList.add("warn");
@@ -1658,18 +1654,9 @@ let activeShortAsset = 'btc';
 let activeShortDuration = '5m';
 
 function updateActiveAssetTab() {
-  if (tabAssetBtc) {
-    tabAssetBtc.style.color = activeShortAsset === 'btc' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
-    tabAssetBtc.style.background = activeShortAsset === 'btc' ? 'rgba(245,158,11,0.1)' : 'transparent';
-  }
-  if (tabAssetEth) {
-    tabAssetEth.style.color = activeShortAsset === 'eth' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
-    tabAssetEth.style.background = activeShortAsset === 'eth' ? 'rgba(245,158,11,0.1)' : 'transparent';
-  }
-  if (tabAssetDoge) {
-    tabAssetDoge.style.color = activeShortAsset === 'doge' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
-    tabAssetDoge.style.background = activeShortAsset === 'doge' ? 'rgba(245,158,11,0.1)' : 'transparent';
-  }
+  if (tabAssetBtc) tabAssetBtc.style.color = activeShortAsset === 'btc' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+  if (tabAssetEth) tabAssetEth.style.color = activeShortAsset === 'eth' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+  if (tabAssetDoge) tabAssetDoge.style.color = activeShortAsset === 'doge' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
 }
 
 if (btnShortMarket && shortMarketPanel) {
@@ -2376,10 +2363,6 @@ async function fetchShortMarkets() {
   } catch (error) {
     console.error("Failed to fetch short markets:", error);
     if (shortMarketStatus) shortMarketStatus.textContent = "Network error";
-    if (shortMarketList) {
-      shortMarketList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--neon-red);"><i data-lucide="wifi-off" style="width:24px; height:24px; margin-bottom:8px;"></i><br><b>Gagal memuat data.</b><br><br><span style="font-size:10px; color:var(--text-tertiary);">Error: ${error.message}<br>Kemungkinan penyebab:<br>1. Jaringan terputus<br>2. Server backend mati/restart<br>3. Blocked by browser extension</span></div>`;
-      if (window.lucide) window.lucide.createIcons();
-    }
   }
 
   // Auto refresh if panel is open
@@ -2425,13 +2408,13 @@ function renderShortMarkets(markets) {
     
     if (isClosed) {
       if (pYes >= 90) {
-        timeText = `Won: ${labelYes.toUpperCase()} 📈`;
+        timeText = `Won: ${labelYes.toUpperCase()} ≡ƒôê`;
         timeColor = "var(--neon-green)";
       } else if (pNo >= 90) {
-        timeText = `Won: ${labelNo.toUpperCase()} 📉`;
+        timeText = `Won: ${labelNo.toUpperCase()} ≡ƒôë`;
         timeColor = "var(--neon-red)";
       } else {
-        timeText = "Resolving ⏳";
+        timeText = "Resolving ΓÅ│";
         timeColor = "var(--neon-cyan)";
       }
     }
@@ -2454,12 +2437,12 @@ function renderShortMarkets(markets) {
     const btnTitle = isSnipeBtn ? "Snipe Market (Auto-Analyze when active)" : "Add to Queue";
     const btnColor = isSnipeBtn ? "var(--neon-amber)" : "var(--text-secondary)";
     
-    const addBtnHtml = !isClosed ? `<button class="${btnClass}" style="display:${btnDisplay}; height:20px; width:20px; padding:0; border-radius:4px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:${btnColor}; cursor:pointer; align-items:center; justify-content:center; margin-left:8px; flex-shrink:0; transition:all 0.2s;" onmouseover="this.style.background='rgba(245,158,11,0.2)'; this.style.color='var(--neon-amber)'; this.style.borderColor='rgba(245,158,11,0.5)';" onmouseout="this.style.background='rgba(255,255,255,0.05)'; this.style.color='${btnColor}'; this.style.borderColor='rgba(255,255,255,0.1)';" onclick="event.stopPropagation(); window.addCardToQueue(this.closest('.btc5m-card')); if('${btnClass}' === 'btn-snipe-market') { this.innerHTML='<i data-lucide=&quot;loader&quot; style=&quot;width:12px; height:12px; animation: spin 2s linear infinite;&quot;></i>'; if(typeof lucide !== 'undefined') lucide.createIcons({root:this}); this.style.pointerEvents='none'; this.style.color='var(--neon-green)'; this.style.borderColor='rgba(16,185,129,0.5)'; showCustomAlert('🎯 Market dimasukkan ke antrean Sniper!'); }" title="${btnTitle}"><i data-lucide="${btnIcon}" style="width:12px; height:12px;"></i></button>` : '';
+    const addBtnHtml = !isClosed ? `<button class="${btnClass}" style="display:${btnDisplay}; height:20px; width:20px; padding:0; border-radius:4px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:${btnColor}; cursor:pointer; align-items:center; justify-content:center; margin-left:8px; flex-shrink:0; transition:all 0.2s;" onmouseover="this.style.background='rgba(245,158,11,0.2)'; this.style.color='var(--neon-amber)'; this.style.borderColor='rgba(245,158,11,0.5)';" onmouseout="this.style.background='rgba(255,255,255,0.05)'; this.style.color='${btnColor}'; this.style.borderColor='rgba(255,255,255,0.1)';" onclick="event.stopPropagation(); window.addCardToQueue(this.closest('.btc5m-card')); if('${btnClass}' === 'btn-snipe-market') { this.innerHTML='<i data-lucide=&quot;loader&quot; style=&quot;width:12px; height:12px; animation: spin 2s linear infinite;&quot;></i>'; if(typeof lucide !== 'undefined') lucide.createIcons({root:this}); this.style.pointerEvents='none'; this.style.color='var(--neon-green)'; this.style.borderColor='rgba(16,185,129,0.5)'; showCustomAlert('≡ƒÄ» Market dimasukkan ke antrean Sniper!'); }" title="${btnTitle}"><i data-lucide="${btnIcon}" style="width:12px; height:12px;"></i></button>` : '';
 
     return `
       <div class="btc5m-card" ${onDragAttr} data-id="${m.id}" data-url="${m.url}" data-question="${(m.question || '').replace(/"/g, '&quot;')}" style="padding:8px 10px; border:1px solid ${cardBorder}; border-radius:4px; background:${cardBg}; opacity:${cardOpacity}; cursor:${cardCursor}; transition:all 0.2s;" ${isFuture ? '' : `onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='${cardHoverBorder}';" onmouseout="this.style.background='${cardBg}'; this.style.borderColor='${cardBorder}';"`} ${onClickAttr}>
         <div style="display:flex; justify-content:space-between; margin-bottom:4px; align-items:flex-start;">
-          <span style="font-weight:600; color:var(--text-primary); font-size:11px; flex:1; min-width:0; word-wrap:break-word;">${(m.groupItemTitle || m.question || '').trim()}</span>
+          <span style="font-weight:600; color:var(--text-primary); font-size:11px; flex:1; min-width:0; word-wrap:break-word;">${(m.groupItemTitle || m.question || '').replace(/(Bitcoin|BTC|Ethereum|ETH|Dogecoin|DOGE) Up or Down -? ?/i, '').trim()}</span>
           <div style="display:flex; align-items:center;">
             <span class="short-market-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${labelYes}" data-l-no="${labelNo}" style="color:${timeColor}; font-weight:700; font-size:10px; white-space:nowrap; flex-shrink:0; text-align:right; margin-left:8px;">${timeText}</span>
             ${addBtnHtml}
@@ -2522,13 +2505,13 @@ function startShortRealtimeTimer() {
         const lNo = el.getAttribute("data-l-no") || "DOWN";
         
         if (pYes >= 90) {
-          timeText = `Won: ${lYes.toUpperCase()} 📈`;
+          timeText = `Won: ${lYes.toUpperCase()} ≡ƒôê`;
           timeColor = "var(--neon-green)";
         } else if (pNo >= 90) {
-          timeText = `Won: ${lNo.toUpperCase()} 📉`;
+          timeText = `Won: ${lNo.toUpperCase()} ≡ƒôë`;
           timeColor = "var(--neon-red)";
         } else {
-          timeText = "Resolving ⏳";
+          timeText = "Resolving ΓÅ│";
           timeColor = "var(--neon-cyan)";
         }
       }
@@ -2740,8 +2723,8 @@ function applyHistoryFilter() {
   // 1. Filter by Asset
   if (currentHistoryAsset !== "all") {
     filtered = filtered.filter(e => {
-      const q = (e.question || "").toLowerCase();
-      const u = (e.url || "").toLowerCase();
+      const q = e.question.toLowerCase();
+      const u = e.url.toLowerCase();
       if (currentHistoryAsset === "btc") return q.includes("bitcoin") || q.includes("btc") || u.includes("btc");
       if (currentHistoryAsset === "eth") return q.includes("ethereum") || q.includes("eth") || u.includes("eth");
       if (currentHistoryAsset === "doge") return q.includes("dogecoin") || q.includes("doge") || u.includes("doge");
@@ -2752,8 +2735,8 @@ function applyHistoryFilter() {
   // 2. Filter by Duration
   if (currentHistoryDuration !== "all") {
     filtered = filtered.filter(e => {
-      const q = (e.question || "").toLowerCase();
-      const u = (e.url || "").toLowerCase();
+      const q = e.question.toLowerCase();
+      const u = e.url.toLowerCase();
       if (currentHistoryDuration === "5m") return u.includes("5m") || q.includes("5 min") || q.includes("5-min");
       if (currentHistoryDuration === "15m") return u.includes("15m") || q.includes("15 min") || q.includes("15-min");
       if (currentHistoryDuration === "1h") return u.includes("hourly") || u.includes("1h") || q.includes("1 hour") || q.includes("1-hour");
@@ -2786,11 +2769,6 @@ async function fetchHistoryEvents() {
     }
   } catch (error) {
     console.error("Failed to fetch history events:", error);
-    const container = document.querySelector("#historyListContainer");
-    if (container) {
-      container.innerHTML = `<div style="text-align:center; padding:20px; color:var(--neon-red);"><i data-lucide="wifi-off" style="width:24px; height:24px; margin-bottom:8px;"></i><br><b>Gagal memuat riwayat.</b><br><br><span style="font-size:10px; color:var(--text-tertiary);">Error: ${error.message}<br>Kemungkinan penyebab:<br>1. Jaringan terputus<br>2. Server backend mati/restart<br>3. Adblocker memblokir request</span></div>`;
-      if (window.lucide) window.lucide.createIcons();
-    }
   }
 }
 
@@ -2802,40 +2780,13 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  const btnResetHistoryFilters = document.getElementById("btnResetHistoryFilters");
-  if (btnResetHistoryFilters) {
-    btnResetHistoryFilters.addEventListener("click", () => {
+  const btnClearHistoryDate = document.getElementById("btnClearHistoryDate");
+  if (btnClearHistoryDate) {
+    btnClearHistoryDate.addEventListener("click", () => {
       const sd = document.getElementById("historyStartDate");
       const ed = document.getElementById("historyEndDate");
       if (sd) sd.value = "";
       if (ed) ed.value = "";
-      
-      // Reset Asset Filter to 'all'
-      document.querySelectorAll(".history-asset-btn").forEach(b => {
-        b.classList.remove("active");
-        b.style.background = "transparent";
-        b.style.color = "var(--text-secondary)";
-        if (b.getAttribute("data-asset") === "all") {
-          b.classList.add("active");
-          b.style.background = "var(--neon-amber)";
-          b.style.color = "#000";
-        }
-      });
-      currentHistoryAsset = "all";
-      
-      // Reset Duration Filter to 'all'
-      document.querySelectorAll(".history-duration-btn").forEach(b => {
-        b.classList.remove("active");
-        b.style.background = "transparent";
-        b.style.color = "var(--text-secondary)";
-        if (b.getAttribute("data-duration") === "all") {
-          b.classList.add("active");
-          b.style.background = "var(--neon-purple)";
-          b.style.color = "#fff";
-        }
-      });
-      currentHistoryDuration = "all";
-      
       fetchHistoryEvents();
     });
   }
@@ -2904,7 +2855,7 @@ window.showHistoryChat = function(eventId) {
     
     // Karena kita tidak menyimpan text mentah full dari data.messages yang dikirim Qwen saat itu,
     // kita akan mem-formatting ulang conclusion agar terlihat proper seperti chat
-    let formattedText = `## 🤖 ARCHIVED ANALYSIS\n\n**Market:** [${event.question}](${event.url})\n**Prediction:** ${event.prediction}\n**Result:** ${event.result}\n\n---\n\n${aiText}`;
+    let formattedText = `## ≡ƒñû ARCHIVED ANALYSIS\n\n**Market:** [${event.question}](${event.url})\n**Prediction:** ${event.prediction}\n**Result:** ${event.result}\n\n---\n\n${aiText}`;
     
     tab.messages.push({ role: "assistant", text: formattedText });
     
@@ -3045,7 +2996,7 @@ window.evaluateSingleEventInline = async function(eventId, btn) {
     
     if (data.ok) {
       fetchHistoryEvents();
-      showCustomAlert("✅ Evaluasi berhasil disimpan ke memori AI!");
+      showCustomAlert("Γ£à Evaluasi berhasil disimpan ke memori AI!");
     } else {
       showCustomAlert("Gagal mengevaluasi: " + data.error);
       btn.innerHTML = originalText;
@@ -3168,7 +3119,7 @@ if (btnEvaluateSingle) {
         // Refresh the table so "Telah Dipelajari" badge appears immediately
         fetchHistoryEvents();
         
-        showCustomAlert("✅ Evaluasi berhasil disimpan ke memori AI!");
+        showCustomAlert("Γ£à Evaluasi berhasil disimpan ke memori AI!");
       } else {
         showCustomAlert("Gagal mengevaluasi: " + data.error);
       }
@@ -3563,40 +3514,40 @@ function applyLanguageUI(lang) {
       ".settings-tab[data-target='pane-language']": "Idioma",
       ".settings-tab[data-target='pane-alerts']": "Alertas y Audio",
       ".settings-tab[data-target='pane-sniper']": "Disparador Sniper",
-      ".settings-tab[data-target='pane-analytics']": "Analítica",
+      ".settings-tab[data-target='pane-analytics']": "Anal├¡tica",
       ".settings-tab[data-target='pane-learning']": "Proceso Aprendizaje",
       "#pane-language h2": "Idioma",
-      "#pane-language p": "Seleccione el idioma que usará Qwen para responder el análisis.",
+      "#pane-language p": "Seleccione el idioma que usar├í Qwen para responder el an├ílisis.",
       "#pane-appearance h2": "Apariencia",
       "#pane-appearance p": "Selecciona tu tema de color. Los cambios se aplican de inmediato.",
       "#pane-alerts h2": "Alertas y Audio",
       "#pane-alerts p": "Configura notificaciones del sistema y alertas de sonido.",
       "#pane-sniper h2": "Tiempo de Disparo Sniper",
-      "#pane-sniper p": "¿Cuántos minutos/segundos antes del cierre del mercado debe disparar Qwen?",
-      "#pane-analytics h2": "Estadísticas Analítica",
+      "#pane-sniper p": "┬┐Cu├íntos minutos/segundos antes del cierre del mercado debe disparar Qwen?",
+      "#pane-analytics h2": "Estad├¡sticas Anal├¡tica",
       "#pane-analytics p": "Resumen de rendimiento y predicciones de Qwen.",
       "#pane-learning h2": "Proceso Aprendizaje",
-      "#pane-learning p": "Qué ha mejorado Qwen a partir de evaluaciones de pérdidas anteriores.",
+      "#pane-learning p": "Qu├⌐ ha mejorado Qwen a partir de evaluaciones de p├⌐rdidas anteriores.",
     },
     Russian: {
-      ".settings-tab[data-target='pane-appearance']": "Внешний вид",
-      ".settings-tab[data-target='pane-language']": "Язык",
-      ".settings-tab[data-target='pane-alerts']": "Уведомления",
-      ".settings-tab[data-target='pane-sniper']": "Снайпер Триггер",
-      ".settings-tab[data-target='pane-analytics']": "Аналитика",
-      ".settings-tab[data-target='pane-learning']": "Обучение",
-      "#pane-language h2": "Язык",
-      "#pane-language p": "Выберите язык, который Qwen будет использовать для ответов.",
-      "#pane-appearance h2": "Внешний вид",
-      "#pane-appearance p": "Выберите цветовую тему. Изменения применяются немедленно.",
-      "#pane-alerts h2": "Уведомления и Звук",
-      "#pane-alerts p": "Настройте системные уведомления и звуковые сигналы.",
-      "#pane-sniper h2": "Снайпер Триггер",
-      "#pane-sniper p": "За сколько минут/секунд до закрытия рынка Qwen должен сработать?",
-      "#pane-analytics h2": "Статистика",
-      "#pane-analytics p": "Сводка производительности и прогнозы от Qwen.",
-      "#pane-learning h2": "Процесс обучения",
-      "#pane-learning p": "Что Qwen улучшил после анализа предыдущих потерх.",
+      ".settings-tab[data-target='pane-appearance']": "╨Æ╨╜╨╡╤ê╨╜╨╕╨╣ ╨▓╨╕╨┤",
+      ".settings-tab[data-target='pane-language']": "╨»╨╖╤ï╨║",
+      ".settings-tab[data-target='pane-alerts']": "╨ú╨▓╨╡╨┤╨╛╨╝╨╗╨╡╨╜╨╕╤Å",
+      ".settings-tab[data-target='pane-sniper']": "╨í╨╜╨░╨╣╨┐╨╡╤Ç ╨ó╤Ç╨╕╨│╨│╨╡╤Ç",
+      ".settings-tab[data-target='pane-analytics']": "╨É╨╜╨░╨╗╨╕╤é╨╕╨║╨░",
+      ".settings-tab[data-target='pane-learning']": "╨₧╨▒╤â╤ç╨╡╨╜╨╕╨╡",
+      "#pane-language h2": "╨»╨╖╤ï╨║",
+      "#pane-language p": "╨Æ╤ï╨▒╨╡╤Ç╨╕╤é╨╡ ╤Å╨╖╤ï╨║, ╨║╨╛╤é╨╛╤Ç╤ï╨╣ Qwen ╨▒╤â╨┤╨╡╤é ╨╕╤ü╨┐╨╛╨╗╤î╨╖╨╛╨▓╨░╤é╤î ╨┤╨╗╤Å ╨╛╤é╨▓╨╡╤é╨╛╨▓.",
+      "#pane-appearance h2": "╨Æ╨╜╨╡╤ê╨╜╨╕╨╣ ╨▓╨╕╨┤",
+      "#pane-appearance p": "╨Æ╤ï╨▒╨╡╤Ç╨╕╤é╨╡ ╤å╨▓╨╡╤é╨╛╨▓╤â╤Ä ╤é╨╡╨╝╤â. ╨ÿ╨╖╨╝╨╡╨╜╨╡╨╜╨╕╤Å ╨┐╤Ç╨╕╨╝╨╡╨╜╤Å╤Ä╤é╤ü╤Å ╨╜╨╡╨╝╨╡╨┤╨╗╨╡╨╜╨╜╨╛.",
+      "#pane-alerts h2": "╨ú╨▓╨╡╨┤╨╛╨╝╨╗╨╡╨╜╨╕╤Å ╨╕ ╨ù╨▓╤â╨║",
+      "#pane-alerts p": "╨¥╨░╤ü╤é╤Ç╨╛╨╣╤é╨╡ ╤ü╨╕╤ü╤é╨╡╨╝╨╜╤ï╨╡ ╤â╨▓╨╡╨┤╨╛╨╝╨╗╨╡╨╜╨╕╤Å ╨╕ ╨╖╨▓╤â╨║╨╛╨▓╤ï╨╡ ╤ü╨╕╨│╨╜╨░╨╗╤ï.",
+      "#pane-sniper h2": "╨í╨╜╨░╨╣╨┐╨╡╤Ç ╨ó╤Ç╨╕╨│╨│╨╡╤Ç",
+      "#pane-sniper p": "╨ù╨░ ╤ü╨║╨╛╨╗╤î╨║╨╛ ╨╝╨╕╨╜╤â╤é/╤ü╨╡╨║╤â╨╜╨┤ ╨┤╨╛ ╨╖╨░╨║╤Ç╤ï╤é╨╕╤Å ╤Ç╤ï╨╜╨║╨░ Qwen ╨┤╨╛╨╗╨╢╨╡╨╜ ╤ü╤Ç╨░╨▒╨╛╤é╨░╤é╤î?",
+      "#pane-analytics h2": "╨í╤é╨░╤é╨╕╤ü╤é╨╕╨║╨░",
+      "#pane-analytics p": "╨í╨▓╨╛╨┤╨║╨░ ╨┐╤Ç╨╛╨╕╨╖╨▓╨╛╨┤╨╕╤é╨╡╨╗╤î╨╜╨╛╤ü╤é╨╕ ╨╕ ╨┐╤Ç╨╛╨│╨╜╨╛╨╖╤ï ╨╛╤é Qwen.",
+      "#pane-learning h2": "╨ƒ╤Ç╨╛╤å╨╡╤ü╤ü ╨╛╨▒╤â╤ç╨╡╨╜╨╕╤Å",
+      "#pane-learning p": "╨º╤é╨╛ Qwen ╤â╨╗╤â╤ç╤ê╨╕╨╗ ╨┐╨╛╤ü╨╗╨╡ ╨░╨╜╨░╨╗╨╕╨╖╨░ ╨┐╤Ç╨╡╨┤╤ï╨┤╤â╤ë╨╕╤à ╨┐╨╛╤é╨╡╤Ç╤à.",
     }
   };
 
@@ -3656,8 +3607,8 @@ if (aggressiveModeBtn) {
     }).catch(() => {});
     // Show toast
     const msg = isAggressiveMode
-      ? '🔴 Mode Agresif ON — Tidak ada NETRAL, semua dipaksa UP atau DOWN'
-      : '⚪ Mode Agresif OFF — NETRAL diperbolehkan';
+      ? '≡ƒö┤ Mode Agresif ON ΓÇö Tidak ada NETRAL, semua dipaksa UP atau DOWN'
+      : 'ΓÜ¬ Mode Agresif OFF ΓÇö NETRAL diperbolehkan';
     if (typeof showToastNotification === 'function') showToastNotification(msg, isAggressiveMode ? 'warning' : 'info');
   });
   updateAggressiveModeUI();
@@ -3721,7 +3672,7 @@ if (snifferToggleBtn) {
       { transform: 'translateX(0)', opacity: 1 }
     ], { duration: 300, easing: 'ease-out' });
     
-    const icon = whale.side === "BUY" ? "🟢" : (whale.side === "SELL" ? "🔴" : "🔵");
+    const icon = whale.side === "BUY" ? "≡ƒƒó" : (whale.side === "SELL" ? "≡ƒö┤" : "≡ƒö╡");
     const sizeStr = "$" + whale.sizeUsdc.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     
     const isTracked = whale.isTracked;
@@ -3832,7 +3783,7 @@ if (snifferToggleBtn) {
           trendingContainer.style.display = "flex";
           trendingList.innerHTML = data.trending.map(t => `
             <a href="https://polymarket.com/event/${t.slug}" target="_blank" style="text-decoration:none; background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); color:var(--neon-cyan); padding:4px 8px; border-radius:4px; font-size:11px; white-space:nowrap; max-width:200px; overflow:hidden; text-overflow:ellipsis;" title="${t.question} (${t.count} trades)">
-              ${t.count} trades • ${t.question}
+              ${t.count} trades ΓÇó ${t.question}
             </a>
           `).join("");
         } else if (trendingContainer) {
@@ -3861,7 +3812,7 @@ if (snifferToggleBtn) {
              
              const timeAgo = Math.round((Date.now() - w.timestamp) / 1000);
              const timeFmt = timeAgo < 60 ? `${timeAgo}s ago` : `${Math.floor(timeAgo/60)}m ago`;
-             const icon = w.side === "BUY" ? "🟢" : (w.side === "SELL" ? "🔴" : "🔵");
+             const icon = w.side === "BUY" ? "≡ƒƒó" : (w.side === "SELL" ? "≡ƒö┤" : "≡ƒö╡");
              
              const eventLinkHtml = w.market_slug 
                  ? `<a href="https://polymarket.com/event/${w.market_slug}" target="_blank" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${w.market_question}</a>`
@@ -3904,7 +3855,7 @@ if (snifferToggleBtn) {
              
              const timeAgo = Math.round((Date.now() - w.timestamp) / 1000);
              const timeFmt = timeAgo < 60 ? `${timeAgo}s ago` : `${Math.floor(timeAgo/60)}m ago`;
-             const icon = w.side === "BUY" ? "🟢" : (w.side === "SELL" ? "🔴" : "🔵");
+             const icon = w.side === "BUY" ? "≡ƒƒó" : (w.side === "SELL" ? "≡ƒö┤" : "≡ƒö╡");
              
              const eventLinkHtml = w.market_slug 
                  ? `<a href="https://polymarket.com/event/${w.market_slug}" target="_blank" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${w.market_question}</a>`
@@ -4303,7 +4254,7 @@ liveAlertsSource.onmessage = (event) => {
       el.style.padding = "10px";
       el.style.borderRadius = "8px";
       el.innerHTML = `
-        <div style="font-size:10px; color:var(--text-tertiary); margin-bottom:4px; font-weight:bold;">🔥 HOT NICHE DETECTED</div>
+        <div style="font-size:10px; color:var(--text-tertiary); margin-bottom:4px; font-weight:bold;">≡ƒöÑ HOT NICHE DETECTED</div>
         <div style="font-weight:600; font-size:13px; color:var(--text-primary); margin-bottom:8px; line-height:1.4;">${data.marketInfo.question}</div>
         <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-secondary); background:rgba(0,0,0,0.3); padding:4px 8px; border-radius:4px;">${data.volumeSpike}</div>
       `;

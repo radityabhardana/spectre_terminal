@@ -1,4 +1,5 @@
 .env
+.env lama
 data/*.json
 data/*.jsonl
 data/*.csv

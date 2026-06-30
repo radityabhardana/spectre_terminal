@@ -298,7 +298,18 @@ async function callQwen(payload, baseUrl, apiKey, signal = null, retries = 3) {
       return await response.json();
     } catch (error) {
       if (i === retries - 1 || error.name === "AbortError") throw error;
-      console.warn(`[Qwen] fetch failed, retrying (${i + 1}/${retries})... Error: ${error.message}`);
+
+      // Auto-switch to backup API key if forbidden/rate-limited/out of balance
+      const isAuthOrQuotaError = error.message.includes("HTTP 401") || error.message.includes("HTTP 403") || error.message.includes("HTTP 429") || error.message.includes("Insufficient") || error.message.includes("Arrearage") || error.message.includes("DataInspectionFailed");
+      
+      if (isAuthOrQuotaError && config.qwenApiKeyBackup && apiKey === config.qwenApiKey && apiKey !== config.qwenApiKeyBackup) {
+        console.error(`[Qwen] Primary API Key failed (${error.message}). SWAPPING TO BACKUP API KEY GLOBALLY!`);
+        config.qwenApiKey = config.qwenApiKeyBackup;
+        apiKey = config.qwenApiKeyBackup; // Update local variable for the next retry iteration
+      } else {
+        console.warn(`[Qwen] fetch failed, retrying (${i + 1}/${retries})... Error: ${error.message}`);
+      }
+
       await new Promise(r => setTimeout(r, 2000));
     }
   }

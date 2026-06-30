@@ -44,6 +44,7 @@ function nonNegativeInt(value, fallback) {
 export const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || "",
   qwenApiKey: process.env.QWEN_API_KEY || "",
+  qwenApiKeyBackup: process.env.QWEN_API_KEY_BACKUP || "",
   qwenBaseUrl:
     process.env.QWEN_BASE_URL ||
     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",

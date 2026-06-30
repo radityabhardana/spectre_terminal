@@ -230,7 +230,28 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
 
   // We only need the current price and 24h stats. Klines (RSI/MACD) are removed for 5-minute short markets.
   let tickerData = await fetchBinanceTickerOnly(symbol);
-  if (!tickerData) throw new Error("Gagal mengambil data ticker Binance. Periksa koneksi internet.");
+  if (!tickerData) {
+    if (pythPrice) {
+      tickerData = {
+        symbol,
+        interval: 'n/a',
+        currentPrice: pythPrice.toFixed(2),
+        priceChange24h: '0.00',
+        high24h: pythPrice.toFixed(2),
+        low24h: pythPrice.toFixed(2),
+        volume24h: '0.00',
+        rsi14: null,
+        rsiSignal: 'unavailable',
+        macd: null,
+        volumeRatio: null,
+        volumeSignal: 'unavailable',
+        recentCandles: null,
+        fallback: true
+      };
+    } else {
+      throw new Error("Gagal mengambil data ticker Binance maupun Oracle Pyth. Periksa koneksi internet.");
+    }
+  }
 
   // Override price if live Polymarket WebSocket price provided
   if (currentPriceStr && !isNaN(parseFloat(currentPriceStr))) {

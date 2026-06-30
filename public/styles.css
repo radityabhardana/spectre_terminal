@@ -24,8 +24,8 @@
   --text-tertiary:  #5a5a65;
 
   /* Accent — Stripe indigo */
-  --accent: #ffffff;
-  --accent-hover: #ffffff;
+  --accent: #635bff;
+  --accent-hover: #4f46e5;
   --accent-glow:  rgba(99, 91, 255, 0.22);
 
   /* Semantic colors */
@@ -103,7 +103,7 @@
   --text-tertiary:  #9090a0;
 
   /* Accent stays the same — brand color doesn't flip */
-  --accent: #ffffff;
+  --accent: #635bff;
   --accent-hover: #4f46e5;
   --accent-glow:  rgba(99, 91, 255, 0.18);
 

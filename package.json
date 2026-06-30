@@ -21,6 +21,7 @@
     "better-sqlite3": "^12.10.0",
     "dotenv": "^17.4.2",
     "ethers": "^6.17.0",
+    "htmlhint": "^1.9.2",
     "node-telegram-bot-api": "^1.1.2",
     "ws": "^8.21.0"
   }

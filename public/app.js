@@ -1320,6 +1320,22 @@ function isQwenCommand(commandText) {
 }
 
 /* --- Execute Command --- */
+function markQueueItemsFailed(cmdText) {
+  if (typeof analysisQueue === 'undefined' || !analysisQueue.length) return;
+  const urls = [];
+  if (cmdText.startsWith("/analyze ")) urls.push(cmdText.replace("/analyze ", "").trim());
+  if (cmdText.startsWith("/analyzequeue ")) urls.push(...cmdText.replace("/analyzequeue ", "").split(",").map(s => s.trim()));
+  let changed = false;
+  urls.forEach(url => {
+    const item = analysisQueue.find(m => m.url === url);
+    if (item) {
+      item.isFailed = true;
+      changed = true;
+    }
+  });
+  if (changed && typeof renderQueue === 'function') renderQueue();
+}
+
 async function executeCommand(commandText, isBackground = false) {
   if (busy) return;
   const text = String(commandText || "").trim();
@@ -1373,6 +1389,7 @@ async function executeCommand(commandText, isBackground = false) {
     if (!data.ok) {
       addError(data.error || "Request gagal.", tabInfo.id);
       for (const msg of data.messages || []) addMessage(msg, tabInfo.id);
+      markQueueItemsFailed(text);
       return;
     }
 
@@ -1386,6 +1403,7 @@ async function executeCommand(commandText, isBackground = false) {
         errorMsg = "❌ Failed to fetch: Gagal menghubungi server backend.\n\nKemungkinan penyebab:\n1. Server backend mati (pastikan 'npm start' sedang berjalan)\n2. Port backend berubah atau tidak ter-expose\n3. Jaringan internet atau lokal terputus\n4. Ekstensi browser (adblocker/cors) memblokir request";
       }
       addError(errorMsg, tabInfo.id);
+      markQueueItemsFailed(text);
     }
   } finally {
     activeRequest = null;
@@ -1576,6 +1594,16 @@ let activeRightPanel = null;
 if (togglePolyBtn) {
   togglePolyBtn.addEventListener("click", (e) => {
     e.stopPropagation();
+    
+    // If a panel is active, clicking the main button closes it
+    const consoleBody = document.querySelector(".console-body");
+    if (consoleBody && consoleBody.classList.contains("has-embed") && activeRightPanel !== null) {
+      consoleBody.classList.remove("has-embed");
+      activeRightPanel = null;
+      if (currentPanelLabel) currentPanelLabel.textContent = "Select Panel";
+      return;
+    }
+    
     if (polyMenuDropdown) {
       const isHidden = polyMenuDropdown.style.display === "none";
       polyMenuDropdown.style.display = isHidden ? "flex" : "none";
@@ -2009,7 +2037,9 @@ function renderQueue() {
     }
 
     let sniperStatus = "";
-    if (isSniperActive && !m.snipeFired && !m.isTooLate) {
+    if (m.isFailed) {
+      sniperStatus = `<span title="Analisis Gagal" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="alert-triangle" style="width:8px; height:8px; margin-right:4px;"></i> Failed</span>`;
+    } else if (isSniperActive && !m.snipeFired && !m.isTooLate) {
       sniperStatus = `<span style="color:var(--neon-amber); font-size:9px; border:1px solid var(--neon-amber); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Wait</span>`;
     } else if (m.isTooLate) {
       sniperStatus = `<span title="Terlewat (Sisa < 1m30s)" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="x-circle" style="width:8px; height:8px; margin-right:4px;"></i> Skipped</span>`;
@@ -2268,8 +2298,13 @@ if (btnBulkAddQueue && bulkAddDropdown) {
     const isHidden = bulkAddDropdown.style.display === "none";
     bulkAddDropdown.style.display = isHidden ? "flex" : "none";
     
-    if (isHidden && selectBulkStart) {
-      selectBulkStart.innerHTML = "";
+    const selectBulkStart = document.querySelector("#selectBulkStart");
+    const customBulkStartDisplay = document.querySelector("#customBulkStartDisplay");
+    const customBulkStartText = document.querySelector("#customBulkStartText");
+    const customBulkStartOptions = document.querySelector("#customBulkStartOptions");
+
+    if (isHidden && customBulkStartOptions && customBulkStartText && selectBulkStart) {
+      customBulkStartOptions.innerHTML = "";
       
       let durationLimit = 5 * 60 * 1000;
       if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
@@ -2284,25 +2319,62 @@ if (btnBulkAddQueue && bulkAddDropdown) {
       validMarkets.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
       
       if (validMarkets.length === 0) {
-        selectBulkStart.innerHTML = `<option value="0">Tidak ada market valid</option>`;
+        customBulkStartOptions.innerHTML = `<div style="padding:8px; font-size:11px; color:var(--text-tertiary); text-align:center;">Tidak ada market valid</div>`;
+        customBulkStartText.textContent = "Tidak ada market valid";
+        selectBulkStart.value = "0";
       } else {
         validMarkets.forEach((m, index) => {
           const rawTitle = m.groupItemTitle || m.question || "";
           const cleanTitle = rawTitle.replace(/(Bitcoin|BTC|Ethereum|ETH|Dogecoin|DOGE) Up or Down -? ?/i, '').trim() || "Unknown Event";
           
-          const opt = document.createElement("option");
-          opt.value = index;
-          opt.textContent = cleanTitle;
-          selectBulkStart.appendChild(opt);
+          const optDiv = document.createElement("div");
+          optDiv.style.padding = "8px 10px";
+          optDiv.style.fontSize = "11px";
+          optDiv.style.color = "var(--text-primary)";
+          optDiv.style.cursor = "pointer";
+          optDiv.style.borderBottom = "1px solid rgba(255,255,255,0.05)";
+          optDiv.style.transition = "background 0.2s, color 0.2s";
+          optDiv.textContent = cleanTitle;
+          optDiv.onmouseover = () => { optDiv.style.background = "var(--bg-elevated)"; optDiv.style.color = "var(--neon-purple)"; };
+          optDiv.onmouseout = () => { optDiv.style.background = "transparent"; optDiv.style.color = "var(--text-primary)"; };
+          optDiv.onclick = (e) => {
+            e.stopPropagation();
+            customBulkStartText.textContent = cleanTitle;
+            selectBulkStart.value = index;
+            customBulkStartOptions.style.display = "none";
+            if (customBulkStartDisplay) customBulkStartDisplay.style.borderColor = "var(--border-bright)";
+          };
+          
+          if (index === 0) {
+            customBulkStartText.textContent = cleanTitle;
+            selectBulkStart.value = index;
+          }
+          
+          customBulkStartOptions.appendChild(optDiv);
         });
       }
     }
   });
   
+  const customBulkStartDisplay = document.querySelector("#customBulkStartDisplay");
+  const customBulkStartOptions = document.querySelector("#customBulkStartOptions");
+  if (customBulkStartDisplay && customBulkStartOptions) {
+    customBulkStartDisplay.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOptionsHidden = customBulkStartOptions.style.display === "none" || customBulkStartOptions.style.display === "";
+      customBulkStartOptions.style.display = isOptionsHidden ? "flex" : "none";
+      customBulkStartDisplay.style.borderColor = isOptionsHidden ? "var(--neon-purple)" : "var(--border-bright)";
+    });
+  }
+  
   // Close when clicking outside
   document.addEventListener("click", (e) => {
     if (!bulkAddDropdown.contains(e.target) && e.target !== btnBulkAddQueue && !btnBulkAddQueue.contains(e.target)) {
       bulkAddDropdown.style.display = "none";
+    }
+    if (customBulkStartOptions && customBulkStartDisplay && !customBulkStartDisplay.contains(e.target) && !customBulkStartOptions.contains(e.target)) {
+      customBulkStartOptions.style.display = "none";
+      customBulkStartDisplay.style.borderColor = "var(--border-bright)";
     }
   });
 }
@@ -2349,6 +2421,20 @@ if (btnConfirmBulkAdd && inputBulkCount) {
     if (addedCount > 0) {
       renderQueue();
       showCustomAlert(`Berhasil menambahkan ${addedCount} market ke antrean.`);
+      
+      // Auto-open Queue Panel
+      const queuePanel = document.querySelector("#queuePanel");
+      if (queuePanel && (queuePanel.style.display === "none" || queuePanel.style.display === "")) {
+        queuePanel.style.display = "flex";
+        document.body.classList.add("queue-open");
+      }
+      
+      // Auto-start Sniper
+      const btnRunQueue = document.querySelector("#btnRunQueue");
+      if (btnRunQueue && typeof isSniperActive !== 'undefined' && !isSniperActive) {
+        btnRunQueue.click();
+      }
+      
       if (typeof queueDropzone !== 'undefined' && queueDropzone) {
         queueDropzone.scrollIntoView({ behavior: 'smooth' });
       }

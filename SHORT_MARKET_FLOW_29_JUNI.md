@@ -1,5 +1,5 @@
 # 🎯 RAZOR BOT — Alur Short Market (Sniper V2)
-*Last Updated: 29 Juni 2026*
+*Last Updated: 30 Juni 2026*
 
 > **Project:** `c:\ALL\Razor Bot\`  
 > **Fokus Utama:** Market jangka pendek Crypto (BTC/ETH/DOGE Up/Down 5m, 15m, 1h)
@@ -58,7 +58,7 @@ Prompt khusus dikirim ke AI (Role: Quant Trader) dengan paksaan berhitung kuanti
 - UI Web memiliki sistem Antrean (Queue) yang bisa menampung hingga 50 market.
 - Terdapat **Bulk Add Manager** yang memungkinkan user menyuntikkan puluhan market ke antrean mulai dari jam tayang tertentu (Skip/Offset).
 - Setiap selesai 1 analisis, UI memainkan notifikasi synthesizer dinamis dan melanjutkan ke market berikutnya dalam antrean (delay antar market).
-- Hasil akhir dirender ke log history UI (menampilkan *Value Candidate* atau *Skip* beserta alasan Orderbook/Flow Momentum).
+- Hasil akhir dirender ke log history UI (menampilkan *Value Candidate* atau *Skip* beserta alasan Orderbook/Flow Momentum). UI History kini dilengkapi **Date Filter** (rentang tanggal kalender) dan perhitungan statistik Win Rate yang mengabaikan market Netral secara otomatis.
 
 ---
 
@@ -78,4 +78,4 @@ Sistem dirancang untuk sangat sensitif terhadap waktu:
 - Market yang sudah ditutup di atas 15 menit tidak akan ditarik lagi dari API Polymarket untuk menjaga UI tetap bersih dan relevan.
 
 ---
-*Dokumentasi ini akurat berdasarkan arsitektur "Razor Bot" per 29 Juni 2026, menggantikan flow lama dari 16 Juni.*
+*Dokumentasi ini akurat berdasarkan arsitektur "Razor Bot" per 30 Juni 2026, menggantikan flow lama dari 16 Juni dan 29 Juni.*

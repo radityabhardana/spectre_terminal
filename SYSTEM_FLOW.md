@@ -47,8 +47,8 @@ Sebelum dilempar ke AI Qwen, sistem menjalankan filter *robot* tradisional:
 
 ---
 
-## Tahap 5: Analisis Qwen (Multi-Role Pipeline)
-**Modul Utama:** `src/qwen.js`
+## Tahap 5: Analisis Qwen (Multi-Role Pipeline) & Anti-Halusinasi
+**Modul Utama:** `src/qwen.js`, `src/index.js`
 Inilah otak utama dari bot Anda. Konteks yang sudah dikompresi dikirim ke Qwen melalui 3 rantai pemikiran (Chain-of-Thought):
 
 1. **Scout (Qwen Flash / Model Cepat):**
@@ -58,7 +58,12 @@ Inilah otak utama dari bot Anda. Konteks yang sudah dikompresi dikirim ke Qwen m
    - Membaca berita Premium, statistik Binance, atau kondisi fisik petarung UFC, lalu membuat *Bull/Bear case* (skenario pro & kontra).
 3. **Final Judge (Qwen Max / Model Terkuat):**
    - Membaca hasil *Scout* dan *Analyst*.
-   - Mengambil keputusan final. Menentukan apakah market ini aman untuk dimasuki (*Entry*), harus dipantau (*Watchlist*), atau bahkan memiliki keunggulan tak terlihat yang diremehkan pasar sehingga layak dicap **`HIGH RISK UNDERDOG`**.
+   - Mengambil keputusan final. Menentukan apakah market ini aman untuk dimasuki (*Entry*), harus dipantau (*Watchlist*), atau memiliki keunggulan tak terlihat yang diremehkan pasar (cap **`HIGH RISK UNDERDOG`**).
+
+**Sistem Anti-Halusinasi & Aggressive Mode:**
+- Jika *confidence* (tingkat keyakinan) AI sangat rendah, AI akan menolak bertaruh dan mengubah prediksi menjadi **NETRAL** (`=`).
+- Pengguna dapat menyalakan **Aggressive Mode (No Netral)** untuk memaksa AI bertaruh (memilih YES/NO) pada market berskor 50-50.
+- **Guardrail Kritis:** Jika AI berhalusinasi atau data rusak (*confidence* di bawah ambang batas minimum), sistem akan secara otomatis mem-blokir Aggressive Mode. Mode Agresif tidak dapat memaksa taruhan buta (blind bet) untuk melindungi keakuratan tebakan.
 
 ---
 
@@ -68,7 +73,7 @@ Inilah otak utama dari bot Anda. Konteks yang sudah dikompresi dikirim ke Qwen m
 
 ---
 
-## Tahap 7: Shadow Bet System (Simulasi Otomatis)
+## Tahap 7: Shadow Bet System (Simulasi Otomatis) & UI Lanjutan
 **Modul Utama:** `src/shadow.js`, `src/storage.js`, `public/app.js`
 Shadow Bet adalah fitur *paper trading* otomatis yang terintegrasi di Web UI. Fitur ini memungkinkan pengguna untuk mensimulasikan taruhan secara otomatis menggunakan analisis AI tanpa modal sungguhan. 
 
@@ -79,8 +84,8 @@ Berikut adalah rincian fitur dan cara kerjanya:
    - Menyediakan **Strategy Preset** seperti:
      - **Safe 1%**: Risiko rendah, modal taruhan diatur sebesar 1% dari saldo per market. Target bet lebih sedikit dengan waktu lebih longgar.
      - **Aggro 5%**: Risiko lebih tinggi, bertaruh 5% dari saldo per market untuk mencapai target bet dengan sangat cepat.
-     - **High Risk**: Risiko sangat tinggi (Degen), cocok untuk tes dengan modal sangat kecil (contoh: modal $13, taruhan 25% dari saldo per bet) dengan durasi super cepat.
-     - **Custom**: Pengaturan bebas di mana pengguna bisa mengatur Modal (Capital), Target Taruhan, Durasi Maksimal, serta Manajemen Keuangan (Fixed $ atau Persentase).
+     - **High Risk**: Risiko sangat tinggi (Degen), cocok untuk tes dengan modal sangat kecil dengan durasi super cepat.
+     - **Custom**: Pengaturan bebas di mana pengguna bisa mengatur Modal (Capital), Target Taruhan, Durasi Maksimal, serta Manajemen Keuangan.
 
 2. **Auto-Pilot Scanner & Eksekusi:**
    - Ketika *Autopilot* dinyalakan, bot akan terus-menerus mencari *market* yang sebentar lagi berakhir (*ending soon*).
@@ -90,13 +95,11 @@ Berikut adalah rincian fitur dan cara kerjanya:
 3. **Background Resolver (PnL Tracker):**
    - Terdapat mekanisme di latar belakang yang aktif secara otomatis ketika ada *bet* yang terbuka (*pending*).
    - Loop ini secara teratur mengecek API Polymarket untuk melihat apakah sebuah ajang/pertanyaan sudah resmi ditutup dan memiliki token pemenang mutlak (harga token mencapai ~1c atau ~0c).
-   - Resolver kemudian otomatis merekapitulasi Profit & Loss (PnL), menambahkannya ke saldo utama jika tebakan benar, atau memotong modal jika kalah. Jika sebuah taruhan tidak pernah terselesaikan lebih dari 7 hari, modal akan dikembalikan (*refund*).
+   - Resolver kemudian otomatis merekapitulasi Profit & Loss (PnL).
 
-4. **Stats Dashboard (Live Monitoring):**
+4. **Stats Dashboard (Live Monitoring) & History Filters:**
    - Menampilkan angka secara real-time seperti:
-     - **Win Rate**: Persentase tebakan AI yang benar.
-     - **PnL**: Total keuntungan bersih atau kerugian.
-     - **ROI**: Persentase kembalian atas investasi yang sudah ditaruhkan.
-     - **W/L Ratio**: Angka absolut perbandingan menang dan kalah. 
-   - **Tab Bets & Logs**: Menyediakan transparansi penuh atas posisi apa yang masih menahan saldo (Open Positions), hasil yang sudah di-*resolve*, beserta log tekstual interaksi bot langkah demi langkah.
-   - Indikator **PnL Pill** secara konstan memonitor uang virtual Anda langsung di sebelah panel saldo tanpa perlu membuka menu.
+     - **Win Rate**: Persentase tebakan AI yang benar (Catatan: tebakan **Netral** secara otomatis dikeluarkan dari perhitungan Win Rate agar akurat).
+     - **PnL, ROI, W/L Ratio**.
+   - **Tab Bets & Logs**: Menyediakan transparansi penuh atas posisi yang masih menahan saldo (Open Positions), serta hasil yang sudah di-*resolve*.
+   - **Filter Tanggal & Waktu**: Pengguna kini dapat memfilter log histori analisis berdasarkan rentang tanggal kalender (Tanggal Mulai s/d Akhir) dan durasi riwayat. Ada juga tombol **Reset** (*one-click*) yang terintegrasi di bar menu untuk mengembalikan semua filter seketika.

@@ -8,3 +8,8 @@ data/*.csv
 *.sqlite
 node_modules/
 npm-debug.log*
+
+# Documentation Flows
+SYSTEM_FLOW.md
+SHORT_MARKET_FLOW_29_JUNI.md
+AI_SOP_PROMPT_FLOW.md

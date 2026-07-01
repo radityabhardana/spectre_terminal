@@ -1473,7 +1473,7 @@ textarea::-webkit-scrollbar-thumb,
   display: flex !important;
   justify-content: space-between !important;
   align-items: center !important;
-  padding: 0 16px !important;
+  padding: 0 16px 4px 16px !important;
   background: var(--bg-base) !important;
   border-top: 1px solid var(--border-strong) !important;
   height: 34px !important;
@@ -1628,4 +1628,191 @@ textarea::-webkit-scrollbar-thumb,
 }
 .padre-engines-popup .padre-system-status:hover {
   background: rgba(255, 255, 255, 0.05);
+}
+
+/* === PADRE THEME MODAL === */
+.padre-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 10000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.padre-modal-content {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-bright);
+  border-radius: 12px;
+  width: 460px;
+  max-width: 90vw;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: "Outfit", sans-serif;
+  color: var(--text-primary);
+}
+
+.padre-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.padre-modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: var(--text-primary);
+}
+
+.padre-modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.theme-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-section label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.theme-btn-group {
+  display: flex;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.theme-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.theme-btn:last-child {
+  border-right: none;
+}
+.theme-btn.active {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.theme-btn:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.theme-grid-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.theme-grid-item.active {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--border-bright);
+  color: var(--text-primary);
+}
+
+.theme-circle {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.padre-modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.padre-btn-secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.padre-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.padre-btn-primary {
+  background: var(--text-primary);
+  color: #000;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.padre-btn-primary:hover {
+  background: #e0e0e0;
 }

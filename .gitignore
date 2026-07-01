@@ -14,3 +14,8 @@ npm-debug.log*
 SYSTEM_FLOW.md
 SHORT_MARKET_FLOW_29_JUNI.md
 AI_SOP_PROMPT_FLOW.md
+
+# Gemini Config
+.geminirules
+artikel.md
+design.md

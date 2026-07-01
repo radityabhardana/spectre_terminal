@@ -316,7 +316,7 @@ h1 {
    ================================================================ */
 .workspace {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: 1fr;
   min-height: 0;
   overflow: hidden;
 }
@@ -325,6 +325,7 @@ h1 {
    SIDEBAR / CONTROL PANEL
    ================================================================ */
 .control-panel {
+  display: none !important;
   background: var(--bg-surface);
   border-right: 1px solid var(--border);
   padding: 16px 16px;

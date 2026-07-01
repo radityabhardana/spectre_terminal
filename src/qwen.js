@@ -895,12 +895,9 @@ Format JSON wajib:
 }
 `.trim();
 
-  const isConduitBroken = global.conduitCircuitBreaker && (Date.now() - global.conduitCircuitBreaker < 5 * 60 * 1000);
-  const useConduit = config.conduitApiKey && !isConduitBroken;
-
-  const finalApiKey = useConduit ? config.conduitApiKey : config.customApiKey || config.qwenApiKey;
-  const finalBaseUrl = useConduit ? config.conduitBaseUrl : (config.customBaseUrl || config.qwenBaseUrl);
-  const finalModel = useConduit ? config.conduitModel : (config.customFinalModel || config.qwenRiskManagerModel);
+  const finalApiKey = config.customApiKey || config.qwenApiKey;
+  const finalBaseUrl = config.customBaseUrl || config.qwenBaseUrl;
+  const finalModel = config.customFinalModel || config.qwenRiskManagerModel;
 
   const rmPayload = {
     model: finalModel,
@@ -919,15 +916,7 @@ Format JSON wajib:
     finalJson = await callRoleQwenJson(rmPayload, finalModel, finalBaseUrl, finalApiKey, signal);
     parsedJson = extractJsonObject(finalJson.text);
   } catch (error) {
-    if (useConduit) {
-      console.warn(`[Conduit] Final Judge failed or returned invalid JSON, triggering Circuit Breaker for 5 minutes... Error: ${error.message}`);
-      global.conduitCircuitBreaker = Date.now();
-      rmPayload.model = config.customFinalModel || config.qwenRiskManagerModel;
-      finalJson = await callRoleQwenJson(rmPayload, rmPayload.model, config.customBaseUrl || config.qwenBaseUrl, config.customApiKey || config.qwenApiKey, signal);
-      try { parsedJson = extractJsonObject(finalJson.text); } catch { parsedJson = null; }
-    } else {
-      throw error;
-    }
+    throw error;
   }
 
   let analysis;
@@ -1176,12 +1165,9 @@ Format JSON wajib:
 }
 `.trim();
 
-  const isConduitBroken = global.conduitCircuitBreaker && (Date.now() - global.conduitCircuitBreaker < 5 * 60 * 1000);
-  const useConduit = config.conduitApiKey && !isConduitBroken;
-
-  const finalApiKey = useConduit ? config.conduitApiKey : config.qwenApiKey;
-  const finalBaseUrl = useConduit ? config.conduitBaseUrl : config.qwenBaseUrl;
-  const finalModel = useConduit ? config.conduitModel : config.qwenEventFinalModel;
+  const finalApiKey = config.qwenApiKey;
+  const finalBaseUrl = config.qwenBaseUrl;
+  const finalModel = config.qwenEventFinalModel;
 
   const payload = {
     model: finalModel,
@@ -1204,15 +1190,7 @@ Format JSON wajib:
     finalJson = await callRoleQwenJson(payload, finalModel, finalBaseUrl, finalApiKey, signal);
     parsedJson = extractJsonObject(finalJson.text);
   } catch (error) {
-    if (useConduit) {
-      console.warn(`[Conduit] Event Final Judge failed or returned invalid JSON, triggering Circuit Breaker for 5 minutes... Error: ${error.message}`);
-      global.conduitCircuitBreaker = Date.now();
-      payload.model = config.qwenEventFinalModel;
-      finalJson = await callRoleQwenJson(payload, payload.model, config.qwenBaseUrl, config.qwenApiKey, signal);
-      try { parsedJson = extractJsonObject(finalJson.text); } catch { parsedJson = null; }
-    } else {
-      throw error;
-    }
+    throw error;
   }
 
   let analysis;
@@ -1394,12 +1372,9 @@ Format JSON wajib:
 }
   `.trim();
 
-  const isConduitBroken = global.conduitCircuitBreaker && (Date.now() - global.conduitCircuitBreaker < 5 * 60 * 1000);
-  const useConduit = config.conduitApiKey && !isConduitBroken;
-
-  const finalApiKey = useConduit ? config.conduitApiKey : config.qwenApiKey;
-  const finalBaseUrl = useConduit ? config.conduitBaseUrl : config.qwenBaseUrl;
-  const finalModel = useConduit ? config.conduitModel : config.qwenRiskManagerModel;
+  const finalApiKey = config.qwenApiKey;
+  const finalBaseUrl = config.qwenBaseUrl;
+  const finalModel = config.qwenRiskManagerModel;
 
   const payload = {
     model: finalModel, // Menggunakan model tercerdas untuk analisis mendalam
@@ -1417,14 +1392,7 @@ Format JSON wajib:
     json = await callRoleQwenJson(payload, finalModel, finalBaseUrl, finalApiKey, signal);
     extractJsonObject(json.text); // Test parse
   } catch (error) {
-    if (useConduit) {
-      console.warn(`[Conduit] Short Condition Final failed or returned invalid JSON, triggering Circuit Breaker for 5 minutes... Error: ${error.message}`);
-      global.conduitCircuitBreaker = Date.now();
-      payload.model = config.qwenRiskManagerModel;
-      json = await callRoleQwenJson(payload, payload.model, config.qwenBaseUrl, config.qwenApiKey, signal);
-    } else {
-      throw error;
-    }
+    throw error;
   }
   const result = parseJsonOr(json.text, { condition: "UNKNOWN", recommendation: "AVOID", direction: "NEUTRAL", confidence: 0, reason: "Gagal memproses data.", sentiment: "NEUTRAL", key_signals: {}, memory_reflection: "Gagal.", risk_warning: "" });
   

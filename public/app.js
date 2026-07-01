@@ -165,32 +165,106 @@ setInterval(updateClock, 1000);
 })();
 
 /* --- Light / Dark Mode Toggle --- */
-(function initThemeMode() {
+/* --- Theme Panel (Padre Style) Logic --- */
+(function initThemePanel() {
   const html = document.documentElement;
-  const btn = document.querySelector("#btnThemeToggle");
-  const icon = document.querySelector("#toggleModeIcon");
+  const themeTrigger = document.querySelector("#btnThemePanelTrigger");
+  const themeModal = document.querySelector("#themePanelModal");
+  const closeBtn = document.querySelector("#closeThemeModalBtn");
+  const applyBtn = document.querySelector("#applyThemeBtn");
+  const themeGridItems = document.querySelectorAll(".theme-grid-item");
+  const langBtns = document.querySelectorAll("#themeLangGroup .theme-btn");
+  const fontBtns = document.querySelectorAll("#themeFontGroup .theme-btn");
 
-  // Restore from localStorage (default = dark)
-  const saved = localStorage.getItem("razorbot_mode") || "dark";
-  applyMode(saved);
+  // Restore from localStorage
+  const savedMode = localStorage.getItem("razorbot_mode") || "dark";
+  const savedFont = localStorage.getItem("razorbot_font") || "padre";
+  const savedLang = localStorage.getItem("razorbot_lang") || "Indonesia";
+  
+  applyMode(savedMode);
+  applyFont(savedFont);
 
-  if (btn) {
-    btn.addEventListener("click", () => {
-      const current = html.getAttribute("data-mode") || "dark";
-      const next = current === "dark" ? "light" : "dark";
-      applyMode(next);
-      localStorage.setItem("razorbot_mode", next);
+  if (themeTrigger && themeModal) {
+    themeTrigger.addEventListener("click", () => {
+      themeModal.style.display = "flex";
     });
   }
 
-  function applyMode(mode) {
-    html.setAttribute("data-mode", mode);
-    if (icon) {
-      // Replace icon: moon for dark mode switch, sun for light mode switch
-      const iconName = mode === "light" ? "sun" : "moon";
-      icon.setAttribute("data-lucide", iconName);
-      if (window.lucide) window.lucide.createIcons({ nodes: [icon] });
+  function closeModal() {
+    if (themeModal) themeModal.style.display = "none";
+  }
+
+  if (closeBtn) closeBtn.addEventListener("click", closeModal);
+  if (applyBtn) applyBtn.addEventListener("click", closeModal);
+  
+  if (themeModal) {
+    themeModal.addEventListener("click", (e) => {
+      if (e.target === themeModal) closeModal();
+    });
+  }
+
+  themeGridItems.forEach(item => {
+    if (item.dataset.theme === savedMode) {
+      themeGridItems.forEach(i => i.classList.remove("active"));
+      item.classList.add("active");
     }
+    item.addEventListener("click", () => {
+      themeGridItems.forEach(i => i.classList.remove("active"));
+      item.classList.add("active");
+      const next = item.dataset.theme;
+      applyMode(next);
+      localStorage.setItem("razorbot_mode", next);
+    });
+  });
+
+  langBtns.forEach(btn => {
+    if (btn.dataset.lang === savedLang) {
+      langBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    }
+    btn.addEventListener("click", () => {
+      langBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const next = btn.dataset.lang;
+      localStorage.setItem("razorbot_lang", next);
+      
+      const sysSelect = document.getElementById("botLanguageSelect");
+      if(sysSelect) sysSelect.value = next;
+      
+      if (typeof applyLanguageUI === "function") applyLanguageUI(next);
+    });
+  });
+
+  fontBtns.forEach(btn => {
+    if (btn.dataset.font === savedFont) {
+      fontBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    }
+    btn.addEventListener("click", () => {
+      fontBtns.forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const next = btn.dataset.font;
+      localStorage.setItem("razorbot_font", next);
+      applyFont(next);
+    });
+  });
+
+  function applyMode(mode) {
+    if (mode === "light") {
+      html.setAttribute("data-mode", "light");
+      html.removeAttribute("data-theme");
+    } else {
+      html.setAttribute("data-mode", "dark");
+      if (mode === "dark") {
+        html.removeAttribute("data-theme");
+      } else {
+        html.setAttribute("data-theme", mode);
+      }
+    }
+  }
+
+  function applyFont(font) {
+    html.setAttribute("data-font", font);
   }
 })();
 
@@ -441,9 +515,9 @@ function setActiveTab(tabInfo, options = {}) {
     if (historyListPanel) historyListPanel.style.display = "none";
     
     if (consoleBody) {
-      // Return has-embed to its natural state for console tab based on iframe
-      const polyFrame = document.querySelector("#polyFrame");
-      if (polyFrame && !polyFrame.classList.contains("hidden")) {
+      // Return has-embed to its natural state for console tab based on empty state
+      const polyEmpty = document.querySelector("#polyEmpty");
+      if (polyEmpty && polyEmpty.classList.contains("hidden")) {
         consoleBody.classList.add("has-embed");
       } else {
         consoleBody.classList.remove("has-embed");
@@ -598,8 +672,8 @@ function embedUrlFromPolymarketUrl(value) {
 function setPolymarketEmbed(value, source = "Detected market") {
   const embedUrl = embedUrlFromPolymarketUrl(value);
   if (!embedUrl) return false;
-  polyFrame.src = embedUrl;
-  polyFrame.classList.remove("hidden");
+  // polyFrame.src = embedUrl;
+  // polyFrame.classList.remove("hidden");
   polyEmpty.classList.add("hidden");
   polyTitle.textContent = source;
   polyOpenLink.href = value;
@@ -1232,9 +1306,9 @@ setInterval(async () => {
         const polyMidpoint = document.querySelector("#polyMidpoint");
         const polyBestBid = document.querySelector("#polyBestBid");
         const polyBestAsk = document.querySelector("#polyBestAsk");
-        const polyFrame = document.querySelector("#polyFrame");
+        const polyEmpty = document.querySelector("#polyEmpty");
         
-        if (polyLiveTicker && polyMidpoint && polyFrame && !polyFrame.classList.contains("hidden")) {
+        if (polyLiveTicker && polyMidpoint && polyEmpty && polyEmpty.classList.contains("hidden")) {
           polyLiveTicker.style.display = "block";
           if (cryptoSymbol && cryptoPrice) {
             let decimals = cryptoSymbol === "DOGE" ? 4 : 2;
@@ -1458,15 +1532,25 @@ async function loadHealth() {
 
     const qwenLabel = data.qwen?.qwenLabel;
     const qwenConfigured = data.qwen?.qwenConfigured;
-
-    qwenStatus.classList.toggle("warn", !qwenConfigured || serverOutdated);
-    qwenStatus.classList.toggle("ai", qwenConfigured && !serverOutdated);
     
-    const isError = !qwenConfigured || serverOutdated;
-    const baseText = serverOutdated ? "Server old" : qwenLabel || "Qwen ?";
-    qwenStatus.innerHTML = isError ? `<span style="display:flex; align-items:center; gap:4px; cursor:pointer;" title="Click to reconnect"><i data-lucide="refresh-cw" style="width:10px; height:10px;"></i> ${baseText}</span>` : baseText;
-    if (isError && typeof lucide !== 'undefined') lucide.createIcons();
-    qwenStatus.style.cursor = isError ? "pointer" : "default";
+    if (qwenStatus) {
+      qwenStatus.classList.toggle("warn", !qwenConfigured || serverOutdated);
+      qwenStatus.classList.toggle("ai", qwenConfigured && !serverOutdated);
+      
+      const isError = !qwenConfigured || serverOutdated;
+      const baseText = serverOutdated ? "Server old" : qwenLabel || "Qwen ?";
+      qwenStatus.innerHTML = isError ? `<span style="display:flex; align-items:center; gap:4px; cursor:pointer;" title="Click to reconnect"><i data-lucide="refresh-cw" style="width:10px; height:10px;"></i> ${baseText}</span>` : baseText;
+      if (isError && typeof lucide !== 'undefined') lucide.createIcons();
+      qwenStatus.style.cursor = isError ? "pointer" : "default";
+    }
+
+    // Dynamic engine count
+    const btnToggleEngines = document.getElementById("btnToggleEngines");
+    if (btnToggleEngines) {
+      let activeCount = 2; // Assuming Gamma and CLOB are always loaded for now, as they have no explicit health check in app.js
+      if (qwenConfigured && !serverOutdated) activeCount++;
+      btnToggleEngines.innerHTML = `${activeCount} Engines Loaded`;
+    }
 
     if (connDot) connDot.className = "status-bar-dot";
     if (connLabel) connLabel.textContent = "Connected";
@@ -1481,11 +1565,13 @@ async function loadHealth() {
     if (sbQwenLabel) sbQwenLabel.textContent = qwenConfigured ? "Qwen: • loaded" : "Qwen: ? missing";
   } catch {
     versionText.textContent = "Engine offline";
-    qwenStatus.classList.add("warn");
-    qwenStatus.classList.remove("ai");
-    qwenStatus.innerHTML = `<span style="display:flex; align-items:center; gap:4px; cursor:pointer;" title="Click to reconnect"><i data-lucide="refresh-cw" style="width:10px; height:10px;"></i> Offline</span>`;
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-    qwenStatus.style.cursor = "pointer";
+    if (qwenStatus) {
+      qwenStatus.classList.add("warn");
+      qwenStatus.classList.remove("ai");
+      qwenStatus.innerHTML = `<span style="display:flex; align-items:center; gap:4px; cursor:pointer;" title="Click to reconnect"><i data-lucide="refresh-cw" style="width:10px; height:10px;"></i> Offline</span>`;
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+      qwenStatus.style.cursor = "pointer";
+    }
     if (connDot) connDot.className = "status-bar-dot error";
     if (connLabel) connLabel.textContent = "Disconnected";
     if (sbEngine) sbEngine.textContent = "Engine: offline";
@@ -1640,7 +1726,7 @@ function showPanel(panelType) {
     if (currentPanelLabel) currentPanelLabel.textContent = "Polymarket";
     
     // If turning on but empty, show default empty state
-    if (typeof polyFrame !== 'undefined' && polyFrame.classList.contains("hidden") && typeof polyEmpty !== 'undefined') {
+    if (typeof polyEmpty !== 'undefined' && document.querySelector("#polyLiveTicker").style.display === "none") {
       polyEmpty.classList.remove("hidden");
     }
   } else if (panelType === 'x') {
@@ -3086,6 +3172,13 @@ function renderHistoryEvents(events) {
   historyTableBody.innerHTML = html || '<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-tertiary);">Belum ada riwayat analisis.</td></tr>';
   
   document.querySelector("#historyTotal").textContent = total;
+  
+  // Also update the footer counter
+  const totalAnalyzedCount = document.querySelector("#totalAnalyzedCount");
+  if (totalAnalyzedCount) {
+    totalAnalyzedCount.textContent = total;
+  }
+  
   document.querySelector("#historyWins").textContent = wins;
   document.querySelector("#historyLosses").textContent = losses;
   document.querySelector("#historyNeutral").textContent = neutrals;
@@ -3554,11 +3647,7 @@ if (btnSettings && settingsModal) {
     if (e.target === settingsModal) settingsModal.style.display = "none";
   });
   
-  themeBtns.forEach(btn => {
-    btn.addEventListener("click", () => {
-      applyTheme(btn.dataset.theme);
-    });
-  });
+  // (Old theme toggle logic removed, handled by Padre Theme Modal)
 
   settingsTabs.forEach(tab => {
     tab.addEventListener("click", () => {
@@ -3653,7 +3742,6 @@ updateInputDetection();
 function applyLanguageUI(lang) {
   const translations = {
     English: {
-      ".settings-tab[data-target='pane-appearance']": "Appearance",
       ".settings-tab[data-target='pane-language']": "Language",
       ".settings-tab[data-target='pane-alerts']": "Alerts & Audio",
       ".settings-tab[data-target='pane-sniper']": "Sniper Trigger",
@@ -3661,8 +3749,6 @@ function applyLanguageUI(lang) {
       ".settings-tab[data-target='pane-learning']": "Learning Process",
       "#pane-language h2": "Language",
       "#pane-language p": "Select the language Qwen will use for analysis responses.",
-      "#pane-appearance h2": "Appearance",
-      "#pane-appearance p": "Select your color theme. Changes are applied immediately.",
       "#pane-alerts h2": "Alerts & Audio",
       "#pane-alerts p": "Configure system notifications and sound alerts.",
       "#pane-sniper h2": "Sniper Trigger Timing",
@@ -3673,7 +3759,6 @@ function applyLanguageUI(lang) {
       "#pane-learning p": "What Qwen has improved from previous loss evaluations.",
     },
     Spanish: {
-      ".settings-tab[data-target='pane-appearance']": "Apariencia",
       ".settings-tab[data-target='pane-language']": "Idioma",
       ".settings-tab[data-target='pane-alerts']": "Alertas y Audio",
       ".settings-tab[data-target='pane-sniper']": "Disparador Sniper",
@@ -3681,8 +3766,6 @@ function applyLanguageUI(lang) {
       ".settings-tab[data-target='pane-learning']": "Proceso Aprendizaje",
       "#pane-language h2": "Idioma",
       "#pane-language p": "Seleccione el idioma que usará Qwen para responder el análisis.",
-      "#pane-appearance h2": "Apariencia",
-      "#pane-appearance p": "Selecciona tu tema de color. Los cambios se aplican de inmediato.",
       "#pane-alerts h2": "Alertas y Audio",
       "#pane-alerts p": "Configura notificaciones del sistema y alertas de sonido.",
       "#pane-sniper h2": "Tiempo de Disparo Sniper",
@@ -3693,7 +3776,6 @@ function applyLanguageUI(lang) {
       "#pane-learning p": "Qué ha mejorado Qwen a partir de evaluaciones de pérdidas anteriores.",
     },
     Russian: {
-      ".settings-tab[data-target='pane-appearance']": "Внешний вид",
       ".settings-tab[data-target='pane-language']": "Язык",
       ".settings-tab[data-target='pane-alerts']": "Уведомления",
       ".settings-tab[data-target='pane-sniper']": "Снайпер Триггер",
@@ -3701,8 +3783,6 @@ function applyLanguageUI(lang) {
       ".settings-tab[data-target='pane-learning']": "Обучение",
       "#pane-language h2": "Язык",
       "#pane-language p": "Выберите язык, который Qwen будет использовать для ответов.",
-      "#pane-appearance h2": "Внешний вид",
-      "#pane-appearance p": "Выберите цветовую тему. Изменения применяются немедленно.",
       "#pane-alerts h2": "Уведомления и Звук",
       "#pane-alerts p": "Настройте системные уведомления и звуковые сигналы.",
       "#pane-sniper h2": "Снайпер Триггер",
@@ -3898,13 +3978,11 @@ if (snifferToggleBtn) {
       const topBtnIcon = document.getElementById('snifferToggleIcon');
       
       if (data.isSnifferActive) {
-        snifferToggleBtn.style.borderColor = 'var(--neon-green)';
         snifferToggleBtn.style.color = 'var(--neon-green)';
         // Force to ON state to ensure interval starts ticking
         if (topBtnText && !topBtnText.innerText.includes('(')) {
           topBtnText.innerText = 'TRACKER: ON';
         }
-        snifferToggleBtn.style.boxShadow = '0 0 10px rgba(57, 255, 20, 0.5)';
         if (topBtnIcon) topBtnIcon.classList.add('radar-anim');
         
         if (panelSnifferPowerBtn) {
@@ -3914,10 +3992,8 @@ if (snifferToggleBtn) {
           panelSnifferPowerBtn.style.borderColor = 'rgba(239, 68, 68, 0.5)';
         }
       } else {
-        snifferToggleBtn.style.borderColor = 'var(--neon-amber)';
         snifferToggleBtn.style.color = 'var(--neon-amber)';
         if (topBtnText) topBtnText.innerText = 'TRACKER: OFF';
-        snifferToggleBtn.style.boxShadow = 'none';
         if (topBtnIcon) topBtnIcon.classList.remove('radar-anim');
         
         if (panelSnifferPowerBtn) {
@@ -4535,3 +4611,32 @@ const polyTitleEl = document.getElementById("polyTitle");
 if (polyTitleEl) {
   titleObserver.observe(polyTitleEl, { childList: true, characterData: true, subtree: true });
 }
+
+/* --- Engines Popup Toggle --- */
+
+
+/* --- Engines Popup Toggle (Foolproof) --- */
+setTimeout(() => {
+  const btn = document.getElementById('btnToggleEngines');
+  const popup = document.getElementById('enginesPopup');
+  console.log('Attaching popup listeners', btn, popup);
+  if (btn && popup) {
+    btn.addEventListener('click', (e) => {
+      console.log('Button clicked!');
+      e.stopPropagation();
+      if (popup.style.display === 'none' || popup.style.display === '') {
+        popup.style.display = 'flex';
+        setTimeout(() => popup.classList.remove('engines-closed'), 10);
+      } else {
+        popup.classList.add('engines-closed');
+        setTimeout(() => popup.style.display = 'none', 400);
+      }
+    });
+    document.addEventListener('click', (e) => {
+      if (popup.style.display === 'flex' && !btn.contains(e.target) && !popup.contains(e.target)) {
+        popup.classList.add('engines-closed');
+        setTimeout(() => popup.style.display = 'none', 400);
+      }
+    });
+  }
+}, 1000);

@@ -35,42 +35,9 @@
           </div>
         </div>
 
-        <div id="priceTicker" style="display:flex; gap:12px; align-items:center; flex:1; padding-left:24px;">
-          <!-- BTC Card -->
-          <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:6px; padding:4px 10px; display:flex; align-items:center; gap:8px;">
-            <div style="width:6px; height:6px; border-radius:50%; background:var(--neon-amber);"></div>
-            <span style="font-size:11px; font-weight:600; color:var(--text-secondary);">BTC</span>
-            <span id="priceBTC" style="font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--text-primary);">...</span>
-          </div>
-          <!-- ETH Card -->
-          <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:6px; padding:4px 10px; display:flex; align-items:center; gap:8px;">
-            <div style="width:6px; height:6px; border-radius:50%; background:var(--neon-cyan);"></div>
-            <span style="font-size:11px; font-weight:600; color:var(--text-secondary);">ETH</span>
-            <span id="priceETH" style="font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--text-primary);">...</span>
-          </div>
-          <!-- DOGE Card -->
-          <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:6px; padding:4px 10px; display:flex; align-items:center; gap:8px;">
-            <div style="width:6px; height:6px; border-radius:50%; background:var(--text-tertiary);"></div>
-            <span style="font-size:11px; font-weight:600; color:var(--text-secondary);">DOGE</span>
-            <span id="priceDOGE" style="font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--text-primary);">...</span>
-          </div>
-        </div>
-
         <div class="header-clock" id="headerClock" aria-label="Local time">
           <span class="clock-label">Local</span>
           <span id="clockTime">--:--:--</span>
-        </div>
-        <div class="status-row top-status">
-          <span class="status-pill">Gamma</span>
-          <span class="status-pill">CLOB</span>
-          <span id="qwenStatus" class="status-pill ai">Qwen</span>
-          <span class="status-pill muted">Local</span>
-          <button id="btnThemeToggle" aria-label="Toggle light/dark mode" title="Toggle light/dark mode" style="margin-left:4px; background:transparent; border:1px solid var(--border-strong); border-radius:var(--radius-md); cursor:pointer; display:flex; align-items:center; justify-content:center; width:30px; height:26px; color:var(--text-secondary); transition:all 0.15s ease; flex-shrink:0;">
-            <i data-lucide="moon" id="toggleModeIcon" style="width:14px; height:14px;"></i>
-          </button>
-          <button id="btnSettings" class="btn-profile" aria-label="Settings" style="margin-left: 4px; background: transparent; border: 1px solid var(--border-strong); border-radius: var(--radius-md); cursor: pointer; display: flex; align-items: center; justify-content:center; width:30px; height:26px; color: var(--text-secondary); transition: all 0.15s ease;">
-            <i data-lucide="settings" style="width:14px; height:14px;"></i>
-          </button>
         </div>
       </header>
 
@@ -303,10 +270,7 @@
                 <i data-lucide="swords" style="width: 12px; height: 12px;"></i>
                 <span id="aggressiveModeText">NO NETRAL: OFF</span>
               </button>
-              <button id="snifferToggleBtn" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 12px; border-color: var(--neon-amber); color: var(--neon-amber); font-weight: bold; min-width: 130px; justify-content: center; gap: 6px;">
-                <i data-lucide="radar" style="width: 12px; height: 12px;" id="snifferToggleIcon"></i>
-                <span id="snifferToggleText">TRACKER: OFF</span>
-              </button>
+
               <button id="btnShortMarket" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px; border-color: rgba(245, 158, 11, 0.3);">
                 <i data-lucide="zap" class="btn-icon" style="width:12px; height:12px; color:var(--neon-amber);"></i> Short Market
               </button>
@@ -319,19 +283,7 @@
                   Jika dianalisis sebelum batas waktu ini, titik acuan harga belum dikunci oleh Polymarket.
                 </div>
               </div>
-              <div style="position:relative; display:inline-block;">
-                <button id="togglePolyBtn" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px;">
-                  <i data-lucide="eye" class="btn-icon" style="width:12px; height:12px;"></i> <span id="currentPanelLabel">Select Panel</span> <i data-lucide="chevron-down" id="polyChevronIcon" style="width:12px; height:12px; margin-left:4px; opacity:0.7;"></i>
-                </button>
-                <div id="polyMenuDropdown" style="display:none; position:absolute; top:100%; right:0; margin-top:4px; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:4px; box-shadow:0 4px 12px rgba(0,0,0,0.5); z-index:9999; min-width:140px; flex-direction:column; overflow:hidden;">
-                  <button type="button" id="menuBtnPoly" style="background:none; border:none; color:var(--text-primary); padding:10px 12px; font-size:11px; text-align:left; cursor:pointer; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-                    <i data-lucide="line-chart" style="width:14px; height:14px; color:var(--neon-cyan);"></i> Polymarket Live
-                  </button>
-                  <button type="button" id="menuBtnX" style="background:none; border:none; color:var(--text-primary); padding:10px 12px; font-size:11px; text-align:left; cursor:pointer; display:flex; align-items:center; gap:8px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:#fff;"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg> Whales Feed
-                  </button>
-                </div>
-              </div>
+
               <!-- Floating Panel for Queue -->
               <div id="queuePanel" style="display:none; position:absolute; top:32px; right:330px; width:360px; height:400px; min-width:300px; min-height:200px; max-width:800px; max-height:80vh; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index:150; text-align:left; flex-direction:column;">
                 <div id="queueResizeHandleSW" style="position:absolute; bottom:0; left:0; width:16px; height:16px; cursor:sw-resize; z-index:101; border-bottom-left-radius: var(--radius-md);">
@@ -663,74 +615,12 @@
               </div>
               <div id="polyEmpty" class="poly-empty">
                 <span>Paste atau pilih market Polymarket.</span>
-                <small>Embed akan muncul otomatis ketika URL market terdeteksi.</small>
+                <small>Live Data akan muncul otomatis ketika URL market terdeteksi.</small>
               </div>
-              <iframe
-                id="polyFrame"
-                class="poly-frame hidden"
-                title="polymarket-market-iframe"
-                frameborder="0"
-                allowtransparency="true"
-              ></iframe>
+
             </aside>
 
-            <!-- X / Twitter Feed Panel -->
-            <aside id="xPanelContainer" class="poly-panel" style="display:none; flex-direction:column; background:var(--bg-elevated); border-left:1px solid var(--border);">
-              <div class="poly-head" style="border-bottom:1px solid var(--border); padding:12px 16px; flex-direction:column; align-items:stretch; gap:12px; height:auto;">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <div>
-                    <span class="panel-kicker" style="color:#1DA1F2;">X Intelligence</span>
-                    <strong style="color:var(--text-primary); display:block; font-size:13px; margin-top:2px;">Live Social Data</strong>
-                  </div>
-                  <!-- Mini Vibe Check Score -->
-                  <div id="xMiniVibeCheck" style="display:none; background:rgba(16,185,129,0.1); border:1px solid var(--neon-green); color:var(--neon-green); font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px;">
-                    BULLISH
-                  </div>
-                </div>
-                
-                <!-- X Panel Tabs -->
-                <div style="display:flex; border-radius:6px; background:rgba(0,0,0,0.3); padding:2px;">
-                  <button class="x-tab-btn active" data-target="xTabSearch" style="flex:1; padding:6px; font-size:11px; font-weight:600; border:none; border-radius:4px; background:rgba(255,255,255,0.1); color:var(--text-primary); cursor:pointer;">Search</button>
-                  <button class="x-tab-btn" data-target="xTabWhales" style="flex:1; padding:6px; font-size:11px; font-weight:600; border:none; background:transparent; color:var(--text-secondary); cursor:pointer;">Alerts <span id="xAlertCount" style="display:none; background:var(--neon-red); color:#fff; padding:1px 4px; border-radius:4px; font-size:9px; margin-left:4px;">0</span></button>
-                  <button class="x-tab-btn" data-target="xTabVibe" style="flex:1; padding:6px; font-size:11px; font-weight:600; border:none; background:transparent; color:var(--text-secondary); cursor:pointer;">Vibe Check</button>
-                </div>
-              </div>
-              
-              <!-- Content Area -->
-              <div style="flex:1; overflow-y:auto; background:var(--bg-base); position:relative;">
-                
-                <!-- Tab: Dynamic Search Embed -->
-                <div id="xTabSearch" class="x-tab-content" style="display:flex; flex-direction:column; height:100%;">
-                  <div id="xEmbedWrapper" style="flex:1; overflow-y:auto; background:#000; display:flex; align-items:center; justify-content:center;">
-                     <div style="text-align:center; padding:40px 20px; color:var(--text-tertiary);">
-                        <i data-lucide="twitter" style="width:32px; height:32px; opacity:0.3; margin-bottom:12px;"></i><br>
-                        Silakan Analyze sebuah market Polymarket untuk melihat hasil pencarian Twitter di sini.
-                     </div>
-                  </div>
-                </div>
 
-                <!-- Tab: Whale & Hot Niche Alerts -->
-                <div id="xTabWhales" class="x-tab-content" style="display:none; flex-direction:column; height:100%;">
-                  <div id="xWhaleFeed" style="display:flex; flex-direction:column; gap:8px; padding:12px;">
-                    <div id="xWhaleEmpty" style="text-align:center; padding:40px 20px; color:var(--text-tertiary);">
-                       <i data-lucide="radar" style="width:32px; height:32px; opacity:0.3; margin-bottom:12px;"></i><br>
-                       Menunggu deteksi Hot Niche atau Whale Trades...
-                    </div>
-                  </div>
-                </div>
-                
-                <!-- Tab: AI Vibe Check -->
-                <div id="xTabVibe" class="x-tab-content" style="display:none; flex-direction:column; height:100%; padding:16px;">
-                  <div id="xVibeContent" style="display:flex; flex-direction:column; gap:16px;">
-                    <div style="text-align:center; padding:40px 20px; color:var(--text-tertiary);">
-                         <i data-lucide="brain" style="width:32px; height:32px; opacity:0.3; margin-bottom:12px;"></i><br>
-                         Analisis AI Vibe Check akan muncul di sini setelah ada peringatan Hot Niche.
-                    </div>
-                  </div>
-                </div>
-                
-              </div>
-            </aside>
 
             <!-- History List Panel (replaces poly-panel in History Tab) -->
             <aside id="historyListPanel" class="poly-panel" style="display:none; flex-direction:column; background:var(--bg-elevated); border-left:1px solid var(--border);">
@@ -754,35 +644,136 @@
         </section>
       </main>
 
-      <!-- === STATUS BAR === -->
-      <footer class="status-bar" id="statusBar">
-        <div class="status-bar-item">
-          <span class="status-bar-dot" id="connDot"></span>
-          <span id="connLabel">Connected</span>
+      <!-- === STATUS BAR (PADRE STYLE) === -->
+      <footer class="status-bar padre-footer" id="statusBar">
+        
+        <!-- Left Section: Signal, Ping, Settings, Theme -->
+        <div class="padre-footer-left">
+          <div class="padre-status-item">
+            <i data-lucide="bar-chart" style="width:12px; height:12px; color:var(--neon-green);"></i>
+            <span style="color:var(--neon-green); font-weight:600;">Stable</span>
+          </div>
+          <div class="padre-status-item">
+            <span id="sbLatency" style="font-weight:600; color:var(--text-secondary);">--ms</span>
+          </div>
+          
+          <div style="position:relative; display:flex; align-items:center;">
+            <div class="padre-system-status interactive" id="btnToggleEngines" style="cursor:pointer;" title="View Engine Statuses">
+              3 Engines Loaded
+            </div>
+            
+            <!-- Upward Opening Popup -->
+            <div id="enginesPopup" class="padre-engines-popup engines-closed" style="display:none;">
+              <div class="padre-system-status">Gamma</div>
+              <div class="padre-system-status">CLOB</div>
+              <div id="qwenStatus" class="padre-system-status ai">Qwen</div>
+              <div class="padre-system-status muted">Local</div>
+            </div>
+          </div>
+          
+          <div style="width:1px; height:12px; background:var(--border-strong); margin:0 4px;"></div>
+          
+          <div class="padre-status-item interactive" id="btnSettings" title="Settings">
+            <i data-lucide="settings" style="width:12px; height:12px;"></i>
+          </div>
+          <div class="padre-status-item interactive" id="btnThemePanelTrigger" title="Customize Appearance">
+            <i data-lucide="palette" style="width:12px; height:12px;"></i>
+          </div>
+          
+          <div class="padre-status-item interactive" id="snifferToggleBtn" title="Toggle Tracker" style="color:var(--neon-amber);">
+            <i data-lucide="radar" style="width:12px; height:12px;" id="snifferToggleIcon"></i>
+            <span id="snifferToggleText" style="font-weight:600; font-size:9.5px;">TRACKER: OFF</span>
+          </div>
+          
+
+          <div style="display:none;">
+            <span id="connLabel">Connected</span>
+            <span id="sbEngine">Engine: handshake...</span>
+            <span id="sbQwenLabel">Qwen: checking</span>
+            <span id="sbDns">DNS: detecting...</span>
+          </div>
         </div>
-        <div class="status-bar-item">
-          <span id="sbEngine">Engine: handshake...</span>
+
+        <!-- Center Section: Crypto Prices -->
+        <div class="padre-footer-center" id="priceTickerFooter">
+          <div class="padre-price-item">
+            <img src="https://cdn.simpleicons.org/bitcoin/F7931A" style="width:12px; height:12px;" alt="BTC" />
+            <span class="price-label">BTC</span>
+            <span id="priceBTC" class="price-value">...</span>
+          </div>
+          <div class="padre-price-item">
+            <img src="https://cdn.simpleicons.org/ethereum/627EEA" style="width:12px; height:12px;" alt="ETH" />
+            <span class="price-label">ETH</span>
+            <span id="priceETH" class="price-value">...</span>
+          </div>
+          <div class="padre-price-item">
+            <img src="https://cdn.simpleicons.org/dogecoin/C2A633" style="width:12px; height:12px;" alt="DOGE" />
+            <span class="price-label">DOGE</span>
+            <span id="priceDOGE" class="price-value">...</span>
+          </div>
         </div>
-        <div class="status-bar-item">
-          <span class="status-bar-dot ai" id="sbQwenDot"></span>
-          <span id="sbQwenLabel">Qwen: checking</span>
-        </div>
-        <div class="status-bar-item">
-          <span id="sbLatency" style="font-weight:bold; transition:color 0.3s;">--ms</span>
-        </div>
-        <div class="status-bar-item">
-          <span id="sbDns" style="color:var(--text-tertiary);">DNS: detecting...</span>
-        </div>
-        <div style="flex:1;"></div>
-        <div class="status-bar-item" style="cursor:pointer;" id="btnManual" title="Buku Panduan">
-          <i data-lucide="book-open" style="width:14px; height:14px; color:var(--neon-cyan);"></i>
-          <span style="font-weight:600; color:var(--text-primary);">Manual</span>
-        </div>
-        <div class="status-bar-item" style="cursor:pointer;" id="btnHistory" title="Riwayat Analisis">
-          <i data-lucide="history" style="width:14px; height:14px;"></i>
-          <span style="font-weight:600; color:var(--text-primary);">History Logs</span>
+
+        <!-- Right Section: Total Analyzed & History Logs -->
+        <div class="padre-footer-right">
+          <div class="padre-status-item" title="Total Markets Analyzed">
+            <i data-lucide="activity" style="width:12px; height:12px; color:var(--text-secondary);"></i>
+            <strong id="totalAnalyzedCount" style="color:var(--text-primary);">0</strong>
+          </div>
+          <div class="padre-status-item interactive" id="btnHistory" title="Riwayat Analisis">
+            <i data-lucide="history" style="width:12px; height:12px;"></i>
+            <span>History Logs</span>
+          </div>
         </div>
       </footer>
+
+      <!-- Theme Panel Modal (Padre Style) -->
+      <div id="themePanelModal" class="padre-modal-overlay" style="display:none;">
+        <div class="padre-modal-content">
+          <div class="padre-modal-header">
+            <h3>Customize appearance</h3>
+            <button id="closeThemeModalBtn" class="close-btn"><i data-lucide="x"></i></button>
+          </div>
+          <div class="padre-modal-body">
+            
+            <!-- Language -->
+            <div class="theme-section">
+              <label>Language</label>
+              <div class="theme-btn-group" id="themeLangGroup">
+                <button class="theme-btn active" data-lang="English">English</button>
+                <button class="theme-btn" data-lang="Indonesia">Indonesia</button>
+                <button class="theme-btn" data-lang="Spanish">Spanish</button>
+                <button class="theme-btn" data-lang="Russian">Russian</button>
+              </div>
+            </div>
+
+            <!-- Font -->
+            <div class="theme-section">
+              <label>Font</label>
+              <div class="theme-btn-group" id="themeFontGroup">
+                <button class="theme-btn active" data-font="padre">Padre</button>
+                <button class="theme-btn" data-font="geist">Geist</button>
+                <button class="theme-btn" data-font="inter">Inter</button>
+              </div>
+            </div>
+
+            <!-- Color Theme -->
+            <div class="theme-section">
+              <label>Color theme</label>
+              <div class="theme-grid">
+                <button class="theme-grid-item active" data-theme="dark"><span class="theme-circle" style="background:#0a0a0a; border:1px solid #333;"></span>Dark (Default)</button>
+                <button class="theme-grid-item" data-theme="hacker"><span class="theme-circle" style="background:#020d02; border:1px solid #00ff41;"></span>Hacker</button>
+                <button class="theme-grid-item" data-theme="gold"><span class="theme-circle" style="background:#0c0900; border:1px solid #f5bc20;"></span>Gold</button>
+                <button class="theme-grid-item" data-theme="synthwave"><span class="theme-circle" style="background:#0e0015; border:1px solid #c800ff;"></span>Synthwave</button>
+              </div>
+            </div>
+
+          </div>
+          <div class="padre-modal-footer">
+            <button class="padre-btn-secondary">Import</button>
+            <button id="applyThemeBtn" class="padre-btn-primary">Done</button>
+          </div>
+        </div>
+      </div>
       
       <!-- History Modal -->
       <div id="historyModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
@@ -980,8 +971,7 @@
             
             <!-- Left Sidebar -->
             <div style="width:190px; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:12px 10px; gap:2px; background:var(--bg-surface); flex-shrink:0;">
-              <button class="settings-tab active" data-target="pane-appearance" style="text-align:left; padding:9px 14px; background:rgba(255,255,255,0.06); border:none; border-radius:var(--radius-md); color:var(--text-primary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Appearance</button>
-              <button class="settings-tab" data-target="pane-language" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Language</button>
+              <button class="settings-tab active" data-target="pane-language" style="text-align:left; padding:9px 14px; background:rgba(255,255,255,0.06); border:none; border-radius:var(--radius-md); color:var(--text-primary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Language</button>
               <button class="settings-tab" data-target="pane-alerts" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Alerts &amp; Audio</button>
               <button class="settings-tab" data-target="pane-sniper" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Sniper Trigger</button>
               <button class="settings-tab" data-target="pane-analytics" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Analytics</button>
@@ -997,54 +987,10 @@
             <!-- Right Content -->
             <div style="flex:1; overflow-y:auto; padding:28px 32px; background:var(--bg-base); scrollbar-width:thin; scrollbar-color:var(--border-strong) transparent;">
               
-              <!-- Appearance Pane -->
-              <div id="pane-appearance" class="settings-pane" style="display:block;">
-                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Appearance</h2>
-                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Select your color theme. Changes are applied immediately.</p>
-                
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-                  
-                  <button class="theme-btn active" data-theme="default">
-                    <div class="theme-swatch" style="background:linear-gradient(135deg, #635bff, #8a83ff); box-shadow:0 0 12px rgba(99,91,255,0.3);"></div>
-                    <div style="display:flex; flex-direction:column; align-items:flex-start; gap:2px;">
-                      <span class="theme-title" style="font-size:14px; font-family:'Outfit',sans-serif; letter-spacing:-0.01em;">Stripe Deep</span>
-                      <span style="font-size:11px; color:var(--text-tertiary);">Elegant & Modern</span>
-                    </div>
-                    <i data-lucide="check-circle-2" class="theme-check" style="width:18px; height:18px;"></i>
-                  </button>
-
-                  <button class="theme-btn" data-theme="synthwave">
-                    <div class="theme-swatch" style="background:linear-gradient(135deg, #c800ff, #e166ff); box-shadow:0 0 12px rgba(200,0,255,0.3);"></div>
-                    <div style="display:flex; flex-direction:column; align-items:flex-start; gap:2px;">
-                      <span class="theme-title" style="font-size:14px; font-family:'Outfit',sans-serif; letter-spacing:-0.01em;">Synthwave</span>
-                      <span style="font-size:11px; color:var(--text-tertiary);">Retro futuristic</span>
-                    </div>
-                    <i data-lucide="check-circle-2" class="theme-check" style="width:18px; height:18px;"></i>
-                  </button>
-
-                  <button class="theme-btn" data-theme="gold">
-                    <div class="theme-swatch" style="background:linear-gradient(135deg, #d4a017, #f7c94b); box-shadow:0 0 12px rgba(212,160,23,0.3);"></div>
-                    <div style="display:flex; flex-direction:column; align-items:flex-start; gap:2px;">
-                      <span class="theme-title" style="font-size:14px; font-family:'Outfit',sans-serif; letter-spacing:-0.01em;">Gold / Lux</span>
-                      <span style="font-size:11px; color:var(--text-tertiary);">Premium & Exclusive</span>
-                    </div>
-                    <i data-lucide="check-circle-2" class="theme-check" style="width:18px; height:18px;"></i>
-                  </button>
-
-                  <button class="theme-btn" data-theme="hacker">
-                    <div class="theme-swatch" style="background:linear-gradient(135deg, #00d130, #33ff60); box-shadow:0 0 12px rgba(0,209,48,0.3);"></div>
-                    <div style="display:flex; flex-direction:column; align-items:flex-start; gap:2px;">
-                      <span class="theme-title" style="font-size:14px; font-family:'Outfit',sans-serif; letter-spacing:-0.01em;">Hacker Terminal</span>
-                      <span style="font-size:11px; color:var(--text-tertiary);">Classic Matrix vibes</span>
-                    </div>
-                    <i data-lucide="check-circle-2" class="theme-check" style="width:18px; height:18px;"></i>
-                  </button>
-
-                </div>
-              </div>
+              <!-- Appearance Pane Removed -> Moved to new Padre Theme Panel -->
 
               <!-- Language Pane -->
-              <div id="pane-language" class="settings-pane" style="display:none;">
+              <div id="pane-language" class="settings-pane" style="display:block;">
                 <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Language</h2>
                 <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Pilih bahasa yang akan digunakan Qwen untuk merespons hasil analisis.</p>
                 
@@ -1315,6 +1261,6 @@
       </div>
     </div>
 
-    <script src="/app.js?v=70-reset-fix-new" type="module"></script>
+    <script src="/app.js?v=74-claude-added" type="module"></script>
   </body>
 </html>

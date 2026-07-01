@@ -46,35 +46,15 @@ let adminChatId = null;
 
 // ── CloddsBot-ported modules ──────────────────────────────────────────────
 import {
-  addAlert, listAlerts, deleteAlert, startAlertMonitor,
-  formatAlertsList, parseAlertCommand,
-} from "./alerts.js";
-import {
-  scanWhaleActivity, fetchTopTraders, scanInternalArbitrage,
-  formatWhaleResults, formatTopTraders, formatInternalArbitrageResults,
-} from "./whale.js";
-import {
-  detectInternalArbitrage, detectCrossPlatformArbitrage, scanAllOpportunities,
-  formatOpportunityScan,
-} from "./arbitrage.js";
-import {
-  getShadowTrades, calculatePerformanceMetrics, calculateKelly,
-  getPerformanceByCategory, getTimingAnalysis, runBacktest,
-  formatAnalyticsSummary, formatKellyResult, formatBacktestResult, formatTimingAnalysis,
+  getShadowTrades, calculateKelly, formatKellyResult
 } from "./analytics.js";
 import { evaluateResolutions } from "./evaluate.js";
 import { evaluateShortMarketCondition } from "./short_condition.js";
 
 const MENU_BUTTONS = {
-  TOP: "Top Markets",
   SEARCH: "Search Market",
   ANALYZE: "Analyze Link / ID",
-  QUICK_SCAN: "Quick Scan Event",
-  ARB: "Scan Arbitrage",
-  WHALES: "Whale Activity",
-  ANALYTICS: "Performance Stats",
   EVALUATE: "Evaluate PnL",
-  ALERTS: "My Alerts",
   BOOK: "Orderbook Check",
   SHORT_COND: "Short Market Vibe",
   VERSION: "Bot Version",
@@ -86,12 +66,9 @@ function menuKeyboard() {
   return {
     reply_markup: {
       keyboard: [
-        [{ text: MENU_BUTTONS.TOP }, { text: MENU_BUTTONS.ANALYZE }],
-        [{ text: MENU_BUTTONS.SEARCH }, { text: MENU_BUTTONS.QUICK_SCAN }],
-        [{ text: MENU_BUTTONS.ARB }, { text: MENU_BUTTONS.WHALES }],
-        [{ text: MENU_BUTTONS.ANALYTICS }, { text: MENU_BUTTONS.EVALUATE }],
-        [{ text: MENU_BUTTONS.ALERTS }, { text: MENU_BUTTONS.SHORT_COND }],
-        [{ text: MENU_BUTTONS.BOOK }, { text: MENU_BUTTONS.HELP }],
+        [{ text: MENU_BUTTONS.SEARCH }, { text: MENU_BUTTONS.ANALYZE }],
+        [{ text: MENU_BUTTONS.SHORT_COND }, { text: MENU_BUTTONS.BOOK }],
+        [{ text: MENU_BUTTONS.EVALUATE }, { text: MENU_BUTTONS.HELP }],
       ],
       resize_keyboard: true,
       one_time_keyboard: false,
@@ -894,12 +871,8 @@ export async function handleCommand(text, message, ctx) {
     return menuAnswer(
       [
         "EXAMPLE FLOW",
-        "0. Lihat market lagi rame:",
-        "/top",
-        "/top liquidity",
-        "",
         "1. Cari market:",
-        "/search MicroStrategy sells any Bitcoin",
+        "/search BTC",
         "",
         "2. Analisis dari Market ID:",
         "/analyze 2169995",
@@ -907,36 +880,23 @@ export async function handleCommand(text, message, ctx) {
         "3. Pilih market dari event (mode pilih):",
         "/analyze https://polymarket.com/event/microstrategy-sell-any-bitcoin-in-2025",
         "",
-        "4. Scan cepat event tanpa Qwen:",
-        "/quickscan colombia-presidential-election",
-        "",
-        "5. Cari kandidat paling worth it otomatis dari event:",
-        "/analyzebest colombia-presidential-election",
-        "",
-        "6. Atau jelaskan semua pilihan aktif (1 pilihan = 1 bubble):",
-        "/analyzeall https://polymarket.com/event/microstrategy-sell-any-bitcoin-in-2025",
+        "4. Cari kandidat paling worth it otomatis dari event:",
+        "/analyzebest colombia-presidential-election"
       ].join("\n")
     );
   }
 
   if (command === "/search") {
-    if (!arg) return menuAnswer("Pakai format: /search <keyword>\n\nContoh: /search MicroStrategy sells any Bitcoin");
+    if (!arg) return menuAnswer("Pakai format: /search <keyword>\n\nContoh: /search BTC");
     
     let query = arg;
     const parsed = parsePolymarketLink(arg);
     if (parsed && parsed.slug) {
-      // If it's a link, use the slug (e.g. 'ufc-jus3-ili1-2026-06-14') as the keyword
-      // Replace dashes with spaces for better search relevance
       query = parsed.slug.replace(/-/g, " ");
     }
     
     const markets = await searchMarkets(query, 5);
     return menuAnswer(formatSearchResults(markets));
-  }
-
-  if (command === "/top" || command === "/trending") {
-    const result = await listTopMarkets({ mode: arg || "volume", limit: 10 });
-    return menuAnswer(formatTopMarkets(result));
   }
 
   if (command === "/book") {
@@ -954,106 +914,6 @@ export async function handleCommand(text, message, ctx) {
     return menuAnswer(formatBook(book));
   }
 
-  if (command === "/quickscan" || command === "/top3") {
-    if (!arg) {
-      return menuAnswer(
-        `Pakai format: ${command} <link event atau slug event>\n\nContoh: ${command} colombia-presidential-election`
-      );
-    }
-
-    const limit = command === "/top3" ? 3 : 8;
-    const output = await runWithProgress(
-      ctx,
-      arg,
-      async (setStep) => {
-        setStep("Resolving event input");
-        const result = await resolveEventInput(arg);
-        if (!result || !result.markets?.length) {
-          return "Event tidak ditemukan atau tidak punya market aktif yang bisa discan.";
-        }
-        return quickScanEvent({ result, query: arg, setStep, ctx, limit, signal: ctx?.signal });
-      },
-      { estimateSeconds: 25, mode: "quick" }
-    );
-
-    return menuAnswer(output);
-  }
-
-  if (command === "/eventscan" || command === "/eventtop") {
-    const session = getEventSession(arg);
-    if (!session) {
-      return menuAnswer("Event session sudah expired. Kirim ulang link event-nya ya.");
-    }
-
-    const limit = command === "/eventtop" ? 3 : 8;
-    const result = eventResultFromSession(session);
-    const output = await runWithProgress(
-      ctx,
-      session.sourceInput || session.event?.title || arg,
-      (setStep) =>
-        quickScanEvent({
-          result,
-          query: session.sourceInput || session.event?.title || arg,
-          setStep,
-          ctx,
-          limit: 3,
-          signal: ctx?.signal
-        }),
-      { estimateSeconds: 25, mode: "quick" }
-    );
-
-    return menuAnswer(output);
-  }
-
-  if (command === "/eventmarket") {
-    const [sessionId, marketId] = arg.split(/\s+/);
-    const session = getEventSession(sessionId);
-    if (!session) {
-      return menuAnswer("Event session sudah expired. Kirim ulang link event-nya ya.");
-    }
-
-    const market = session.markets.find((item) => String(item.id) === String(marketId));
-    if (!market) return menuAnswer("Market tidak ditemukan di event session ini.");
-
-    const output = await runWithProgress(ctx, marketId, (setStep) =>
-      deepAnalyzeMarket({ market, query: marketId, setStep, ctx, signal: ctx?.signal })
-    );
-
-    return menuAnswer(output);
-  }
-
-  if (command === "/eventbest") {
-    const session = getEventSession(arg);
-    if (!session) {
-      return menuAnswer("Event session sudah expired. Kirim ulang link event-nya ya.");
-    }
-
-    const result = eventResultFromSession(session);
-    const query = session.sourceInput || session.event?.title || arg;
-    const output = await runWithProgress(ctx, query, (setStep) =>
-      bestCandidateAnalysis({ result, query, setStep, ctx, signal: ctx?.signal })
-    );
-
-    return menuAnswer(output);
-  }
-
-  if (command === "/eventall") {
-    const session = getEventSession(arg);
-    if (!session) {
-      return menuAnswer("Event session sudah expired. Kirim ulang link event-nya ya.");
-    }
-
-    const result = eventResultFromSession(session);
-    const query = session.sourceInput || session.event?.title || arg;
-    const output = await runWithProgress(
-      ctx,
-      query,
-      (setStep) => analyzeAllEvent({ result, query, setStep, ctx, signal: ctx?.signal }),
-      { estimateSeconds: 35, mode: "quick" }
-    );
-
-    return menuAnswer(output);
-  }
 
   if (command === "/analyzequeue") {
     if (!arg) return menuAnswer("Format: /analyzequeue <url1>,<url2>...");
@@ -1168,77 +1028,7 @@ export async function handleCommand(text, message, ctx) {
     return menuAnswer(output);
   }
 
-  if (command === "/analyzeall") {
-    if (!arg) {
-      return menuAnswer(
-        "Pakai format: /analyzeall <link event Polymarket>\n\nContoh: /analyzeall https://polymarket.com/event/colombia-presidential-election"
-      );
-    }
 
-    const output = await runWithProgress(ctx, arg, async (setStep) => {
-      setStep("Resolving event input");
-      const result = await resolveEventInput(arg);
-      if (!result || !result.markets?.length) {
-        return "Event tidak ditemukan atau tidak punya market aktif yang bisa dianalisis.";
-      }
-
-      return analyzeAllEvent({ result, query: arg, setStep, ctx, signal: ctx?.signal });
-    }, { estimateSeconds: 35, mode: "quick" });
-
-    return menuAnswer(output);
-  }
-
-  // ── 🔔 ALERTS (/alert, /alerts, /delalert) ─────────────────────────────
-  if (command === "/alerts" || (command === "/alert" && !arg)) {
-    return menuAnswer(formatAlertsList());
-  }
-
-  if (command === "/alert" && arg) {
-    // Format: /alert <tokenId> <above|below|change> <threshold>
-    // User harus kasih tokenId dari /book dulu
-    const parsed = parseAlertCommand(arg);
-    if (!parsed) {
-      return menuAnswer(
-        "Format: /alert <tokenId> <above|below|change> <threshold>\n\n" +
-        "Contoh:\n" +
-        "/alert abc123 above 0.70  → notif kalau harga naik ke ≥70¢\n" +
-        "/alert abc123 below 0.30  → notif kalau harga turun ke ≤30¢\n" +
-        "/alert abc123 change 5    → notif kalau harga berubah ≥5%\n\n" +
-        "Dapatkan tokenId dari /book <marketId>"
-      );
-    }
-
-    // Coba ambil nama market dari tokenId
-    let question = `Token ${parsed.tokenId.slice(0, 12)}...`;
-    try {
-      const book = await getOrderBook(parsed.tokenId);
-      if (book?.market) question = book.market.slice(0, 80);
-    } catch { /* ignore */ }
-
-    const id = addAlert({
-      tokenId: parsed.tokenId,
-      marketId: parsed.tokenId, // tokenId sama dengan marketId di sini
-      question,
-      condition: parsed.condition,
-      threshold: parsed.threshold,
-    });
-
-    const condLabel = { price_above: "naik ke ≥", price_below: "turun ke ≤", price_change_pct: "berubah ≥" };
-    const thresholdFmt = parsed.condition === "price_change_pct"
-      ? `${parsed.threshold}%`
-      : `${(parsed.threshold * 100).toFixed(1)}¢`;
-
-    return menuAnswer(
-      `✅ Alert dibuat! ID: *${id}*\n📊 ${question}\nKondisi: harga ${condLabel[parsed.condition]}${thresholdFmt}\n\nGunakan /delalert ${id} untuk menghapus.`
-    );
-  }
-
-  if (command === "/delalert") {
-    const id = parseInt(arg);
-    if (!id) return menuAnswer("Format: /delalert <id>\nDapatkan ID dari /alerts");
-    const ok = deleteAlert(id);
-    return menuAnswer(ok ? `✅ Alert ${id} dihapus.` : `❌ Alert ${id} tidak ditemukan.`);
-  }
 
   // ✨🐋 WHALE TRACKING (/whales, /whale, /toptraders, /add, /del) ✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨
   if (command === "/add") {
@@ -1301,89 +1091,6 @@ export async function handleCommand(text, message, ctx) {
     }, { estimateSeconds: 2, mode: "quick" }).then(output => menuAnswer(output));
   }
 
-  if (command === "/toptraders") {
-    const limit = parseInt(arg) || 10;
-    const traders = await fetchTopTraders({ limit });
-    return menuAnswer(formatTopTraders(traders));
-  }
-
-  // ── ⚖️ ARBITRAGE (/arb, /opps, /internalabs) ────────────────────────────
-  if (command === "/arb" || command === "/opportunities" || command === "/opps") {
-    return runWithProgress(ctx, "Scanning arbitrage opportunities", async (setStep) => {
-      setStep("Fetching top markets");
-      const { markets } = await listTopMarkets({ mode: "volume", limit: 30 });
-      setStep(`Scanning ${markets.length} markets for opportunities`);
-      // Require at least 0.5% internal gap and 2% cross-platform spread for good RR
-      const results = await scanAllOpportunities(markets, { minGap: 0.005, minSpreadPct: 2 });
-      return formatOpportunityScan(results);
-    }, { estimateSeconds: 30, mode: "quick" }).then(output => menuAnswer(output));
-  }
-
-  if (command === "/internalarb") {
-    return runWithProgress(ctx, "Scanning internal arbitrage", async (setStep) => {
-      setStep("Fetching top markets");
-      const { markets } = await listTopMarkets({ mode: "volume", limit: 50 });
-      setStep(`Checking YES+NO prices on ${markets.length} markets`);
-      // Require at least 0.5% internal gap for good RR
-      const opps = await detectInternalArbitrage(markets, { minGap: 0.005 });
-      return formatOpportunityScan({ internal: opps, crossPlatform: [], total: opps.length, scannedAt: new Date().toISOString() });
-    }, { estimateSeconds: 35, mode: "quick" }).then(output => menuAnswer(output));
-  }
-
-  // ── 📊 ANALYTICS (/analytics, /stats, /timing, /bycat) ──────────────────
-  if (command === "/analytics" || command === "/stats") {
-    const days = parseInt(arg) || 30;
-    const trades = getShadowTrades({ days });
-    const metrics = calculatePerformanceMetrics(trades);
-    return menuAnswer(formatAnalyticsSummary(metrics, `${days} hari terakhir`));
-  }
-
-  if (command === "/timing" || command === "/besttimes") {
-    const trades = getShadowTrades({ days: 90 });
-    const timing = getTimingAnalysis(trades);
-    return menuAnswer(formatTimingAnalysis(timing));
-  }
-
-  if (command === "/bycat" || command === "/performance") {
-    const trades = getShadowTrades({ days: 90 });
-    const byCategory = getPerformanceByCategory(trades);
-    if (!Object.keys(byCategory).length) {
-      return menuAnswer("📭 Belum ada data resolved untuk analisis kategori.");
-    }
-    let text = "📊 *Performance by Category*\n\n";
-    const sorted = Object.entries(byCategory).sort((a, b) => b[1].total - a[1].total);
-    for (const [cat, data] of sorted) {
-      text += `*${cat}*: WR ${data.winRate}% (${data.wins}W/${data.total - data.wins}L, ${data.total} total)\n`;
-      if (data.sub && Object.keys(data.sub).length > 0) {
-        const sortedSub = Object.entries(data.sub).sort((a, b) => b[1].total - a[1].total);
-        for (const [subName, subData] of sortedSub) {
-          const subWr = subData.total > 0 ? (subData.wins / subData.total * 100).toFixed(1) : "0.0";
-          text += `  • ${subName}: WR ${subWr}% (${subData.wins}W/${subData.total - subData.wins}L, ${subData.total} total)\n`;
-        }
-      }
-    }
-    return menuAnswer(text);
-  }
-
-  // ── 📈 BACKTEST (/backtest) ───────────────────────────────────────────────
-  if (command === "/backtest") {
-    let strategy = "flat";
-    let initialCapital = 1000;
-    
-    const argParts = (arg || "").trim().split(/\s+/);
-    for (const a of argParts) {
-      const lowerA = a.toLowerCase();
-      if (["kelly", "flat", "conservative"].includes(lowerA)) {
-        strategy = lowerA;
-      } else if (!isNaN(parseFloat(a))) {
-        initialCapital = parseFloat(a);
-      }
-    }
-
-    const trades = getShadowTrades({ days: 180 });
-    const result = runBacktest({ trades, strategy, initialCapital });
-    return menuAnswer(formatBacktestResult(result));
-  }
 
   // ── 📐 KELLY (/kelly) ────────────────────────────────────────────────────
   if (command === "/kelly") {

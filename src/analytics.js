@@ -188,7 +188,7 @@ export function calculateKelly({
  * Ported dari CloddsBot analytics getAttribution() dan analytics skill.
  */
 export function getPerformanceByCategory(trades) {
-  return groupByCategory(trades.filter(t => t.status !== "belum selesai"));
+  return groupByCategory(trades.filter(t => t.status !== "belum selesai" && t.result !== "netral"));
 }
 
 /**
@@ -196,7 +196,7 @@ export function getPerformanceByCategory(trades) {
  * Ported dari CloddsBot analytics getHourlyPerformance() dan getDayOfWeekPerformance().
  */
 export function getTimingAnalysis(trades) {
-  const resolved = trades.filter(t => t.status !== "belum selesai");
+  const resolved = trades.filter(t => t.status !== "belum selesai" && t.result !== "netral");
   if (!resolved.length) return { hourly: [], daily: [] };
 
   // Hourly breakdown

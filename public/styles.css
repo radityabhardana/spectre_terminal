@@ -186,7 +186,7 @@ h1, h2, h3 {
   height: 100vh;
   height: 100dvh;
   display: grid;
-  grid-template-rows: 52px 1fr 26px;
+  grid-template-rows: 52px 1fr 29px;
   overflow: hidden;
   position: relative;
   z-index: 1;
@@ -1473,10 +1473,10 @@ textarea::-webkit-scrollbar-thumb,
   display: flex !important;
   justify-content: space-between !important;
   align-items: center !important;
-  padding: 0 16px 4px 16px !important;
+  padding: 0 16px !important;
   background: var(--bg-base) !important;
   border-top: 1px solid var(--border-strong) !important;
-  height: 34px !important;
+  height: 29px !important;
   font-family: "Outfit", sans-serif !important;
   z-index: 100 !important;
   position: relative !important;

@@ -14,7 +14,7 @@
     rel="stylesheet"
   />
   <script src="https://unpkg.com/lucide@latest"></script>
-  <link rel="stylesheet" href="/styles.css?v=brutalist-v30" />
+  <link rel="stylesheet" href="/styles.css?v=brutalist-v32" />
   </head>
   <body>
     <!-- Left Sidebar - Houses Short Market and Queue Panel -->
@@ -419,105 +419,98 @@
 
                 <div id="messages" class="messages" aria-live="polite"></div>
               </div>
-              
-              <!-- === CENTER DASHBOARD (Live Readiness & Agent) === -->
-              <div id="centerDashboard" class="center-dashboard">
-                <!-- Col 1: Live Readiness -->
-                <div class="dash-col dash-live-readiness">
-                  <div class="dash-col-header">Live Readiness <span class="badge-locked">LOCKED</span></div>
-                  <div class="dash-grid-2x2">
-                    <div class="dash-box">
-                      <span class="dash-label">PROFIT FACTOR <span class="dot-red"></span></span>
-                      <span class="dash-val">0.00</span>
-                      <span class="dash-sub">Target ≥ 1.2</span>
-                    </div>
-                    <div class="dash-box">
-                      <span class="dash-label">EXPECTANCY</span>
-                      <span class="dash-val">0.00%</span>
-                      <span class="dash-sub">Target > 0</span>
-                    </div>
-                    <div class="dash-box">
-                      <span class="dash-label">MAX DD <span class="dot-green"></span></span>
-                      <span class="dash-val" style="color:var(--neon-green)">0.0%</span>
-                      <span class="dash-sub">Target ≤ 12%</span>
-                    </div>
-                    <div class="dash-box">
-                      <span class="dash-label">WIN RATE</span>
-                      <span class="dash-val">0.0%</span>
-                      <span class="dash-sub">Target context</span>
-                    </div>
+            </div>
+            
+            <!-- === CENTER DASHBOARD (Live Readiness & Agent) === -->
+            <div id="centerDashboard" class="center-dashboard" style="flex:0 0 auto;">
+              <!-- Col 1: Live Readiness -->
+              <div class="dash-col dash-live-readiness">
+                <div class="dash-col-header">Live Readiness <span class="badge-locked">LOCKED</span></div>
+                <div class="dash-grid-2x2">
+                  <div class="dash-box">
+                    <span class="dash-label">PROFIT FACTOR <span class="dot-red"></span></span>
+                    <span class="dash-val">0.00</span>
+                    <span class="dash-sub">Target ≥ 1.2</span>
                   </div>
-                  <div class="dash-compounding-locked">
-                    <div style="color:var(--neon-amber); font-weight:600; font-size:10px; margin-bottom:4px;">COMPOUNDING LOCKED</div>
-                    <div style="color:var(--text-tertiary); font-size:9.5px; line-height:1.4;">Tetap BTC-only 0.5x risk sampai PF, expectancy, drawdown, dan sample trade sehat.</div>
+                  <div class="dash-box">
+                    <span class="dash-label">EXPECTANCY</span>
+                    <span class="dash-val">0.00%</span>
+                    <span class="dash-sub">Target > 0</span>
+                  </div>
+                  <div class="dash-box">
+                    <span class="dash-label">MAX DD <span class="dot-green"></span></span>
+                    <span class="dash-val" style="color:var(--neon-green)">0.0%</span>
+                    <span class="dash-sub">Target ≤ 12%</span>
+                  </div>
+                  <div class="dash-box">
+                    <span class="dash-label">WIN RATE</span>
+                    <span class="dash-val">0.0%</span>
+                    <span class="dash-sub">Target context</span>
                   </div>
                 </div>
-           
-                <!-- Col 2: Analisis Agent -->
-                <div class="dash-col dash-agent-analysis">
-                  <div class="dash-col-header" style="justify-content:space-between">
-                    <span>Analisis Agent</span>
-                    <span style="color:var(--text-tertiary); font-size:9px;">3-PHASE LLM</span>
-                  </div>
-                  <div style="margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-                    <span style="font-size:11px; font-weight:600;">Sinyal Terakhir</span>
-                    <span style="font-weight:700; color:var(--text-primary); font-size:11px;">BTC</span>
-                    <span style="background:rgba(239,68,68,0.15); color:var(--neon-red); font-size:9px; padding:2px 6px; border-radius:4px; font-weight:700;">SHORT</span>
-                  </div>
-                  
-                  <div class="agent-conclusion-box interactive" id="agentConclusionBox" title="Klik untuk melihat detail analisis AI">
-                    "Hermes decision=approve; model_role=primary; fallback_level=0; risk_mult=1.00; retest=None; flags=none; reason=Clear bearish edge with >2.0 fee-adjusted RR, positive funding for shorts."
-                    <div style="margin-top:6px; color:var(--text-tertiary); font-size:9px;">Model: <span style="color:var(--text-secondary)">Q-Wealth</span></div>
-                  </div>
-           
-                  <div style="margin-top:12px;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                      <span style="font-size:9.5px; color:var(--text-secondary);">Confluence Score</span>
-                      <span style="font-size:10px; font-weight:bold;">69%</span>
-                    </div>
-                    <div class="confluence-bar-bg">
-                      <div class="confluence-bar-fill" style="width:69%;"></div>
-                    </div>
-                  </div>
-           
-                  <div style="margin-top:12px;">
-                    <span style="font-size:9.5px; color:var(--text-secondary); margin-bottom:6px; display:block;">Distribusi Grade</span>
-                    <div class="grade-distribution">
-                      <div class="grade-box" style="border-color:var(--neon-amber);">
-                        <span class="g-title" style="color:var(--neon-amber)">S</span>
-                        <span class="g-val">0</span>
-                      </div>
-                      <div class="grade-box" style="border-color:var(--neon-green);">
-                        <span class="g-title" style="color:var(--neon-green)">A</span>
-                        <span class="g-val">4</span>
-                      </div>
-                      <div class="grade-box" style="border-color:var(--neon-cyan);">
-                        <span class="g-title" style="color:var(--neon-cyan)">B</span>
-                        <span class="g-val">0</span>
-                      </div>
-                      <div class="grade-box" style="border-color:var(--border-strong);">
-                        <span class="g-title" style="color:var(--text-secondary)">C</span>
-                        <span class="g-val">0</span>
-                      </div>
-                      <div class="grade-box" style="border-color:var(--border-strong);">
-                        <span class="g-title" style="color:var(--text-secondary)">D</span>
-                        <span class="g-val">0</span>
-                      </div>
-                    </div>
-                  </div>
+                <div class="dash-compounding-locked">
+                  <div style="color:var(--neon-amber); font-weight:600; font-size:10px; margin-bottom:4px;">COMPOUNDING LOCKED</div>
+                  <div style="color:var(--text-tertiary); font-size:9.5px; line-height:1.4;">Tetap BTC-only 0.5x risk sampai PF, expectancy, drawdown, dan sample trade sehat.</div>
+                </div>
+              </div>
+         
+              <!-- Col 2: Analisis Agent -->
+              <div class="dash-col dash-agent-analysis">
+                <div class="dash-col-header" style="justify-content:space-between">
+                  <span>Analisis Agent</span>
+                  <span style="color:var(--text-tertiary); font-size:9px;">3-PHASE LLM</span>
+                </div>
+                <div style="margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                  <span style="font-size:11px; font-weight:600;">Sinyal Terakhir</span>
+                  <span style="font-weight:700; color:var(--text-primary); font-size:11px;">BTC</span>
+                  <span style="background:rgba(239,68,68,0.15); color:var(--neon-red); font-size:9px; padding:2px 6px; border-radius:4px; font-weight:700;">SHORT</span>
                 </div>
                 
-                <!-- Col 3: Empty Slot Placeholder -->
-                <div class="dash-col dash-empty-slot"></div>
-           
-
+                <div class="agent-conclusion-box interactive" id="agentConclusionBox" title="Klik untuk melihat detail analisis AI">
+                  "Hermes decision=approve; model_role=primary; fallback_level=0; risk_mult=1.00; retest=None; flags=none; reason=Clear bearish edge with >2.0 fee-adjusted RR, positive funding for shorts."
+                  <div style="margin-top:6px; color:var(--text-tertiary); font-size:9px;">Model: <span style="color:var(--text-secondary)">Q-Wealth</span></div>
+                </div>
+         
+                <div style="margin-top:12px;">
+                  <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                    <span style="font-size:9.5px; color:var(--text-secondary);">Confluence Score</span>
+                    <span style="font-size:10px; font-weight:bold;">69%</span>
+                  </div>
+                  <div class="confluence-bar-bg">
+                    <div class="confluence-bar-fill" style="width:69%;"></div>
+                  </div>
+                </div>
+         
+                <div style="margin-top:12px;">
+                  <span style="font-size:9.5px; color:var(--text-secondary); margin-bottom:6px; display:block;">Distribusi Grade</span>
+                  <div class="grade-distribution">
+                    <div class="grade-box" style="border-color:var(--neon-amber);">
+                      <span class="g-title" style="color:var(--neon-amber)">S</span>
+                      <span class="g-val">0</span>
+                    </div>
+                    <div class="grade-box" style="border-color:var(--neon-green);">
+                      <span class="g-title" style="color:var(--neon-green)">A</span>
+                      <span class="g-val">4</span>
+                    </div>
+                    <div class="grade-box" style="border-color:var(--neon-cyan);">
+                      <span class="g-title" style="color:var(--neon-cyan)">B</span>
+                      <span class="g-val">0</span>
+                    </div>
+                    <div class="grade-box" style="border-color:var(--border-strong);">
+                      <span class="g-title" style="color:var(--text-secondary)">C</span>
+                      <span class="g-val">0</span>
+                    </div>
+                    <div class="grade-box" style="border-color:var(--border-strong);">
+                      <span class="g-title" style="color:var(--text-secondary)">D</span>
+                      <span class="g-val">0</span>
+                    </div>
+                  </div>
+                </div>
               </div>
               
+              <!-- Col 3: Empty Slot Placeholder -->
+              <div class="dash-col dash-empty-slot"></div>
             </div>
-
-
-
-
 
             <!-- History List Panel (replaces poly-panel in History Tab) -->
             <aside id="historyListPanel" class="poly-panel" style="display:none; flex-direction:column; background:var(--bg-elevated); border-left:1px solid var(--border);">

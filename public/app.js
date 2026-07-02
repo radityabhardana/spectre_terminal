@@ -2365,6 +2365,33 @@ if (btnRefreshShortMarket) {
   });
 }
 
+const btnBulkAddShort = document.querySelector("#btnBulkAddShort");
+if (btnBulkAddShort) {
+  btnBulkAddShort.addEventListener("click", () => {
+    if (!currentShortMarkets || currentShortMarkets.length === 0) {
+      showCustomAlert("Tidak ada market untuk ditambahkan.");
+      return;
+    }
+    let addedCount = 0;
+    currentShortMarkets.forEach(m => {
+      if (!analysisQueue.some(q => q.id === m.id) && analysisQueue.length < 50) {
+        analysisQueue.push(m);
+        addedCount++;
+      }
+    });
+    if (addedCount > 0) {
+      renderQueue();
+      if (typeof showCustomAlert === "function") showCustomAlert(`${addedCount} market ditambahkan ke antrean.`);
+      const snd = document.getElementById("chkSoundQueue");
+      if (snd && snd.checked && typeof playSound === "function") {
+         playSound("https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3", 0.3);
+      }
+    } else {
+      if (typeof showCustomAlert === "function") showCustomAlert("Semua market sudah ada di antrean atau antrean penuh.");
+    }
+  });
+}
+
 if (btnBulkAddQueue && bulkAddDropdown) {
   btnBulkAddQueue.addEventListener("click", (e) => {
     e.stopPropagation();

@@ -14,7 +14,7 @@
     rel="stylesheet"
   />
   <script src="https://unpkg.com/lucide@latest"></script>
-  <link rel="stylesheet" href="/styles.css?v=brutalist-v27" />
+  <link rel="stylesheet" href="/styles.css?v=brutalist-v30" />
   </head>
   <body>
     <!-- Left Sidebar - Houses Short Market and Queue Panel -->
@@ -402,21 +402,23 @@
 
           <div class="console-body">
             <div class="console-feed">
-              <div id="emptyState" class="empty-state">
-                <img class="empty-asset" src="/assets/market-lens.svg" alt="" />
-                <h2>&gt; Ready for signal_</h2>
-                <p>Polymarket Gamma + CLOB + Qwen pipeline.</p>
-              </div>
-
-              <div id="loadingState" class="loading-state hidden">
-                <div class="spinner" aria-hidden="true"></div>
-                <div>
-                  <strong>Processing</strong>
-                  <span id="timerText">0s</span>
+              <div class="console-scroll-area">
+                <div id="emptyState" class="empty-state">
+                  <img class="empty-asset" src="/assets/market-lens.svg" alt="" />
+                  <h2>&gt; Ready for signal_</h2>
+                  <p>Polymarket Gamma + CLOB + Qwen pipeline.</p>
                 </div>
-              </div>
 
-              <div id="messages" class="messages" aria-live="polite"></div>
+                <div id="loadingState" class="loading-state hidden">
+                  <div class="spinner" aria-hidden="true"></div>
+                  <div>
+                    <strong>Processing</strong>
+                    <span id="timerText">0s</span>
+                  </div>
+                </div>
+
+                <div id="messages" class="messages" aria-live="polite"></div>
+              </div>
               
               <!-- === CENTER DASHBOARD (Live Readiness & Agent) === -->
               <div id="centerDashboard" class="center-dashboard">

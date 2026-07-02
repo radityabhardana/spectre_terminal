@@ -4640,3 +4640,22 @@ setTimeout(() => {
     });
   }
 }, 1000);
+
+/* --- Agent Modal Logic --- */
+const agentConclusionBox = document.querySelector("#agentConclusionBox");
+const agentModal = document.querySelector("#agentModal");
+const closeAgentModal = document.querySelector("#closeAgentModal");
+
+if (agentConclusionBox && agentModal && closeAgentModal) {
+  agentConclusionBox.addEventListener("click", () => {
+    agentModal.style.display = "flex";
+  });
+  closeAgentModal.addEventListener("click", () => {
+    agentModal.style.display = "none";
+  });
+  agentModal.addEventListener("click", (e) => {
+    if (e.target === agentModal) {
+      agentModal.style.display = "none";
+    }
+  });
+}

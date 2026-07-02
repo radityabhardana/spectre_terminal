@@ -14,9 +14,83 @@
     rel="stylesheet"
   />
   <script src="https://unpkg.com/lucide@latest"></script>
-  <link rel="stylesheet" href="/styles.css?v=brutalist-v10" />
+  <link rel="stylesheet" href="/styles.css?v=brutalist-v27" />
   </head>
   <body>
+    <!-- Left Sidebar - Houses Short Market and Queue Panel -->
+    <aside id="leftSidebar" style="position:fixed; top:70px; bottom:40px; left:12px; width:340px; z-index:9000; display:flex; flex-direction:column; gap:12px; pointer-events:none;">
+      <!-- Short Market Card - Koyfin-style compact widget -->
+      <div id="shortMarketPanel" style="display:flex; flex-direction:column; flex-shrink:0; pointer-events:auto; background:#161618; border:1px solid rgba(255,255,255,0.1); border-radius:8px; box-shadow:0 4px 24px rgba(0,0,0,0.5); overflow:hidden; font-family:'Inter', system-ui, sans-serif;">
+      <!-- Header row -->
+      <div style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em;">Short Market Events</span>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <span id="shortMarketStatus" style="font-size:9px; color:#666; font-family:monospace;"></span>
+          <button type="button" id="btnRefreshShortMarket" style="background:none; border:none; cursor:pointer; color:#555; padding:2px; display:flex; align-items:center;" title="Refresh" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">
+            <i data-lucide="refresh-cw" style="width:11px; height:11px;"></i>
+          </button>
+        </div>
+      </div>
+      <!-- Asset + Duration tabs combined row -->
+      <div style="display:flex; border-bottom:1px solid rgba(255,255,255,0.07); background:rgba(0,0,0,0.3);">
+        <button type="button" id="tabAssetBtc" style="flex:1; padding:5px 4px; background:rgba(245,158,11,0.12); border:none; border-right:1px solid rgba(255,255,255,0.07); color:#f59e0b; font-size:10px; font-weight:600; cursor:pointer; transition:all 0.15s; letter-spacing:0.03em;">BTC</button>
+        <button type="button" id="tabAssetEth" style="flex:1; padding:5px 4px; background:transparent; border:none; border-right:1px solid rgba(255,255,255,0.07); color:#555; font-size:10px; font-weight:500; cursor:pointer; transition:all 0.15s; letter-spacing:0.03em;">ETH</button>
+        <button type="button" id="tabAssetDoge" style="flex:1; padding:5px 4px; background:transparent; border:none; border-right:1px solid rgba(255,255,255,0.07); color:#555; font-size:10px; font-weight:500; cursor:pointer; transition:all 0.15s; letter-spacing:0.03em;">DOGE</button>
+        <button type="button" id="tabDuration5m" style="flex:1; padding:5px 4px; background:rgba(255,255,255,0.05); border:none; border-right:1px solid rgba(255,255,255,0.07); color:#ccc; font-size:10px; cursor:pointer; transition:all 0.15s;">5m</button>
+        <button type="button" id="tabDuration15m" style="flex:1; padding:5px 4px; background:transparent; border:none; border-right:1px solid rgba(255,255,255,0.07); color:#555; font-size:10px; cursor:pointer; transition:all 0.15s;">15m</button>
+        <button type="button" id="tabDuration1h" style="flex:1; padding:5px 4px; background:transparent; border:none; color:#555; font-size:10px; cursor:pointer; transition:all 0.15s;">1h</button>
+      </div>
+      <!-- Column headers -->
+      <div style="display:grid; grid-template-columns:1fr 36px 36px 65px 30px; gap:0; padding:5px 12px 4px; background:rgba(0,0,0,0.2); border-bottom:1px solid rgba(255,255,255,0.05);">
+        <div style="font-size:9px; font-weight:600; color:#444; text-transform:uppercase; letter-spacing:0.08em;">Event</div>
+        <div style="font-size:9px; font-weight:600; color:#444; text-transform:uppercase; letter-spacing:0.08em; text-align:center;">Yes</div>
+        <div style="font-size:9px; font-weight:600; color:#444; text-transform:uppercase; letter-spacing:0.08em; text-align:center;">No</div>
+        <div style="font-size:9px; font-weight:600; color:#444; text-transform:uppercase; letter-spacing:0.08em; text-align:right;">Time</div>
+        <div></div>
+      </div>
+      <!-- Data List -->
+      <div id="shortMarketList" style="max-height:280px; overflow-y:auto; overflow-x:hidden;">
+        <div style="text-align:center; padding:20px 12px; color:#444; font-size:10px;">
+          <i data-lucide="loader" style="width:16px; height:16px; margin-bottom:8px; opacity:0.4;"></i><br>
+          Loading markets...
+        </div>
+      </div>
+    </div>
+
+      <!-- Queue Panel - Permanent top-left Koyfin-style widget (under Short Market) -->
+      <div id="queuePanel" style="display:flex; flex-direction:column; flex:1; min-height:0; pointer-events:auto; background:#161618; border:1px solid rgba(255,255,255,0.1); border-radius:8px; box-shadow:0 4px 24px rgba(0,0,0,0.5); overflow:hidden; font-family:'Inter', system-ui, sans-serif;">
+      <!-- Header row -->
+      <div id="queuePanelHeader" style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em; display:flex; align-items:center; gap:6px;">
+          <i data-lucide="list-ordered" style="width:12px; height:12px; color:var(--neon-green);"></i> Analysis Queue
+        </span>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span id="queueProgressText" style="display:none; font-size:9px; color:var(--neon-amber); font-family:monospace;"></span>
+          <button type="button" id="btnClearQueue" style="background:none; border:none; cursor:pointer; color:#555; padding:2px; display:flex; align-items:center;" title="Clear Queue" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">
+            <i data-lucide="trash-2" style="width:11px; height:11px;"></i>
+          </button>
+        </div>
+      </div>
+      
+      <!-- Dropzone & List -->
+      <div id="queuePanelContent" style="display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden;">
+        <div id="queueDropzone" style="flex:1; overflow-y:auto; padding:8px 12px; display:flex; flex-direction:column; gap:6px; border:2px dashed transparent; transition: border-color 0.2s;">
+          <div id="queueEmpty" style="text-align:center; padding:30px 10px; color:#444; font-size:10px; pointer-events:none; margin:auto;">
+            <i data-lucide="download" style="width:16px; height:16px; margin-bottom:8px; opacity:0.4;"></i><br>
+            Drag & Drop markets here
+          </div>
+        </div>
+        
+        <!-- Action Footer -->
+        <div style="padding:8px; border-top:1px solid rgba(255,255,255,0.05); background:rgba(0,0,0,0.2);">
+          <button id="btnRunQueue" class="btn-primary" type="button" style="width:100%; justify-content:center; height:26px; font-size:10px; font-weight:600; background:rgba(245, 158, 11, 0.1); color:var(--neon-amber); border:1px solid rgba(245, 158, 11, 0.3); transition:all 0.2s;">
+            <i data-lucide="play" class="btn-icon" style="width:10px; height:10px;"></i> Start Sniper & Queue
+          </button>
+        </div>
+      </div>
+      </div>
+    </aside>
+
     <div class="app-shell">
       <!-- === HEADER BAR === -->
       <header class="topbar">
@@ -180,44 +254,7 @@
               </div>
 
               <!-- Floating Panel for Queue -->
-              <div id="queuePanel" style="display:none; position:absolute; top:32px; right:330px; width:360px; height:400px; min-width:300px; min-height:200px; max-width:800px; max-height:80vh; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5); z-index:150; text-align:left; flex-direction:column;">
-                <div id="queueResizeHandleSW" style="position:absolute; bottom:0; left:0; width:16px; height:16px; cursor:sw-resize; z-index:101; border-bottom-left-radius: var(--radius-md);">
-                  <svg width="100%" height="100%" viewBox="0 0 16 16" style="opacity:0.3; transform: rotate(90deg);"><path d="M12 14L14 12M8 14L14 8M4 14L14 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-                </div>
-                <div id="queueResizer" style="display:none;"></div>
-                <div id="queuePanelHeader" style="padding:10px 12px; border-bottom:1px solid var(--border); background:rgba(16, 185, 129, 0.05); display:flex; justify-content:space-between; align-items:center; cursor:grab;">
-                  <span style="font-size:11px; font-weight:600; color:var(--text-primary); display:flex; align-items:center; gap:6px; pointer-events:none;">
-                    <i data-lucide="list-ordered" style="width:14px; height:14px; color:var(--neon-green);"></i>Analysis Queue
-                    <span id="queueProgressText" style="display:none; color:var(--neon-amber); font-weight:normal; font-size:10px; margin-left:4px;"></span>
-                  </span>
-                  <div style="display:flex; gap:8px;">
-                    <button type="button" id="btnMinimizeQueue" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Minimize Queue">
-                      <i data-lucide="minus" style="width:14px; height:14px;"></i>
-                    </button>
-                    <button type="button" id="btnClearQueue" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Clear Queue">
-                      <i data-lucide="trash-2" style="width:12px; height:12px;"></i>
-                    </button>
-                    <button type="button" id="btnCloseQueue" style="background:none; border:none; padding:0; cursor:pointer; color:var(--text-secondary);" title="Close Queue">
-                      <i data-lucide="x" style="width:14px; height:14px;"></i>
-                    </button>
-                  </div>
-                </div>
-
-                <div id="queuePanelContent" style="display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden;">
-                  <!-- Sniper settings moved to settings modal -->
-                <div id="queueDropzone" style="flex:1; overflow-y:auto; padding:8px; font-size:10px; display:flex; flex-direction:column; gap:6px; border: 2px dashed transparent; transition: border-color 0.2s;">
-                  <div id="queueEmpty" style="text-align:center; padding:30px 10px; color:var(--text-tertiary); pointer-events:none; margin:auto;">
-                    <i data-lucide="download" style="width:20px; height:20px; margin-bottom:8px; opacity:0.5;"></i><br>
-                    Drag & Drop markets here
-                  </div>
-                </div>
-                <div style="padding:8px; border-top:1px solid var(--border);">
-                  <button id="btnRunQueue" class="btn-primary" type="button" style="width:100%; justify-content:center; height:28px; font-size:11px; background:rgba(245, 158, 11, 0.2); color:var(--neon-amber); border:1px solid rgba(245, 158, 11, 0.5);">
-                    <i data-lucide="play" class="btn-icon" style="width:12px; height:12px;"></i> Start Sniper & Queue
-                  </button>
-                </div>
-                </div> <!-- End of queuePanelContent -->
-              </div>
+              <!-- queuePanel moved to body level -->
 
               <!-- Modal Panel for Sniffer -->
               <div id="snifferPanel" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
@@ -356,114 +393,8 @@
 
                 </div>
               </div>
+              <!-- Short Market Panel moved to body-level -->
 
-              <!-- Floating Panel for Short Market (Redesigned) -->
-              <div id="shortMarketPanel" style="display:none; position:absolute; top:32px; right:0; width:420px; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:8px; box-shadow: 0 10px 40px rgba(0,0,0,0.8); z-index:100; text-align:left; overflow:hidden;">
-                
-                <!-- Guided Header -->
-                <div style="padding:16px; border-bottom:1px solid var(--border); background:rgba(245,158,11,0.05); display:flex; flex-direction:column; gap:12px;">
-                  
-                  <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                    <div>
-                      <h4 style="margin:0; font-size:14px; color:var(--neon-amber); display:flex; align-items:center; gap:6px;">
-                        <i data-lucide="zap" style="width:14px; height:14px;"></i> Short Market Sniper
-                      </h4>
-                      <p style="margin:4px 0 0 0; font-size:11px; color:var(--text-secondary); line-height:1.4;">
-                        Pilih aset dan durasi di bawah untuk memantau market (ending soon).
-                      </p>
-                    </div>
-                    <span id="shortMarketStatus" style="font-size:10px; color:var(--text-tertiary); background:var(--bg-elevated); padding:2px 6px; border-radius:4px; border:1px solid var(--border);">Updating...</span>
-                  </div>
-
-                  <!-- Step 1: Asset Selection -->
-                  <div style="display:flex; flex-direction:column; gap:6px; margin-top:4px;">
-                    <span style="font-size:10px; font-weight:600; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.5px;">1. Pilih Aset</span>
-                    <div style="display:flex; background:rgba(0,0,0,0.2); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
-                      <button type="button" id="tabAssetBtc" style="flex:1; padding:8px; background:rgba(245,158,11,0.1); border:none; border-right:1px solid var(--border); color:var(--neon-amber); font-size:12px; font-weight:bold; cursor:pointer; transition:all 0.2s;">BTC</button>
-                      <button type="button" id="tabAssetEth" style="flex:1; padding:8px; background:transparent; border:none; border-right:1px solid var(--border); color:var(--text-tertiary); font-size:12px; font-weight:bold; cursor:pointer; transition:all 0.2s;">ETH</button>
-                      <button type="button" id="tabAssetDoge" style="flex:1; padding:8px; background:transparent; border:none; color:var(--text-tertiary); font-size:12px; font-weight:bold; cursor:pointer; transition:all 0.2s;">DOGE</button>
-                    </div>
-                  </div>
-
-                  <!-- Step 2: Duration & Action -->
-                  <div style="display:flex; align-items:flex-end; gap:12px; margin-top:4px;">
-                    <div style="flex:1; display:flex; flex-direction:column; gap:6px;">
-                      <span style="font-size:10px; font-weight:600; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:0.5px;">2. Pilih Waktu</span>
-                      <select id="shortDurationSelect" style="width:100%; background:var(--bg-elevated); color:var(--text-primary); border:1px solid var(--border); font-size:12px; padding:8px; border-radius:6px; outline:none; cursor:pointer;">
-                        <option value="5m">5-Minute Markets</option>
-                        <option value="15m">15-Minute Markets</option>
-                        <option value="1h">1-Hour Markets</option>
-                      </select>
-                    </div>
-                    
-                    <div style="display:flex; gap:6px;">
-                      <button type="button" id="btnRefreshShortMarket" style="height:33px; padding:0 12px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); cursor:pointer; display:flex; align-items:center; gap:6px; transition:all 0.2s;" title="Refresh Data" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='var(--bg-elevated)'">
-                        <i data-lucide="refresh-cw" style="width:14px; height:14px;"></i> Refresh
-                      </button>
-                    </div>
-                  </div>
-
-                  <!-- Tools Row (Queue, Bulk Add, AI Check) -->
-                  <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding-top:12px; border-top:1px dashed var(--border);">
-                     <div style="font-size:10px; color:var(--text-tertiary);">Advanced Tools:</div>
-                     <div style="display:flex; gap:6px;">
-                        <button type="button" id="btnCheckShortCondition" style="height:26px; padding:0 8px; background:transparent; border:1px solid var(--border); border-radius:4px; color:var(--text-secondary); font-size:10px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all 0.2s;" title="Check Market Vibe (AI)" onmouseover="this.style.color='var(--neon-amber)'; this.style.borderColor='var(--neon-amber)'" onmouseout="this.style.color='var(--text-secondary)'; this.style.borderColor='var(--border)'">
-                          <i data-lucide="brain" style="width:12px; height:12px;"></i> AI Vibe Check
-                        </button>
-                        <button type="button" id="btnToggleQueue" style="height:26px; padding:0 8px; background:transparent; border:1px solid var(--border); border-radius:4px; color:var(--text-secondary); font-size:10px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all 0.2s;" title="Open Analysis Queue" onmouseover="this.style.color='var(--neon-green)'; this.style.borderColor='var(--neon-green)'" onmouseout="this.style.color='var(--text-secondary)'; this.style.borderColor='var(--border)'">
-                          <i data-lucide="layout-template" style="width:12px; height:12px;"></i> Queue
-                        </button>
-                        
-                        <!-- Bulk Add Dropdown Wrapper -->
-                        <div style="position:relative; display:flex;">
-                          <button type="button" id="btnBulkAddQueue" style="height:26px; padding:0 8px; background:transparent; border:1px solid var(--border); border-radius:4px; color:var(--text-secondary); font-size:10px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all 0.2s;" title="Bulk Add Markets to Queue" onmouseover="this.style.color='var(--neon-purple)'; this.style.borderColor='var(--neon-purple)'" onmouseout="this.style.color='var(--text-secondary)'; this.style.borderColor='var(--border)'">
-                            <i data-lucide="layers" style="width:12px; height:12px;"></i> Bulk Add
-                          </button>
-                          
-                          <!-- Bulk Add Dropdown Content -->
-                          <div id="bulkAddDropdown" style="display:none; position:absolute; top:100%; right:0; margin-top:8px; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:8px; box-shadow:0 8px 32px rgba(0,0,0,0.6); z-index:9999; width:260px; flex-direction:column; overflow:hidden;">
-                            <div style="background:rgba(245,158,11,0.1); padding:8px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:6px;">
-                              <i data-lucide="layers" style="width:14px; height:14px; color:var(--neon-amber);"></i>
-                              <span style="font-size:11px; color:var(--text-primary); font-weight:700; letter-spacing:0.5px;">BULK ADD MANAGER</span>
-                            </div>
-                            <div style="padding:12px; display:flex; flex-direction:column; gap:12px;">
-                              <div style="display:flex; flex-direction:column; gap:6px;">
-                                <span style="font-size:10px; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Start from event:</span>
-                                <!-- Custom Select UI -->
-                                <div id="customBulkStartWrapper" style="position:relative; width:100%;">
-                                  <div id="customBulkStartDisplay" style="width:100%; padding:6px 8px; font-size:11px; background:var(--bg-base); border:1px solid var(--border-bright); color:var(--text-primary); border-radius:4px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; transition:all 0.2s;">
-                                    <span id="customBulkStartText" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:8px;">Loading...</span>
-                                    <i data-lucide="chevron-down" style="width:12px; height:12px; flex-shrink:0; opacity:0.6;"></i>
-                                  </div>
-                                  <div id="customBulkStartOptions" style="display:none; position:absolute; top:100%; left:0; width:100%; max-height:180px; overflow-y:auto; background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:6px; margin-top:4px; z-index:10001; box-shadow:0 8px 32px rgba(0,0,0,0.8); flex-direction:column;">
-                                    <!-- Options injected here -->
-                                  </div>
-                                  <input type="hidden" id="selectBulkStart" value="0">
-                                </div>
-                              </div>
-                              <div style="display:flex; flex-direction:column; gap:6px;">
-                                <span style="font-size:10px; color:var(--text-secondary); font-weight:600; text-transform:uppercase;">Markets to Queue:</span>
-                                <div style="display:flex; align-items:center; gap:8px;">
-                                  <input type="number" id="inputBulkCount" value="50" min="1" max="50" style="flex:1; padding:6px 8px; font-size:12px; background:var(--bg-base); border:1px solid var(--border-bright); color:var(--neon-green); font-weight:bold; border-radius:4px; outline:none; text-align:center;">
-                                  <button type="button" id="btnConfirmBulkAdd" class="btn-primary" style="padding:6px 14px; font-size:11px; height:auto; background:var(--neon-green); color:#000; font-weight:bold; border:none; border-radius:4px; cursor:pointer;">Inject</button>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                     </div>
-                  </div>
-
-                </div>
-                
-                <div id="shortMarketList" style="max-height:350px; overflow-y:auto; padding:12px; font-size:11px; display:flex; flex-direction:column; gap:8px;">
-                  <div style="text-align:center; padding:30px 20px; color:var(--text-tertiary);">
-                    <i data-lucide="loader" style="width:24px; height:24px; margin-bottom:12px; opacity:0.5;"></i><br>
-                    Loading markets...
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -486,6 +417,100 @@
               </div>
 
               <div id="messages" class="messages" aria-live="polite"></div>
+              
+              <!-- === CENTER DASHBOARD (Live Readiness & Agent) === -->
+              <div id="centerDashboard" class="center-dashboard">
+                <!-- Col 1: Live Readiness -->
+                <div class="dash-col dash-live-readiness">
+                  <div class="dash-col-header">Live Readiness <span class="badge-locked">LOCKED</span></div>
+                  <div class="dash-grid-2x2">
+                    <div class="dash-box">
+                      <span class="dash-label">PROFIT FACTOR <span class="dot-red"></span></span>
+                      <span class="dash-val">0.00</span>
+                      <span class="dash-sub">Target ≥ 1.2</span>
+                    </div>
+                    <div class="dash-box">
+                      <span class="dash-label">EXPECTANCY</span>
+                      <span class="dash-val">0.00%</span>
+                      <span class="dash-sub">Target > 0</span>
+                    </div>
+                    <div class="dash-box">
+                      <span class="dash-label">MAX DD <span class="dot-green"></span></span>
+                      <span class="dash-val" style="color:var(--neon-green)">0.0%</span>
+                      <span class="dash-sub">Target ≤ 12%</span>
+                    </div>
+                    <div class="dash-box">
+                      <span class="dash-label">WIN RATE</span>
+                      <span class="dash-val">0.0%</span>
+                      <span class="dash-sub">Target context</span>
+                    </div>
+                  </div>
+                  <div class="dash-compounding-locked">
+                    <div style="color:var(--neon-amber); font-weight:600; font-size:10px; margin-bottom:4px;">COMPOUNDING LOCKED</div>
+                    <div style="color:var(--text-tertiary); font-size:9.5px; line-height:1.4;">Tetap BTC-only 0.5x risk sampai PF, expectancy, drawdown, dan sample trade sehat.</div>
+                  </div>
+                </div>
+           
+                <!-- Col 2: Analisis Agent -->
+                <div class="dash-col dash-agent-analysis">
+                  <div class="dash-col-header" style="justify-content:space-between">
+                    <span>Analisis Agent</span>
+                    <span style="color:var(--text-tertiary); font-size:9px;">3-PHASE LLM</span>
+                  </div>
+                  <div style="margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                    <span style="font-size:11px; font-weight:600;">Sinyal Terakhir</span>
+                    <span style="font-weight:700; color:var(--text-primary); font-size:11px;">BTC</span>
+                    <span style="background:rgba(239,68,68,0.15); color:var(--neon-red); font-size:9px; padding:2px 6px; border-radius:4px; font-weight:700;">SHORT</span>
+                  </div>
+                  
+                  <div class="agent-conclusion-box interactive" id="agentConclusionBox" title="Klik untuk melihat detail analisis AI">
+                    "Hermes decision=approve; model_role=primary; fallback_level=0; risk_mult=1.00; retest=None; flags=none; reason=Clear bearish edge with >2.0 fee-adjusted RR, positive funding for shorts."
+                    <div style="margin-top:6px; color:var(--text-tertiary); font-size:9px;">Model: <span style="color:var(--text-secondary)">Q-Wealth</span></div>
+                  </div>
+           
+                  <div style="margin-top:12px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                      <span style="font-size:9.5px; color:var(--text-secondary);">Confluence Score</span>
+                      <span style="font-size:10px; font-weight:bold;">69%</span>
+                    </div>
+                    <div class="confluence-bar-bg">
+                      <div class="confluence-bar-fill" style="width:69%;"></div>
+                    </div>
+                  </div>
+           
+                  <div style="margin-top:12px;">
+                    <span style="font-size:9.5px; color:var(--text-secondary); margin-bottom:6px; display:block;">Distribusi Grade</span>
+                    <div class="grade-distribution">
+                      <div class="grade-box" style="border-color:var(--neon-amber);">
+                        <span class="g-title" style="color:var(--neon-amber)">S</span>
+                        <span class="g-val">0</span>
+                      </div>
+                      <div class="grade-box" style="border-color:var(--neon-green);">
+                        <span class="g-title" style="color:var(--neon-green)">A</span>
+                        <span class="g-val">4</span>
+                      </div>
+                      <div class="grade-box" style="border-color:var(--neon-cyan);">
+                        <span class="g-title" style="color:var(--neon-cyan)">B</span>
+                        <span class="g-val">0</span>
+                      </div>
+                      <div class="grade-box" style="border-color:var(--border-strong);">
+                        <span class="g-title" style="color:var(--text-secondary)">C</span>
+                        <span class="g-val">0</span>
+                      </div>
+                      <div class="grade-box" style="border-color:var(--border-strong);">
+                        <span class="g-title" style="color:var(--text-secondary)">D</span>
+                        <span class="g-val">0</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Col 3: Empty Slot Placeholder -->
+                <div class="dash-col dash-empty-slot"></div>
+           
+
+              </div>
+              
             </div>
 
 
@@ -1131,6 +1156,38 @@
       </div>
     </div>
 
-    <script src="/app.js?v=74-claude-added" type="module"></script>
+    <script src="/app.js?v=76-fix-cache" type="module"></script>
+  <!-- Agent Analysis Modal -->
+  <div id="agentModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.8); backdrop-filter:blur(4px); align-items:center; justify-content:center;">
+    <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; width:600px; max-width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.5); display:flex; flex-direction:column;">
+      <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0; font-size:14px; color:var(--text-primary);"><i data-lucide="cpu" style="width:16px; height:16px; margin-right:8px; vertical-align:middle; color:var(--neon-purple);"></i>Agent Analysis Pipeline</h3>
+        <button id="closeAgentModal" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:16px; height:16px;"></i></button>
+      </div>
+      <div style="padding:20px; overflow-y:auto; max-height:70vh; font-family:var(--font-mono); font-size:11px; color:var(--text-secondary); line-height:1.6;">
+        <div style="margin-bottom:16px; padding:12px; background:rgba(255,255,255,0.03); border-radius:6px; border-left:3px solid var(--neon-amber);">
+          <strong style="color:var(--text-primary);">[Phase 1] Data Fetching</strong><br>
+          Loaded 15m/1h OHLCV for BTC/USDT.<br>
+          Funding Rate: 0.01% (Neutral).<br>
+          Orderbook Imbalance: 62% Ask (Bearish).
+        </div>
+        <div style="margin-bottom:16px; padding:12px; background:rgba(255,255,255,0.03); border-radius:6px; border-left:3px solid var(--neon-purple);">
+          <strong style="color:var(--text-primary);">[Phase 2] LLM Reasoning (Q-Wealth)</strong><br>
+          Detected lower highs on 15m chart. Moving average convergence suggests downward breakout.<br>
+          Volume profile shows lack of buying interest at $60k resistance.<br>
+          Conclusion: Clear bearish edge.
+        </div>
+        <div style="padding:12px; background:rgba(255,255,255,0.03); border-radius:6px; border-left:3px solid var(--neon-green);">
+          <strong style="color:var(--text-primary);">[Phase 3] Execution Generation</strong><br>
+          Decision: APPROVE (SHORT)<br>
+          Entry: 59270.30<br>
+          Stop Loss: 60547.31 (above local high)<br>
+          Take Profit: 56077.76<br>
+          Risk Multiplier: 1.00
+        </div>
+      </div>
+    </div>
+  </div>
+
   </body>
 </html>

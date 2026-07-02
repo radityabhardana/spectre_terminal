@@ -91,6 +91,116 @@ function listRows(data, key) {
   return [];
 }
 
+export function topMarketMode(input = "") {
+  const value = normalizeText(input || "volume");
+
+  if (["liquidity", "liq", "liquid"].includes(value)) {
+    return {
+      mode: "liquidity",
+      title: "Top markets by liquidity",
+      apiOrder: "liquidity",
+      ascending: false,
+      metric: (market) => market.liquidity,
+      metricLabel: "Liquidity",
+    };
+  }
+
+  if (["ending", "close", "closing", "deadline", "soon"].includes(value)) {
+    return {
+      mode: "ending",
+      title: "Markets closing soon",
+      apiOrder: "end_date",
+      ascending: true,
+      metric: (market) => {
+        const time = new Date(market.endDate).getTime();
+        return Number.isFinite(time) ? -time : Number.NEGATIVE_INFINITY;
+      },
+      metricLabel: "Close",
+    };
+  }
+
+  if (["new", "newest", "recent", "fresh"].includes(value)) {
+    return {
+      mode: "new",
+      title: "Newest active markets",
+      apiOrder: "start_date",
+      ascending: false,
+      metric: (market) => {
+        const time = new Date(market.startDate || market.updatedAt).getTime();
+        return Number.isFinite(time) ? time : 0;
+      },
+      metricLabel: "Start",
+    };
+  }
+
+  return {
+    mode: "volume",
+    title: "Top markets by 24h volume",
+    apiOrder: "volume_24hr",
+    ascending: false,
+    metric: (market) => market.volume24hr || market.volume,
+    metricLabel: "24h Volume",
+  };
+}
+
+function sortByTopMetric(markets, config) {
+  return [...markets].sort((a, b) => {
+    const metricDiff = Number(config.metric(b) || 0) - Number(config.metric(a) || 0);
+    if (metricDiff !== 0) return metricDiff;
+
+    const liquidityDiff = b.liquidity - a.liquidity;
+    if (liquidityDiff !== 0) return liquidityDiff;
+
+    return (b.volume24hr || b.volume) - (a.volume24hr || a.volume);
+  });
+}
+
+async function fetchTopEvents(modeConfig, limit) {
+  const url = new URL("/events", config.gammaUrl);
+  url.searchParams.set("active", "true");
+  url.searchParams.set("closed", "false");
+  url.searchParams.set("order", modeConfig.apiOrder);
+  url.searchParams.set("ascending", String(modeConfig.ascending));
+  url.searchParams.set("limit", String(Math.max(limit * 4, 40)));
+  return fetchJson(url.toString());
+}
+
+async function fetchTopMarketRows(modeConfig, limit) {
+  const url = new URL("/markets", config.gammaUrl);
+  url.searchParams.set("active", "true");
+  url.searchParams.set("closed", "false");
+  url.searchParams.set("order", modeConfig.apiOrder);
+  url.searchParams.set("ascending", String(modeConfig.ascending));
+  url.searchParams.set("limit", String(Math.max(limit * 2, 20)));
+  return fetchJson(url.toString());
+}
+
+export async function listTopMarkets({ mode = "volume", limit = 10 } = {}) {
+  const modeConfig = topMarketMode(mode);
+  const eventsData = await fetchTopEvents(modeConfig, limit);
+  const eventRows = listRows(eventsData, "events");
+  const eventMarkets = eventRows.flatMap((event, eventIndex) =>
+    Array.isArray(event.markets)
+      ? event.markets.map((market) => normalizeMarket(market, event, eventIndex))
+      : []
+  );
+
+  let markets = eventMarkets.filter(openTradableMarket);
+
+  if (!markets.length) {
+    const marketsData = await fetchTopMarketRows(modeConfig, limit);
+    markets = listRows(marketsData, "markets")
+      .map((market) => normalizeMarket(market))
+      .filter(openTradableMarket);
+  }
+
+  return {
+    mode: modeConfig.mode,
+    title: modeConfig.title,
+    metricLabel: modeConfig.metricLabel,
+    markets: sortByTopMetric(markets, modeConfig).slice(0, limit),
+  };
+}
 
 function openTradableMarket(market) {
   return market.active && !market.closed && market.clobTokenIds.length > 0;

@@ -1433,9 +1433,7 @@ async function executeCommand(commandText, isBackground = false) {
     renderMessages();
   }
 
-  // Hide short market panel when executing a command
-  const shortMarketPanel = document.querySelector("#shortMarketPanel");
-  if (shortMarketPanel) shortMarketPanel.style.display = "none";
+  // Panel short market stays visible in sidebar (no hide on command)
 
   addUserInput(text, tabInfo.id);
   syncPolymarketEmbedFromText(text, "From input");
@@ -1786,39 +1784,26 @@ function updateActiveAssetTab() {
   }
 }
 
-if (btnShortMarket && shortMarketPanel) {
-  document.body.appendChild(shortMarketPanel); // Escape stacking context
+// Short Market Panel is a permanent sidebar widget - auto-load on startup
+if (btnShortMarket) {
   btnShortMarket.addEventListener("click", (e) => {
     e.stopPropagation();
-    const isHidden = shortMarketPanel.style.display === "none";
-    if (isHidden) {
-      const rect = btnShortMarket.getBoundingClientRect();
-      shortMarketPanel.style.top = (rect.bottom + 8) + "px";
-      shortMarketPanel.style.right = (window.innerWidth - rect.right) + "px";
-      shortMarketPanel.style.display = "block";
-      
-      activeShortAsset = "btc";
-      if (shortDurationSelect) {
-        shortDurationSelect.value = activeShortDuration;
-      }
-      updateActiveAssetTab();
-      fetchShortMarkets();
-      startShortRealtimeTimer();
-    } else {
-      shortMarketPanel.style.display = "none";
-      stopShortRealtimeTimer();
-    }
-  });
-  
-  document.addEventListener("click", (e) => {
-    if (shortMarketPanel && shortMarketPanel.style.display !== "none") {
-      if (!shortMarketPanel.contains(e.target) && !btnShortMarket.contains(e.target)) {
-        shortMarketPanel.style.display = "none";
-        stopShortRealtimeTimer();
-      }
-    }
+    // Button just refreshes the data
+    fetchShortMarkets();
+    startShortRealtimeTimer();
   });
 }
+
+// Auto-load short markets on page start
+(function initShortMarket() {
+  activeShortAsset = "btc";
+  if (shortDurationSelect) {
+    shortDurationSelect.value = activeShortDuration;
+  }
+  updateActiveAssetTab();
+  fetchShortMarkets();
+  startShortRealtimeTimer();
+})();
 
 
 if (btnCheckShortCondition) {

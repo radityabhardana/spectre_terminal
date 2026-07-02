@@ -827,27 +827,20 @@ textarea:focus {
 .console-body {
   min-height: 0;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
   position: relative;
 }
 .console-body.has-embed { grid-template-columns: minmax(0, 1fr) minmax(380px, 34%); }
 
 .console-feed {
-  flex: 1 1 0;
   min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  padding-bottom: 210px; /* Reserve space for center-dashboard */
-}
-.console-scroll-area {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  position: relative;
+  height: 100%;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
 }
 .console-body.has-embed .console-feed { border-right: 1px solid var(--border); }
 
@@ -855,12 +848,10 @@ textarea:focus {
    EMPTY STATE
    ================================================================ */
 .empty-state {
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  grid-area: 1 / 1;
+  display: grid;
+  align-content: center;
+  justify-items: center;
   text-align: center;
   gap: 10px;
   padding: 32px;
@@ -925,6 +916,7 @@ textarea:focus {
    MESSAGES
    ================================================================ */
 .messages {
+  grid-area: 1 / 1;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1923,7 +1915,7 @@ textarea::-webkit-scrollbar-thumb,
   transform: translate(1px, -1px) scale(1.05);
 }
 
-.center-dashboard { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; display: flex; background: var(--bg-surface); border-top: 1px solid var(--border); padding: 16px 20px 16px 366px; gap: 20px; }
+.center-dashboard { grid-area: 2 / 1; display: flex; background: var(--bg-surface); border-top: 1px solid var(--border); padding: 16px 20px 16px 366px; gap: 20px; }
 .dash-col { display: flex; flex-direction: column; }
 .dash-live-readiness { flex: 0 0 25%; }
 .dash-agent-analysis { flex: 1; border-left: 1px solid rgba(255,255,255,0.05); border-right: 1px solid rgba(255,255,255,0.05); padding: 0 20px; }

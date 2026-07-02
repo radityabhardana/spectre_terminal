@@ -1919,7 +1919,7 @@ textarea::-webkit-scrollbar-thumb,
 .center-dashboard { flex: 0 0 auto; display: flex; background: var(--bg-surface); border-top: 1px solid var(--border); padding: 16px 20px 16px 366px; gap: 20px; }
 .dash-col { display: flex; flex-direction: column; }
 .dash-live-readiness { flex: 0 0 25%; }
-.dash-agent-analysis { flex: 0 0 550px; border-right: 1px solid rgba(255,255,255,0.05); padding-right: 20px; }
+.dash-agent-analysis { flex: 0 0 350px; border-right: 1px solid rgba(255,255,255,0.05); padding-right: 20px; }
 .dash-empty-slot { flex: 0 0 25%; }
 .dash-col-header { font-size: 11px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
 .badge-locked { background: rgba(245, 158, 11, 0.1); color: var(--neon-amber); font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 700; }

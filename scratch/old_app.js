@@ -2968,7 +2968,7 @@ async function fetchHistoryEvents() {
       allHistoryEvents = data.events;
       applyHistoryFilter();
       renderQueue(); // Refresh queue badges
-      renderHistoryListPanel();
+      if (activeTabId === "history-archive") renderHistoryListPanel();
     }
   } catch (error) {
     console.error("Failed to fetch history events:", error);
@@ -2981,13 +2981,6 @@ async function fetchHistoryEvents() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Relocate modals to body to escape z-index and overflow clipping
-  const modalsToMove = ["themePanelModal", "historyModal", "manualModal"];
-  modalsToMove.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) document.body.appendChild(el);
-  });
-
   const btnFilterHistoryDate = document.getElementById("btnFilterHistoryDate");
   if (btnFilterHistoryDate) {
     btnFilterHistoryDate.addEventListener("click", () => {
@@ -3087,9 +3080,9 @@ function renderHistoryListPanel() {
 
     html += `
       <div onclick="showHistoryChat(${event.id})" style="padding:10px; border:1px solid rgba(255,255,255,0.05); border-radius:6px; background:rgba(0,0,0,0.2); cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='var(--neon-purple)';" onmouseout="this.style.background='rgba(0,0,0,0.2)'; this.style.borderColor='rgba(255,255,255,0.05)';">
-        <div style="display:flex; justify-content:flex-start; align-items:center; gap:12px; margin-bottom:6px;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
           <span style="font-size:10px; color:var(--text-tertiary);">${dateStr} ${timeStr}</span>
-          <div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-start;">
+          <div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end;">
             ${predBadge}
             ${event.actual_outcome ? `<span title="Realita" style="color:var(--text-primary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.2); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">R: ${event.actual_outcome}</span>` : ''}
             ${resultBadge}
@@ -3194,14 +3187,11 @@ function renderHistoryEvents(events) {
   
   document.querySelector("#historyTotal").textContent = total;
   
-  // Also update the footer counter and new panel stats
+  // Also update the footer counter
   const totalAnalyzedCount = document.querySelector("#totalAnalyzedCount");
   if (totalAnalyzedCount) {
     totalAnalyzedCount.textContent = total;
   }
-  
-  const panelTotal = document.querySelector("#panelTotalAnalyzed");
-  if (panelTotal) panelTotal.textContent = total;
   
   document.querySelector("#historyWins").textContent = wins;
   document.querySelector("#historyLosses").textContent = losses;
@@ -3214,12 +3204,6 @@ function renderHistoryEvents(events) {
   const winRateEl = document.querySelector("#historyWinRate");
   winRateEl.textContent = `${winRate}%`;
   winRateEl.style.color = winRate >= 50 ? 'var(--neon-green)' : (winRate > 0 ? 'var(--neon-amber)' : 'var(--text-secondary)');
-
-  const panelWinRate = document.querySelector("#panelWinRate");
-  if (panelWinRate) {
-    panelWinRate.textContent = `${winRate}%`;
-    panelWinRate.style.color = winRate >= 50 ? 'var(--neon-green)' : (winRate > 0 ? 'var(--neon-amber)' : 'var(--text-secondary)');
-  }
 }
 
 const alertModal = document.querySelector("#alertModal");

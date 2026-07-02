@@ -82,10 +82,12 @@ function loadState() {
         outputTabs.clear();
         for (const tab of tabsData) outputTabs.set(tab.id, tab);
       }
-      if (savedActiveId && outputTabs.has(savedActiveId)) {
+      // Never restore to history-archive on page load (no UI button to open it)
+      if (savedActiveId && outputTabs.has(savedActiveId) && savedActiveId !== "history-archive") {
         activeTabId = savedActiveId;
       } else if (outputTabs.size > 0) {
-        activeTabId = outputTabs.keys().next().value;
+        // Default to cmd:console, not history-archive
+        activeTabId = "cmd:console";
       }
     }
     // Pastikan base tabs selalu ada

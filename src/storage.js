@@ -204,6 +204,98 @@ export function getStats() {
   }
 }
 
+export function getDashboardMetrics() {
+  try {
+    const resolvedEvents = db.prepare("SELECT result FROM analyzed_events WHERE status = 'selesai' ORDER BY id ASC").all();
+    let wins = 0;
+    let losses = 0;
+    let currentEquity = 0;
+    let peakEquity = 0;
+    let maxDrawdown = 0;
+
+    for (const ev of resolvedEvents) {
+      if (ev.result === 'menang') {
+        wins++;
+        currentEquity++;
+      } else if (ev.result === 'kalah') {
+        losses++;
+        currentEquity--;
+      }
+      if (currentEquity > peakEquity) {
+        peakEquity = currentEquity;
+      }
+      const drawdown = peakEquity - currentEquity;
+      if (drawdown > maxDrawdown) {
+        maxDrawdown = drawdown;
+      }
+    }
+
+    const totalResolved = wins + losses;
+    const winRate = totalResolved > 0 ? (wins / totalResolved) : 0;
+    const lossRate = totalResolved > 0 ? (losses / totalResolved) : 0;
+    
+    const profitFactor = losses > 0 ? (wins / losses).toFixed(2) : (wins > 0 ? "∞" : "0.00");
+    const expectancy = (winRate - lossRate) * 100; // unit basis
+
+    const confidences = db.prepare("SELECT qwen_confidence FROM analyzed_events WHERE qwen_confidence IS NOT NULL").all();
+    const grades = { S: 0, A: 0, B: 0, C: 0, D: 0 };
+    for (const c of confidences) {
+      const confVal = parseFloat(c.qwen_confidence);
+      if (isNaN(confVal)) continue;
+      if (confVal >= 90) grades.S++;
+      else if (confVal >= 80) grades.A++;
+      else if (confVal >= 70) grades.B++;
+      else if (confVal >= 60) grades.C++;
+      else grades.D++;
+    }
+
+    const latestEvent = db.prepare("SELECT question, prediction, analysis_conclusion, qwen_confidence FROM analyzed_events ORDER BY id DESC LIMIT 1").get();
+    
+    let signalText = "-";
+    let signalDir = "WAITING";
+    let conclusion = "Menunggu data...";
+    let confluenceScore = "0%";
+    
+    if (latestEvent) {
+      let assetMatch = latestEvent.question.match(/^([A-Z0-9]+)\b/i);
+      if (assetMatch) {
+          signalText = assetMatch[1].toUpperCase();
+          if (signalText === 'WILL') signalText = 'MARKET';
+      } else {
+          signalText = "MARKET";
+      }
+      
+      if (latestEvent.prediction) {
+          const predUpper = latestEvent.prediction.toUpperCase();
+          if (predUpper.includes('YES') || predUpper.includes('UP')) signalDir = "LONG";
+          else if (predUpper.includes('NO') || predUpper.includes('DOWN')) signalDir = "SHORT";
+          else signalDir = "SIGNAL";
+      }
+      
+      if (latestEvent.analysis_conclusion) conclusion = latestEvent.analysis_conclusion;
+      if (latestEvent.qwen_confidence) confluenceScore = latestEvent.qwen_confidence;
+      if (!confluenceScore.includes('%')) confluenceScore += '%';
+    }
+
+    return {
+      profitFactor,
+      expectancy: expectancy.toFixed(2),
+      maxDrawdown: maxDrawdown.toFixed(1),
+      winRate: (winRate * 100).toFixed(1),
+      grades,
+      latestSignal: {
+        asset: signalText,
+        direction: signalDir,
+        conclusion,
+        confluenceScore
+      }
+    };
+  } catch (error) {
+    console.error("[Storage] getDashboardMetrics error:", error.message);
+    return null;
+  }
+}
+
 export function updateAnalyzedEventStatus(id, status, result, actualOutcome) {
   try {
     const resolvedAt = new Date().toISOString();

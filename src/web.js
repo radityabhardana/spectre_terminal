@@ -348,6 +348,18 @@ export function startWebServer(options = {}) {
         return;
       }
 
+      if (req.method === "GET" && req.url === "/api/dashboard-metrics") {
+        try {
+          const { getDashboardMetrics } = await import("./storage.js");
+          const metrics = getDashboardMetrics();
+          sendJson(res, 200, { ok: true, metrics });
+        } catch (error) {
+          sendJson(res, 500, { ok: false, error: String(error.message) });
+        }
+        return;
+      }
+
+
       if (req.method === "GET" && req.url === "/api/reflections") {
         try {
           const reflections = getAllReflections();

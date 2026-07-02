@@ -3450,6 +3450,73 @@ async function fetchStats() {
   }
 }
 
+async function fetchDashboardMetrics() {
+  try {
+    const res = await fetch("/api/dashboard-metrics");
+    const data = await res.json();
+    if (data.ok && data.metrics) {
+      const m = data.metrics;
+      const dPF = document.getElementById("dashProfitFactor");
+      const dExp = document.getElementById("dashExpectancy");
+      const dMDD = document.getElementById("dashMaxDd");
+      const dWR = document.getElementById("dashWinRate");
+      if (dPF) dPF.innerText = m.profitFactor;
+      if (dExp) dExp.innerText = m.expectancy + "%";
+      if (dMDD) dMDD.innerText = m.maxDrawdown + "%";
+      if (dWR) dWR.innerText = m.winRate + "%";
+
+      const g = m.grades;
+      if (g) {
+        const ds = document.getElementById("dashGradeS");
+        const da = document.getElementById("dashGradeA");
+        const db = document.getElementById("dashGradeB");
+        const dc = document.getElementById("dashGradeC");
+        const dd = document.getElementById("dashGradeD");
+        if(ds) ds.innerText = g.S;
+        if(da) da.innerText = g.A;
+        if(db) db.innerText = g.B;
+        if(dc) dc.innerText = g.C;
+        if(dd) dd.innerText = g.D;
+      }
+
+      const sig = m.latestSignal;
+      if (sig) {
+        const dAsset = document.getElementById("dashSignalAsset");
+        const dDir = document.getElementById("dashSignalDir");
+        const dConc = document.getElementById("dashConclusionText");
+        const dScore = document.getElementById("dashConfluenceScore");
+        const dFill = document.getElementById("dashConfluenceFill");
+        
+        if (dAsset) dAsset.innerText = sig.asset;
+        if (dDir) {
+           dDir.innerText = sig.direction;
+           if (sig.direction === 'LONG') {
+               dDir.style.color = "var(--neon-green)";
+               dDir.style.background = "rgba(16, 185, 129, 0.15)";
+           } else if (sig.direction === 'SHORT') {
+               dDir.style.color = "var(--neon-red)";
+               dDir.style.background = "rgba(239, 68, 68, 0.15)";
+           } else {
+               dDir.style.color = "var(--text-secondary)";
+               dDir.style.background = "rgba(255, 255, 255, 0.1)";
+           }
+        }
+        if (dConc) dConc.innerText = '"' + sig.conclusion + '"';
+        if (dScore) dScore.innerText = sig.confluenceScore;
+        if (dFill) {
+            let widthNum = parseFloat(sig.confluenceScore);
+            if (!isNaN(widthNum)) dFill.style.width = widthNum + "%";
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to fetch dashboard metrics:", err);
+  }
+}
+
+// Fetch periodically
+setInterval(fetchDashboardMetrics, 30000);
+
 async function fetchReflections() {
   const learningList = document.querySelector("#learningList");
   if (!learningList) return;
@@ -3702,6 +3769,7 @@ loadSniperConfig();
 
 // Panggil fetchHistoryEvents untuk mengambil data histori dari database di awal
 fetchHistoryEvents();
+fetchDashboardMetrics();
 
 const closeImprovementModal = document.querySelector("#closeImprovementModal");
 if (closeImprovementModal) {

@@ -3088,10 +3088,9 @@ function renderHistoryListPanel() {
     html += `
       <div onclick="showHistoryChat(${event.id})" style="padding:10px; border:1px solid rgba(255,255,255,0.05); border-radius:6px; background:rgba(0,0,0,0.2); cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='var(--neon-purple)';" onmouseout="this.style.background='rgba(0,0,0,0.2)'; this.style.borderColor='rgba(255,255,255,0.05)';">
         <div style="display:flex; justify-content:flex-start; align-items:center; gap:12px; margin-bottom:6px;">
-          <span style="font-size:10px; color:var(--text-tertiary);">${dateStr} ${timeStr}</span>
+          <span style="font-size:10px; color:var(--text-tertiary); white-space:nowrap; min-width:max-content;">${dateStr} ${timeStr}</span>
           <div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-start;">
             ${predBadge}
-            ${event.actual_outcome ? `<span title="Realita" style="color:var(--text-primary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.2); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">R: ${event.actual_outcome}</span>` : ''}
             ${resultBadge}
             ${event.qwen_confidence ? `<span title="Qwen Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">Q: ${event.qwen_confidence}</span>` : ''}
             ${event.data_confidence ? `<span title="Data Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">D: ${event.data_confidence}</span>` : ''}

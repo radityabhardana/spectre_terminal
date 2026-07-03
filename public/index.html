@@ -22,7 +22,7 @@
       <!-- Short Market Card - Koyfin-style compact widget -->
       <div id="shortMarketPanel" style="display:flex; flex-direction:column; flex-shrink:0; pointer-events:auto; background:#161618; border:1px solid rgba(255,255,255,0.1); border-radius:8px; box-shadow:0 4px 24px rgba(0,0,0,0.5); overflow:hidden; font-family:'Inter', system-ui, sans-serif;">
       <!-- Header row -->
-      <div style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center;">
+      <div style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center; position:relative;">
         <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em;">Short Market Events</span>
         <div style="display:flex; align-items:center; gap:6px;">
           <span id="shortMarketStatus" style="font-size:9px; color:#666; font-family:monospace;"></span>
@@ -31,6 +31,35 @@
           </button>
           <button type="button" id="btnRefreshShortMarket" style="background:none; border:none; cursor:pointer; color:#555; padding:2px; display:flex; align-items:center;" title="Refresh" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">
             <i data-lucide="refresh-cw" style="width:11px; height:11px;"></i>
+          </button>
+        </div>
+        
+        <!-- Bulk Add Dropdown Menu -->
+        <div id="bulkAddDropdown" style="display:none; position:absolute; top:32px; right:12px; background:var(--bg-elevated); border:1px solid var(--border-bright); border-radius:8px; padding:12px; z-index:100; flex-direction:column; gap:10px; width:220px; box-shadow:0 10px 30px rgba(0,0,0,0.8);">
+          <div style="font-size:11px; font-weight:600; color:var(--text-primary); padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.05); text-transform:uppercase; letter-spacing:0.05em;">Bulk Add to Queue</div>
+          
+          <div style="display:flex; flex-direction:column; gap:4px; position:relative;">
+            <label style="font-size:10px; color:var(--text-tertiary);">Mulai dari market:</label>
+            <div id="customBulkStartDisplay" style="padding:6px 8px; font-size:11px; background:rgba(0,0,0,0.2); border:1px solid var(--border-bright); border-radius:4px; color:var(--text-primary); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
+              <span id="customBulkStartText" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Pilih market...</span>
+              <i data-lucide="chevron-down" style="width:12px; height:12px;"></i>
+            </div>
+            <input type="hidden" id="selectBulkStart" value="0">
+            <div id="customBulkStartOptions" style="display:none; position:absolute; top:45px; left:0; width:100%; max-height:150px; overflow-y:auto; background:var(--bg-elevated); border:1px solid var(--border-bright); border-radius:4px; z-index:101; flex-direction:column; box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+            </div>
+          </div>
+          
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <label style="font-size:10px; color:var(--text-tertiary);">Jumlah market:</label>
+            <select id="inputBulkCount" style="padding:6px; font-size:11px; background:rgba(0,0,0,0.2); border:1px solid var(--border-bright); border-radius:4px; color:var(--text-primary); cursor:pointer;">
+              <option value="5">5 Market</option>
+              <option value="10">10 Market</option>
+              <option value="all">Semua Market Aktif</option>
+            </select>
+          </div>
+          
+          <button id="btnConfirmBulkAdd" class="btn-primary" style="margin-top:4px; padding:8px; font-size:11px; width:100%; border-radius:4px;">
+            <i data-lucide="plus" style="width:12px; height:12px; margin-right:4px;"></i> Tambahkan
           </button>
         </div>
       </div>
@@ -259,144 +288,9 @@
               <!-- Floating Panel for Queue -->
               <!-- queuePanel moved to body level -->
 
-              <!-- Modal Panel for Sniffer -->
-              <div id="snifferPanel" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
-                <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.5); width:1100px; max-width:95vw; height:85vh; display:flex; flex-direction:column; overflow:hidden;">
-                  
-                  <!-- Header -->
-                  <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-                    <h3 style="margin:0; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
-                      <i data-lucide="radar" style="width:16px; height:16px; color:var(--neon-cyan);"></i>
-                      Live Market Tracker
-                    </h3>
-                    <div style="display:flex; align-items:center; gap:16px;">
-                      <button id="panelSnifferPowerBtn" class="btn-primary" type="button" style="height:28px; font-size:12px; font-weight:600; padding:0 16px; background:rgba(245, 158, 11, 0.15); color:var(--neon-amber); border:1px solid rgba(245, 158, 11, 0.4); border-radius:6px; cursor:pointer; transition:all 0.2s;">
-                        TURN ON
-                      </button>
-                      <button type="button" id="btnCloseSnifferPanel" style="background:none; border:none; padding:4px; cursor:pointer; color:var(--text-tertiary); transition:color 0.2s;" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-tertiary)'" title="Close">
-                        <i data-lucide="x" style="width:20px; height:20px;"></i>
-                      </button>
-                    </div>
-                  </div>
-                             <!-- Body Container: Sidebar + Content -->
-                  <div style="display:flex; flex:1; overflow:hidden;">
-                    <!-- Left Sidebar -->
-                    <div style="width:200px; height:100%; border-right:1px solid var(--border); background:rgba(0,0,0,0.2); display:flex; flex-direction:column; padding:16px 0;">
-                      <button id="tabSniffer" style="display:flex; align-items:center; gap:12px; padding:12px 20px; background:rgba(6,182,212,0.1); border:none; border-right:3px solid var(--neon-cyan); color:var(--text-primary); text-align:left; cursor:pointer; font-weight:600; font-size:13px; transition:background 0.2s;">
-                        <i data-lucide="activity" style="width:16px; height:16px; color:var(--neon-cyan);"></i> Live Sniffer
-                      </button>
-                      <button id="tabTrackWallet" style="display:flex; align-items:center; gap:12px; padding:12px 20px; background:transparent; border:none; border-right:3px solid transparent; color:var(--text-tertiary); text-align:left; cursor:pointer; font-weight:500; font-size:13px; transition:background 0.2s, color 0.2s;">
-                        <i data-lucide="target" style="width:16px; height:16px;"></i> Track Wallet
-                      </button>
-                    </div>
-                    
-                    <!-- Right Content -->
-                    <div style="flex:1; display:flex; flex-direction:column; background:var(--bg-surface); position:relative; overflow:hidden;">
-                      
-                      <!-- Sniffer View Pane -->
-                      <div id="snifferViewPane" style="display:flex; flex-direction:column; width:100%; height:100%;">
-                        <div style="padding:12px 20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.1); display:flex; justify-content:space-between; align-items:center;">
-                          <div style="font-size:12px; color:var(--text-secondary);">Catch whales exceeding size limit</div>
-                          <div style="display:flex; align-items:center; gap:8px;">
-                            <div style="font-size:11px; color:var(--text-tertiary); font-weight:600; text-transform:uppercase;">Min Size (USD)</div>
-                            <input type="number" id="trackerMinSizeInput" value="1000" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-family:var(--font-mono); font-size:12px; padding:4px 8px; width:80px; outline:none;">
-                            <button id="btnSaveSnifferConfig" class="btn-secondary" style="height:26px; font-size:11px; padding:0 12px;">Save</button>
-                          </div>
-                        </div>
-                        <div id="trendingMarketsContainer" style="padding:12px 20px; border-bottom:1px solid var(--border); display:none; flex-direction:column; gap:8px;">
-                          <div style="font-size:11px; color:var(--text-tertiary); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;"><i data-lucide="trending-up" style="width:12px; height:12px; vertical-align:middle; margin-right:4px;"></i> Top Whale Markets (15m)</div>
-                          <div id="trendingMarketsList" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
-                        </div>
-                        <div id="snifferWhaleList" style="flex:1; overflow-y:auto; padding:20px; font-size:13px; display:flex; flex-direction:column; gap:12px;">
-                          <div style="text-align:center; padding:60px 20px; color:var(--text-tertiary); display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%;">
-                            <i data-lucide="activity" style="width:48px; height:48px; opacity:0.2; margin-bottom:16px;"></i>
-                            <div style="font-size:16px; font-weight:500; color:var(--text-secondary); margin-bottom:8px;">Tracker is Offline</div>
-                            <div style="font-size:13px;">Turn on the tracker to intercept live whale trades...</div>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <!-- Track Wallet View Pane -->
-                      <div id="trackerViewPane" style="display:none; flex-direction:column; width:100%; height:100%;">
-                        <div style="padding:12px 20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.1); display:flex; flex-direction:column; gap:12px;">
-                          <div style="font-size:12px; color:var(--text-secondary);">Intercept all trades from specific addresses</div>
-                          <div style="display:flex; gap:8px;">
-                            <input type="text" id="trackerWalletInput" placeholder="0x..." style="flex:2; background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-family:var(--font-mono); font-size:12px; padding:6px 12px; outline:none;">
-                            <input type="text" id="trackerWalletNickname" placeholder="Nickname (opsional)" style="flex:1; background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px; padding:6px 12px; outline:none;">
-                            <button id="btnAddWallet" class="btn-primary" style="height:30px; font-size:12px; padding:0 16px; border-radius:6px;">Add</button>
-                          </div>
-                          <div id="trackedWalletsTags" style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
-                            <!-- Wallet Tags go here -->
-                          </div>
-                        </div>
-                        <div id="trackedWhaleList" style="flex:1; overflow-y:auto; padding:20px; font-size:13px; display:flex; flex-direction:column; gap:12px;">
-                          <!-- Tracked trades go here -->
-                        </div>
-                      </div>
-                      
-                    </div>
-                  </div>   </div>
-                </div>
+              <!-- snifferPanel & positionsModal moved to body level for proper pointer-events -->
 
-              <!-- Wallet Dashboard Modal -->
-              <div id="positionsModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:10000; justify-content:center; align-items:center;">
-                <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.8); width:1000px; max-width:95vw; height:85vh; max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
-                  
-                  <!-- Profile Header -->
-                  <div style="padding:20px; border-bottom:1px solid var(--border); background:linear-gradient(to right, rgba(245,158,11,0.05), transparent); display:flex; justify-content:space-between; align-items:flex-start;">
-                    <div style="display:flex; gap:16px; align-items:center;">
-                      <div id="walletAvatar" style="width:48px; height:48px; border-radius:50%; background:var(--bg-elevated); border:2px solid var(--neon-amber); display:flex; justify-content:center; align-items:center;">
-                        <i data-lucide="user" style="width:24px; height:24px; color:var(--neon-amber);"></i>
-                      </div>
-                      <div style="display:flex; flex-direction:column; gap:4px;">
-                        <h2 id="walletDashboardNickname" style="margin:0; color:var(--text-primary); font-size:20px;">Wallet Profile</h2>
-                        <div style="display:flex; gap:8px; align-items:center;">
-                          <div id="walletDashboardAddress" style="font-family:var(--font-mono); font-size:12px; color:var(--text-tertiary); background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; width:fit-content;">0x...</div>
-                          <a id="btnViewOnPoly" href="#" target="_blank" style="font-size:11px; font-weight:bold; color:var(--bg-surface); background:var(--neon-amber); padding:2px 8px; border-radius:4px; text-decoration:none; display:flex; align-items:center; gap:4px; transition:opacity 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">
-                            <i data-lucide="external-link" style="width:12px; height:12px;"></i> View on Poly
-                          </a>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div style="display:flex; gap:24px; align-items:center;">
-                      <div style="display:flex; flex-direction:column; align-items:flex-end;">
-                        <span style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600; letter-spacing:0.5px;">All-Time PNL</span>
-                        <span id="walletDashboardAllTimePnl" style="font-size:20px; font-weight:bold; font-family:var(--font-mono); color:var(--text-primary); text-shadow: 0 0 10px rgba(255,255,255,0.1);">$0.00</span>
-                      </div>
-                      <div style="width:1px; height:30px; background:var(--border);"></div>
-                      <div style="display:flex; flex-direction:column; align-items:flex-end;">
-                        <span style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600; letter-spacing:0.5px;">Total Active Portfolio</span>
-                        <span id="walletDashboardValue" style="font-size:24px; font-weight:bold; color:var(--neon-green); font-family:var(--font-mono); text-shadow: 0 0 10px rgba(16,185,129,0.3);">$0.00</span>
-                      </div>
-                      <button id="btnClosePositions" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer; align-self:flex-start; padding:4px;">
-                        <i data-lucide="x" style="width:24px; height:24px;"></i>
-                      </button>
-                    </div>
-                  </div>
 
-                  <!-- Tab Navigation -->
-                  <div style="display:flex; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.2);">
-                    <button id="tabWalletPositions" style="flex:1; padding:12px; border:none; background:rgba(245,158,11,0.1); border-bottom:2px solid var(--neon-amber); color:var(--text-primary); font-weight:600; font-size:13px; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px;">
-                      <i data-lucide="briefcase" style="width:16px; height:16px; color:var(--neon-amber);"></i> Active Holdings
-                    </button>
-                    <button id="tabWalletHistory" style="flex:1; padding:12px; border:none; background:transparent; border-bottom:2px solid transparent; color:var(--text-tertiary); font-weight:500; font-size:13px; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px; transition:color 0.2s;">
-                      <i data-lucide="history" style="width:16px; height:16px;"></i> Trade History
-                    </button>
-                  </div>
-
-                  <!-- Content Area -->
-                  <div style="flex:1; overflow:hidden; position:relative; background:var(--bg-surface);">
-                    <div id="positionsTabContent" style="position:absolute; top:0; left:0; width:100%; height:100%; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px;">
-                      <div style="text-align:center; padding:40px; color:var(--text-tertiary);">Loading...</div>
-                    </div>
-                    <div id="historyTabContent" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px;">
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-              <!-- Short Market Panel moved to body-level -->
 
             </div>
           </div>
@@ -426,79 +320,143 @@
 
               <!-- Col 2: Analisis Agent -->
               <div class="dash-col dash-agent-analysis">
-                <div class="dash-col-header" style="justify-content:space-between">
-                  <span>Analisis Agent</span>
-                  <span style="color:var(--text-tertiary); font-size:9px;">3-PHASE LLM</span>
-                </div>
-                <div style="margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-                  <span style="font-size:11px; font-weight:600;">Sinyal Terakhir</span>
-                  <span id="dashSignalAsset" style="font-weight:700; color:var(--text-primary); font-size:11px;">-</span>
-                  <span id="dashSignalDir" style="background:rgba(255,255,255,0.1); color:var(--text-secondary); font-size:9px; padding:2px 6px; border-radius:4px; font-weight:700;">WAITING</span>
-                </div>
-                <div class="agent-conclusion-box interactive" id="agentConclusionBox" title="Klik untuk melihat detail analisis AI">
-                  <span id="dashConclusionText">Menunggu sinyal...</span>
-                  <div style="margin-top:6px; color:var(--text-tertiary); font-size:9px;">Model: <span style="color:var(--text-secondary)">Q-Wealth</span></div>
-                </div>
-                <div style="margin-top:12px;">
-                  <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                    <span style="font-size:9.5px; color:var(--text-secondary);">Confluence Score</span>
-                    <span id="dashConfluenceScore" style="font-size:10px; font-weight:bold;">0%</span>
+                <div class="dash-inner-core">
+                  <div class="dash-col-header" style="justify-content:space-between">
+                    <span>Analisis Agent</span>
+                    <span style="color:var(--text-tertiary); font-size:9px;">3-PHASE LLM</span>
                   </div>
-                  <div class="confluence-bar-bg">
-                    <div id="dashConfluenceFill" class="confluence-bar-fill" style="width:0%;"></div>
+                  <div style="margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+                    <span style="font-size:11px; font-weight:600;">Sinyal Terakhir</span>
+                    <span id="dashSignalAsset" style="font-weight:700; color:var(--text-primary); font-size:11px;">-</span>
+                    <span id="dashSignalDir" style="background:rgba(255,255,255,0.1); color:var(--text-secondary); font-size:9px; padding:2px 6px; border-radius:4px; font-weight:700;">WAITING</span>
                   </div>
-                </div>
-                <div style="margin-top:12px;">
-                  <span style="font-size:9.5px; color:var(--text-secondary); margin-bottom:6px; display:block;">Distribusi Grade</span>
-                  <div class="grade-distribution">
-                    <div class="grade-box" style="border-color:var(--neon-amber);">
-                      <span class="g-title" style="color:var(--neon-amber)">S</span>
-                      <span id="dashGradeS" class="g-val">0</span>
+                  <div class="agent-conclusion-box interactive" id="agentConclusionBox" title="Klik untuk melihat detail analisis AI">
+                    <span id="dashConclusionText">Menunggu sinyal...</span>
+                    <div style="margin-top:6px; color:var(--text-tertiary); font-size:9px;">Model: <span style="color:var(--text-secondary)">Q-Wealth</span></div>
+                  </div>
+                  <div style="margin-top:12px;">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                      <span style="font-size:9.5px; color:var(--text-secondary);">Confluence Score</span>
+                      <span id="dashConfluenceScore" style="font-size:10px; font-weight:bold;">0%</span>
                     </div>
-                    <div class="grade-box" style="border-color:var(--neon-green);">
-                      <span class="g-title" style="color:var(--neon-green)">A</span>
-                      <span id="dashGradeA" class="g-val">0</span>
+                    <div class="confluence-bar-bg">
+                      <div id="dashConfluenceFill" class="confluence-bar-fill" style="width:0%;"></div>
                     </div>
-                    <div class="grade-box" style="border-color:var(--neon-cyan);">
-                      <span class="g-title" style="color:var(--neon-cyan)">B</span>
-                      <span id="dashGradeB" class="g-val">0</span>
-                    </div>
-                    <div class="grade-box" style="border-color:var(--border-strong);">
-                      <span class="g-title" style="color:var(--text-secondary)">C</span>
-                      <span id="dashGradeC" class="g-val">0</span>
-                    </div>
-                    <div class="grade-box" style="border-color:var(--border-strong);">
-                      <span class="g-title" style="color:var(--text-secondary)">D</span>
-                      <span id="dashGradeD" class="g-val">0</span>
+                  </div>
+                  <div style="margin-top:12px;">
+                    <span style="font-size:9.5px; color:var(--text-secondary); margin-bottom:6px; display:block;">Distribusi Grade</span>
+                    <div class="grade-distribution">
+                      <div class="grade-box" style="border-color:var(--neon-amber);">
+                        <span class="g-title" style="color:var(--neon-amber)">S</span>
+                        <span id="dashGradeS" class="g-val">0</span>
+                      </div>
+                      <div class="grade-box" style="border-color:var(--neon-green);">
+                        <span class="g-title" style="color:var(--neon-green)">A</span>
+                        <span id="dashGradeA" class="g-val">0</span>
+                      </div>
+                      <div class="grade-box" style="border-color:var(--neon-cyan);">
+                        <span class="g-title" style="color:var(--neon-cyan)">B</span>
+                        <span id="dashGradeB" class="g-val">0</span>
+                      </div>
+                      <div class="grade-box" style="border-color:var(--border-strong);">
+                        <span class="g-title" style="color:var(--text-secondary)">C</span>
+                        <span id="dashGradeC" class="g-val">0</span>
+                      </div>
+                      <div class="grade-box" style="border-color:var(--border-strong);">
+                        <span class="g-title" style="color:var(--text-secondary)">D</span>
+                        <span id="dashGradeD" class="g-val">0</span>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-              <!-- Col 3: Empty Slot -->
-              <aside id="dashboardArchivePanel" class="dash-col dash-history-panel" style="flex: 0 0 380px; display:flex; flex-direction:column; background:var(--bg-elevated); border:1px solid var(--border); border-radius:8px; overflow:hidden; max-height:330px;">
-                <div class="poly-head" style="border-bottom:1px solid var(--border); padding:12px 16px; display:flex; justify-content:flex-start; align-items:center; gap:20px; background:rgba(0,0,0,0.3);">
-                  <div>
-                    <span class="panel-kicker" style="color:var(--neon-purple); font-size:10px; font-weight:bold; letter-spacing:1px; text-transform:uppercase;">Archive</span>
-                    <strong style="color:var(--text-primary); display:block; font-size:13px; margin-top:2px;">Analisis Sebelumnya</strong>
+              <!-- Col 3: Archive Slot -->
+              <aside id="dashboardArchivePanel" class="dash-history-panel">
+                <div class="dash-inner-core">
+                  <div class="poly-head" style="padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                      <span class="panel-kicker" style="color:var(--neon-purple); font-size:10px; font-weight:bold; letter-spacing:1px; text-transform:uppercase;">Archive</span>
+                      <strong style="color:var(--text-primary); display:block; font-size:13px; margin-top:2px;">Analisis Sebelumnya</strong>
+                    </div>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                      <input type="date" id="archiveFilterDate" style="padding:6px 8px; border-radius:6px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:var(--text-primary); font-size:10px; font-family:'JetBrains Mono', monospace; cursor:pointer; outline:none; transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--neon-purple)'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
+                      <button id="btnResetArchiveDate" title="Reset Filter" style="padding:6px; border-radius:6px; background:rgba(255,255,255,0.03); color:var(--text-secondary); border:1px solid rgba(255,255,255,0.08); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.08)'; this.style.color='#fff';" onmouseout="this.style.background='rgba(255,255,255,0.03)'; this.style.color='var(--text-secondary)';">
+                        <i data-lucide="x" style="width:12px; height:12px;"></i>
+                      </button>
+                    </div>
                   </div>
-                  <div style="display:flex; gap:4px; align-items:center;">
-                    <input type="date" id="archiveFilterDate" style="padding:4px 6px; border-radius:4px; background:var(--bg-input, transparent); border:1px solid var(--border); color:var(--text-primary, #fff); font-size:10px; font-family:inherit;">
-                    <button id="btnResetArchiveDate" title="Reset Filter" style="padding:4px; border-radius:4px; background:transparent; color:var(--text-tertiary); border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;">
-                      <i data-lucide="x" style="width:12px; height:12px;"></i>
-                    </button>
+                  <style>
+                    #historyListContainer::-webkit-scrollbar { display: none; }
+                  </style>
+                  <div id="historyListContainer" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:4px; scrollbar-width:none; -ms-overflow-style:none;">
+                    <div style="text-align:center; padding:20px; color:var(--text-tertiary);">Loading history...</div>
                   </div>
-                </div>
-                <style>
-                  #historyListContainer::-webkit-scrollbar {
-                    display: none;
-                  }
-                </style>
-                <div id="historyListContainer" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding:12px; scrollbar-width:none; -ms-overflow-style:none;">
-                  <div style="text-align:center; padding:20px; color:var(--text-tertiary);">Loading history...</div>
                 </div>
               </aside>
-              <!-- Empty spacer to push panels left -->
-              <div class="dash-col" style="flex:1;"></div>
+              <!-- Col 4: Tracker Card (Double-Bezel, Dual-Tab) -->
+              <div class="dash-tracker-card" id="dashTrackerCard">
+                <div class="tracker-inner">
+
+                  <!-- Tab Bar -->
+                  <div class="tracker-tab-bar">
+                    <button class="tracker-tab-btn active" id="trackerCardTabSniffer" title="Live Whale Sniffer">
+                      <span class="tab-dot"></span>
+                      Live Sniffer
+                    </button>
+                    <button class="tracker-tab-btn" id="trackerCardTabWallet" title="Track Wallets">
+                      <span class="tab-dot"></span>
+                      Track Wallet
+                    </button>
+                    <div class="tracker-status-pill live" id="trackerCardStatusPill">
+                      <span class="pill-dot"></span>
+                      <span id="trackerCardStatusText">Live</span>
+                    </div>
+                  </div>
+
+                  <!-- === PANE 1: Live Sniffer === -->
+                  <div class="tracker-pane active" id="trackerCardPaneSniffer">
+                    <!-- Controls -->
+                    <div class="tracker-controls">
+                      <label>Min $</label>
+                      <input type="number" id="dashTrackerMinSize" value="1000" min="100" step="100">
+                      <button class="tracker-btn-power on" id="dashTrackerPowerBtn" type="button">
+                        <i data-lucide="radar" style="width:9px;height:9px;"></i>
+                        Turn Off
+                      </button>
+                    </div>
+                    <!-- Feed -->
+                    <div class="tracker-feed" id="dashTrackerFeed">
+                      <div class="tracker-empty" id="dashTrackerEmpty">
+                        <i data-lucide="activity" class="tracker-empty-icon"></i>
+                        <p>Listening for trades &ge; $1000...</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- === PANE 2: Track Wallet === -->
+                  <div class="tracker-pane" id="trackerCardPaneWallet">
+                    <!-- Add Wallet -->
+                    <div class="tracker-wallet-add">
+                      <div class="tracker-wallet-row">
+                        <input type="text" class="tracker-wallet-input" id="dashWalletInput" placeholder="0x... wallet address">
+                        <input type="text" class="tracker-wallet-input" id="dashWalletNick" placeholder="Nickname" style="flex:0 0 90px;">
+                        <button class="tracker-btn-add" id="dashWalletAddBtn" type="button">Add</button>
+                      </div>
+                      <div class="tracker-wallet-tags" id="dashWalletTags">
+                        <!-- Tags injected by JS -->
+                      </div>
+                    </div>
+                    <!-- Tracked Feed -->
+                    <div class="tracker-feed" id="dashTrackedFeed">
+                      <div class="tracker-empty" id="dashTrackedEmpty">
+                        <i data-lucide="target" class="tracker-empty-icon"></i>
+                        <p>No wallets tracked.<br>Add an address to intercept their trades.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -521,14 +479,6 @@
             <div class="padre-system-status interactive" id="btnToggleEngines" style="cursor:pointer;" title="View Engine Statuses">
               3 Engines Loaded
             </div>
-            
-            <!-- Upward Opening Popup -->
-            <div id="enginesPopup" class="padre-engines-popup engines-closed" style="display:none;">
-              <div class="padre-system-status">Gamma</div>
-              <div class="padre-system-status">CLOB</div>
-              <div id="qwenStatus" class="padre-system-status ai">Qwen</div>
-              <div class="padre-system-status muted">Local</div>
-            </div>
           </div>
           
           <div style="width:1px; height:12px; background:var(--border-strong); margin:0 4px;"></div>
@@ -540,11 +490,7 @@
             <i data-lucide="palette" style="width:12px; height:12px;"></i>
           </div>
           
-          <div class="padre-status-item interactive" id="snifferToggleBtn" title="Toggle Tracker" style="color:var(--neon-amber);">
-            <i data-lucide="radar" style="width:12px; height:12px;" id="snifferToggleIcon"></i>
-            <span id="snifferToggleText" style="font-weight:600; font-size:9.5px;">TRACKER: OFF</span>
-          </div>
-          
+
 
           <div style="display:none;">
             <span id="connLabel">Connected</span>
@@ -1145,6 +1091,74 @@
           Stop Loss: 60547.31 (above local high)<br>
           Take Profit: 56077.76<br>
           Risk Multiplier: 1.00
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================== -->
+  <!-- BODY-LEVEL MODALS (outside pointer-events:none wrappers) -->
+  <!-- ================================================== -->
+
+  <!-- Engines Popup - BODY LEVEL (position:fixed to escape app-shell stacking context) -->
+  <div id="enginesPopup" class="padre-engines-popup engines-closed" style="display:none; position:fixed; bottom:40px; left:20px; z-index:999999;">
+    <div class="padre-system-status">Gamma</div>
+    <div class="padre-system-status">CLOB</div>
+    <div id="qwenStatus" class="padre-system-status ai">Qwen</div>
+    <div class="padre-system-status muted">Local</div>
+  </div>
+
+
+
+  <!-- Wallet Dashboard Modal - BODY LEVEL -->
+  <div id="positionsModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:99999; justify-content:center; align-items:center;">
+    <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.8); width:1000px; max-width:95vw; height:85vh; max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
+      <!-- Profile Header -->
+      <div style="padding:20px; border-bottom:1px solid var(--border); background:linear-gradient(to right, rgba(245,158,11,0.05), transparent); display:flex; justify-content:space-between; align-items:flex-start;">
+        <div style="display:flex; gap:16px; align-items:center;">
+          <div id="walletAvatar" style="width:48px; height:48px; border-radius:50%; background:var(--bg-elevated); border:2px solid var(--neon-amber); display:flex; justify-content:center; align-items:center;">
+            <i data-lucide="user" style="width:24px; height:24px; color:var(--neon-amber);"></i>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            <h2 id="walletDashboardNickname" style="margin:0; color:var(--text-primary); font-size:20px;">Wallet Profile</h2>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <div id="walletDashboardAddress" style="font-family:var(--font-mono); font-size:12px; color:var(--text-tertiary); background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; width:fit-content;">0x...</div>
+              <a id="btnViewOnPoly" href="#" target="_blank" style="font-size:11px; font-weight:bold; color:var(--bg-surface); background:var(--neon-amber); padding:2px 8px; border-radius:4px; text-decoration:none; display:flex; align-items:center; gap:4px; transition:opacity 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">
+                <i data-lucide="external-link" style="width:12px; height:12px;"></i> View on Poly
+              </a>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; gap:24px; align-items:center;">
+          <div style="display:flex; flex-direction:column; align-items:flex-end;">
+            <span style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600; letter-spacing:0.5px;">All-Time PNL</span>
+            <span id="walletDashboardAllTimePnl" style="font-size:20px; font-weight:bold; font-family:var(--font-mono); color:var(--text-primary); text-shadow: 0 0 10px rgba(255,255,255,0.1);">$0.00</span>
+          </div>
+          <div style="width:1px; height:30px; background:var(--border);"></div>
+          <div style="display:flex; flex-direction:column; align-items:flex-end;">
+            <span style="font-size:11px; color:var(--text-secondary); text-transform:uppercase; font-weight:600; letter-spacing:0.5px;">Total Active Portfolio</span>
+            <span id="walletDashboardValue" style="font-size:24px; font-weight:bold; color:var(--neon-green); font-family:var(--font-mono); text-shadow: 0 0 10px rgba(16,185,129,0.3);">$0.00</span>
+          </div>
+          <button id="btnClosePositions" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer; align-self:flex-start; padding:4px;">
+            <i data-lucide="x" style="width:24px; height:24px;"></i>
+          </button>
+        </div>
+      </div>
+      <!-- Tab Navigation -->
+      <div style="display:flex; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.2);">
+        <button id="tabWalletPositions" style="flex:1; padding:12px; border:none; background:rgba(245,158,11,0.1); border-bottom:2px solid var(--neon-amber); color:var(--text-primary); font-weight:600; font-size:13px; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px;">
+          <i data-lucide="briefcase" style="width:16px; height:16px; color:var(--neon-amber);"></i> Active Holdings
+        </button>
+        <button id="tabWalletHistory" style="flex:1; padding:12px; border:none; background:transparent; border-bottom:2px solid transparent; color:var(--text-tertiary); font-weight:500; font-size:13px; cursor:pointer; display:flex; justify-content:center; align-items:center; gap:8px; transition:color 0.2s;">
+          <i data-lucide="history" style="width:16px; height:16px;"></i> Trade History
+        </button>
+      </div>
+      <!-- Content Area -->
+      <div style="flex:1; overflow:hidden; position:relative; background:var(--bg-surface);">
+        <div id="positionsTabContent" style="position:absolute; top:0; left:0; width:100%; height:100%; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px;">
+          <div style="text-align:center; padding:40px; color:var(--text-tertiary);">Loading...</div>
+        </div>
+        <div id="historyTabContent" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px;">
         </div>
       </div>
     </div>

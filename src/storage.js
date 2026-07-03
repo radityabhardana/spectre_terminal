@@ -272,7 +272,19 @@ export function getDashboardMetrics() {
           else signalDir = "SIGNAL";
       }
       
-      if (latestEvent.analysis_conclusion) conclusion = latestEvent.analysis_conclusion;
+      if (latestEvent.analysis_conclusion) {
+          // Hanya ambil satu kalimat pertama atau teks pendek agar tidak merusak UI
+          const fullText = latestEvent.analysis_conclusion.trim();
+          let shortText = fullText.split('\n')[0];
+          if (shortText.length > 50) shortText = shortText.substring(0, 50) + "...";
+          conclusion = shortText;
+          if (fullText.includes("KESIMPULAN CEPAT")) {
+               const kcMatch = fullText.match(/KESIMPULAN CEPAT\r?\n(.*)/);
+               if (kcMatch && kcMatch[1]) {
+                    conclusion = kcMatch[1].substring(0, 50) + "...";
+               }
+          }
+      }
       if (latestEvent.qwen_confidence) confluenceScore = latestEvent.qwen_confidence;
       if (!confluenceScore.includes('%')) confluenceScore += '%';
     }

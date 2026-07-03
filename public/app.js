@@ -528,6 +528,16 @@ function setActiveTab(tabInfo, options = {}) {
   }
 }
 
+let pipelineInterval;
+const pipelineStages = [
+  "Inisiasi Agent...",
+  "Menarik data Polymarket & Orderbook...",
+  "Mengevaluasi sentimen pasar...",
+  "Qwen-Kuantitatif memproses probabilitas...",
+  "Menghitung Expected Value & Risk...",
+  "Menyusun kesimpulan analisis..."
+];
+
 function setBusy(nextBusy) {
   busy = nextBusy;
   runButton.disabled = false;
@@ -550,9 +560,26 @@ function setBusy(nextBusy) {
     timerId = setInterval(() => {
       timerText.textContent = `${Math.round((Date.now() - startedAt) / 1000)}s`;
     }, 500);
+
+    const dConc = document.getElementById("dashConclusionText");
+    if (dConc) {
+      let stageIdx = 0;
+      dConc.innerText = pipelineStages[0];
+      if (pipelineInterval) clearInterval(pipelineInterval);
+      pipelineInterval = setInterval(() => {
+        stageIdx++;
+        if (stageIdx < pipelineStages.length) {
+          dConc.innerText = pipelineStages[stageIdx];
+        }
+      }, 3000);
+    }
+
   } else if (timerId) {
     clearInterval(timerId);
     timerId = null;
+    if (pipelineInterval) clearInterval(pipelineInterval);
+    const dConc = document.getElementById("dashConclusionText");
+    if (dConc) dConc.innerText = "STANDBY - Siap menerima instruksi.";
   }
 }
 
@@ -2366,34 +2393,9 @@ if (btnRefreshShortMarket) {
 }
 
 const btnBulkAddShort = document.querySelector("#btnBulkAddShort");
-if (btnBulkAddShort) {
-  btnBulkAddShort.addEventListener("click", () => {
-    if (!currentShortMarkets || currentShortMarkets.length === 0) {
-      showCustomAlert("Tidak ada market untuk ditambahkan.");
-      return;
-    }
-    let addedCount = 0;
-    currentShortMarkets.forEach(m => {
-      if (!analysisQueue.some(q => q.id === m.id) && analysisQueue.length < 50) {
-        analysisQueue.push(m);
-        addedCount++;
-      }
-    });
-    if (addedCount > 0) {
-      renderQueue();
-      if (typeof showCustomAlert === "function") showCustomAlert(`${addedCount} market ditambahkan ke antrean.`);
-      const snd = document.getElementById("chkSoundQueue");
-      if (snd && snd.checked && typeof playSound === "function") {
-         playSound("https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3", 0.3);
-      }
-    } else {
-      if (typeof showCustomAlert === "function") showCustomAlert("Semua market sudah ada di antrean atau antrean penuh.");
-    }
-  });
-}
 
-if (btnBulkAddQueue && bulkAddDropdown) {
-  btnBulkAddQueue.addEventListener("click", (e) => {
+if (btnBulkAddShort && bulkAddDropdown) {
+  btnBulkAddShort.addEventListener("click", (e) => {
     e.stopPropagation();
     const isHidden = bulkAddDropdown.style.display === "none";
     bulkAddDropdown.style.display = isHidden ? "flex" : "none";
@@ -2469,7 +2471,7 @@ if (btnBulkAddQueue && bulkAddDropdown) {
   
   // Close when clicking outside
   document.addEventListener("click", (e) => {
-    if (!bulkAddDropdown.contains(e.target) && e.target !== btnBulkAddQueue && !btnBulkAddQueue.contains(e.target)) {
+    if (!bulkAddDropdown.contains(e.target) && e.target !== btnBulkAddShort && !btnBulkAddShort.contains(e.target)) {
       bulkAddDropdown.style.display = "none";
     }
     if (customBulkStartOptions && customBulkStartDisplay && !customBulkStartDisplay.contains(e.target) && !customBulkStartOptions.contains(e.target)) {
@@ -2779,6 +2781,8 @@ if (btnHistory && historyModal && closeHistoryModal) {
 
   closeHistoryModal.addEventListener("click", () => {
     historyModal.style.display = "none";
+    const smp = document.querySelector("#shortMarketPanel");
+    if (smp) smp.style.display = "flex";
   });
 
   if (btnCheckAllHistory) {
@@ -3098,7 +3102,12 @@ function renderHistoryListPanel() {
           </div>
         </div>
         <div style="font-size:11px; font-weight:600; color:var(--text-primary); line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
-          ${event.question}
+          ${(event.question || "")
+              .replace(/Bitcoin/gi, 'BTC')
+              .replace(/Ethereum/gi, 'ETH')
+              .replace(/Dogecoin/gi, 'DOGE')
+              .replace(/Solana/gi, 'SOL')
+              .replace(/ Up or Down/gi, '')}
         </div>
       </div>
     `;
@@ -3543,7 +3552,7 @@ async function fetchDashboardMetrics() {
                dDir.style.background = "rgba(255, 255, 255, 0.1)";
            }
         }
-        if (dConc) dConc.innerText = '"' + sig.conclusion + '"';
+        // dConc diupdate via pipeline simulation, bukan dari m.latestSignal
         if (dScore) dScore.innerText = sig.confluenceScore;
         if (dFill) {
             let widthNum = parseFloat(sig.confluenceScore);
@@ -3958,34 +3967,9 @@ if (aggressiveModeBtn) {
 window.isAggressiveMode = () => isAggressiveMode;
 
 /* --- Whale Sniffer UI Toggle --- */
-const snifferToggleBtn = document.getElementById('snifferToggleBtn');
-const snifferPanel = document.getElementById('snifferPanel');
-const btnCloseSnifferPanel = document.getElementById('btnCloseSnifferPanel');
-const panelSnifferPowerBtn = document.getElementById('panelSnifferPowerBtn');
-const snifferWhaleList = document.getElementById('snifferWhaleList');
-
-if (snifferToggleBtn) {
-  let currentSnifferStartTime = 0;
-  let lastSeenWhaleTimestamp = Date.now();
-  let isFirstLoad = true;
-
-  // Toggle Panel Visibility
-  if (snifferPanel) {
-    snifferToggleBtn.addEventListener('click', () => {
-      const isVisible = snifferPanel.style.display === "flex";
-      snifferPanel.style.display = isVisible ? "none" : "flex";
-    });
-
-    if (btnCloseSnifferPanel) {
-      btnCloseSnifferPanel.addEventListener('click', () => {
-        snifferPanel.style.display = "none";
-      });
-    }
-
-    snifferPanel.addEventListener('click', (e) => {
-      if (e.target === snifferPanel) snifferPanel.style.display = "none";
-    });
-  }
+let currentSnifferStartTime = 0;
+let lastSeenWhaleTimestamp = Date.now();
+let isFirstLoad = true;
 
   // Toast Function for New Whales
   function showWhaleToast(whale) {
@@ -4041,7 +4025,101 @@ if (snifferToggleBtn) {
     }, 5000);
   }
 
-  // Power Button Logic
+  // =========================================================
+  // DASHBOARD TRACKER CARD LOGIC
+  // =========================================================
+  const dashTrackerCard = document.getElementById('dashTrackerCard');
+  const dashTabSniffer = document.getElementById('trackerCardTabSniffer');
+  const dashTabWallet = document.getElementById('trackerCardTabWallet');
+  const dashPaneSniffer = document.getElementById('trackerCardPaneSniffer');
+  const dashPaneWallet = document.getElementById('trackerCardPaneWallet');
+  const dashStatusPill = document.getElementById('trackerCardStatusPill');
+  const dashStatusText = document.getElementById('trackerCardStatusText');
+  const dashTrackerPowerBtn = document.getElementById('dashTrackerPowerBtn');
+  const dashTrackerMinSize = document.getElementById('dashTrackerMinSize');
+  const dashTrackerFeed = document.getElementById('dashTrackerFeed');
+  const dashTrackedFeed = document.getElementById('dashTrackedFeed');
+  const dashWalletInput = document.getElementById('dashWalletInput');
+  const dashWalletNick = document.getElementById('dashWalletNick');
+  const dashWalletAddBtn = document.getElementById('dashWalletAddBtn');
+  const dashWalletTags = document.getElementById('dashWalletTags');
+
+  // Tab Switching
+  if (dashTabSniffer && dashTabWallet) {
+    dashTabSniffer.addEventListener('click', () => {
+      dashTabSniffer.classList.add('active');
+      dashTabWallet.classList.remove('active');
+      dashPaneSniffer.classList.add('active');
+      dashPaneWallet.classList.remove('active');
+    });
+    dashTabWallet.addEventListener('click', () => {
+      dashTabWallet.classList.add('active');
+      dashTabSniffer.classList.remove('active');
+      dashPaneWallet.classList.add('active');
+      dashPaneSniffer.classList.remove('active');
+    });
+  }
+
+  // Dashboard Power Button Logic
+  if (dashTrackerPowerBtn) {
+    dashTrackerPowerBtn.addEventListener('click', async () => {
+      const isCurrentlyOff = dashTrackerPowerBtn.innerText.toLowerCase().includes('turn on');
+      dashTrackerPowerBtn.style.opacity = '0.5';
+      dashTrackerPowerBtn.innerText = 'WAIT...';
+      try {
+        const res = await fetch('/api/sniffer-toggle', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({active: isCurrentlyOff})
+        });
+        const data = await res.json();
+        currentSnifferStartTime = data.startTime || 0;
+        await updateSnifferUI();
+      } catch (e) {
+        console.error(e);
+      } finally {
+        dashTrackerPowerBtn.style.opacity = '1';
+      }
+    });
+  }
+
+  // Dashboard Add Wallet Logic
+  if (dashWalletAddBtn) {
+    dashWalletAddBtn.addEventListener('click', async () => {
+      const address = dashWalletInput.value.trim();
+      const nick = dashWalletNick.value.trim();
+      if (!address) return;
+      dashWalletAddBtn.innerText = 'Adding...';
+      try {
+        await fetch('/api/sniffer-wallet', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({action: 'add', address, nickname: nick})
+        });
+        dashWalletInput.value = '';
+        dashWalletNick.value = '';
+        await updateSnifferUI();
+      } catch (e) {
+        console.error(e);
+      } finally {
+        dashWalletAddBtn.innerText = 'Add';
+      }
+    });
+  }
+
+  // Dashboard Remove Wallet logic happens inside updateSnifferUI
+  window.removeDashWallet = async function(address) {
+    try {
+      await fetch('/api/sniffer-wallet', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'remove', address})
+      });
+      await updateSnifferUI();
+    } catch(e) { console.error(e); }
+  };
+
+  // Power Button Logic (Modal)
   if (panelSnifferPowerBtn) {
     panelSnifferPowerBtn.addEventListener('click', async () => {
       const isCurrentlyOff = panelSnifferPowerBtn.innerText.includes('TURN ON');
@@ -4075,29 +4153,37 @@ if (snifferToggleBtn) {
       const topBtnIcon = document.getElementById('snifferToggleIcon');
       
       if (data.isSnifferActive) {
-        snifferToggleBtn.style.color = 'var(--neon-green)';
         // Force to ON state to ensure interval starts ticking
         if (topBtnText && !topBtnText.innerText.includes('(')) {
           topBtnText.innerText = 'TRACKER: ON';
         }
         if (topBtnIcon) topBtnIcon.classList.add('radar-anim');
         
-        if (panelSnifferPowerBtn) {
-          panelSnifferPowerBtn.innerText = 'TURN OFF';
-          panelSnifferPowerBtn.style.background = 'rgba(239, 68, 68, 0.2)';
-          panelSnifferPowerBtn.style.color = 'var(--neon-red)';
-          panelSnifferPowerBtn.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+        const dashTrackerPowerBtn = document.getElementById('dashTrackerPowerBtn');
+        if (dashTrackerPowerBtn) {
+          dashTrackerPowerBtn.classList.add('on');
+          dashTrackerPowerBtn.innerHTML = '<i data-lucide="radar" style="width:9px;height:9px;"></i> Turn Off';
+        }
+        const dashStatusPill = document.getElementById('trackerCardStatusPill');
+        const dashStatusText = document.getElementById('trackerCardStatusText');
+        if (dashStatusPill && dashStatusText) {
+          dashStatusPill.classList.add('live');
+          dashStatusText.innerText = 'Live';
         }
       } else {
-        snifferToggleBtn.style.color = 'var(--neon-amber)';
         if (topBtnText) topBtnText.innerText = 'TRACKER: OFF';
         if (topBtnIcon) topBtnIcon.classList.remove('radar-anim');
         
-        if (panelSnifferPowerBtn) {
-          panelSnifferPowerBtn.innerText = 'TURN ON';
-          panelSnifferPowerBtn.style.background = 'rgba(245, 158, 11, 0.2)';
-          panelSnifferPowerBtn.style.color = 'var(--neon-amber)';
-          panelSnifferPowerBtn.style.borderColor = 'rgba(245, 158, 11, 0.5)';
+        const dashTrackerPowerBtn = document.getElementById('dashTrackerPowerBtn');
+        if (dashTrackerPowerBtn) {
+          dashTrackerPowerBtn.classList.remove('on');
+          dashTrackerPowerBtn.innerHTML = '<i data-lucide="radar" style="width:9px;height:9px;"></i> Turn On';
+        }
+        const dashStatusPill = document.getElementById('trackerCardStatusPill');
+        const dashStatusText = document.getElementById('trackerCardStatusText');
+        if (dashStatusPill && dashStatusText) {
+          dashStatusPill.classList.remove('live');
+          dashStatusText.innerText = 'Offline';
         }
       }
 
@@ -4127,8 +4213,10 @@ if (snifferToggleBtn) {
         }
 
         // Render Sniffer View
+        const dashTrackerFeed = document.getElementById('dashTrackerFeed');
         if (snifferFiltered.length > 0) {
            let html = '';
+           let dashHtml = '';
            let maxTs = lastSeenWhaleTimestamp;
            
            for (const w of snifferFiltered) {
@@ -4154,31 +4242,43 @@ if (snifferToggleBtn) {
                  ? `<a href="https://polymarket.com/event/${w.market_slug}" target="_blank" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${w.market_question}</a>`
                  : w.market_question;
              
-             html += `
-              <div style="border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:8px; background:rgba(0,0,0,0.2);">
-                <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-weight:bold;">
-                  <span>${icon} ${size} (${w.side} @ $${w.price.toFixed(3)})</span>
-                  <span style="color:var(--text-tertiary); font-weight:normal; font-size:9px;">${timeFmt}</span>
+
+             const sideClass = w.side.toLowerCase();
+             dashHtml += `
+              <div class="tracker-whale-item">
+                <div class="whale-row-top">
+                  <span class="whale-side-badge ${sideClass}">${w.side}</span>
+                  <span class="whale-size">${size}</span>
+                  <span class="whale-time">${timeFmt}</span>
                 </div>
-                <div style="color:var(--text-secondary); margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${eventLinkHtml}</div>
-                <div style="color:var(--text-tertiary); font-family:var(--font-mono); font-size:9px;">${walletShort}</div>
+                <div class="whale-market">${eventLinkHtml}</div>
+                <div style="display:flex; align-items:center;">
+                  <div style="color:var(--text-tertiary); font-family:var(--font-mono); font-size:9px; margin-top:2px;">${walletShort}</div>
+                  ${w.isTracked ? `<div class="whale-tracked-badge"><i data-lucide="target" style="width:8px; height:8px;"></i> Tracked</div>` : ''}
+                </div>
               </div>
              `;
            }
-           if (snifferWhaleList) snifferWhaleList.innerHTML = html;
+           if (dashTrackerFeed) {
+             dashTrackerFeed.innerHTML = dashHtml;
+             if (typeof lucide !== 'undefined') lucide.createIcons({root: dashTrackerFeed});
+           }
            lastSeenWhaleTimestamp = maxTs;
 
            if (newWhaleFound && !isFirstLoad) {
              showWhaleToast(newWhaleFound);
            }
-        } else if (snifferWhaleList) {
-          snifferWhaleList.innerHTML = `<div style="text-align:center; padding:60px 20px; color:var(--text-tertiary); font-size:13px;">Listening for trades >= $${currentMinSize}...</div>`;
+        } else {
+          if (dashTrackerFeed) dashTrackerFeed.innerHTML = `<div class="tracker-empty"><i data-lucide="activity" class="tracker-empty-icon"></i><p>Listening for trades &ge; $${currentMinSize}...</p></div>`;
+          if (dashTrackerFeed && typeof lucide !== 'undefined') lucide.createIcons({root: dashTrackerFeed});
         }
 
         // Render Tracked View
         const trackedWhaleList = document.getElementById('trackedWhaleList');
-        if (trackedFiltered.length > 0 && trackedWhaleList) {
+        const dashTrackedFeed = document.getElementById('dashTrackedFeed');
+        if (trackedFiltered.length > 0) {
            let html = '';
+           let dashTrackedHtml = '';
            for (const w of trackedFiltered) {
              const size = "$" + w.sizeUsdc.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
              
@@ -4197,34 +4297,38 @@ if (snifferToggleBtn) {
                  ? `<a href="https://polymarket.com/event/${w.market_slug}" target="_blank" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${w.market_question}</a>`
                  : w.market_question;
                  
-             html += `
-              <div style="border:1px solid rgba(245,158,11,0.5); border-radius:6px; padding:8px; background:rgba(245,158,11,0.1); box-shadow: 0 0 10px rgba(245,158,11,0.15);">
-                <div style="display:flex; justify-content:space-between; margin-bottom:4px; font-weight:bold;">
-                  <span>${icon} ${size} (${w.side} @ $${w.price.toFixed(3)})</span>
-                  <span style="color:var(--text-tertiary); font-weight:normal; font-size:9px;">${timeFmt}</span>
+
+             
+             const sideClass = w.side.toLowerCase();
+             dashTrackedHtml += `
+              <div class="tracker-whale-item" style="border-left: 2px solid var(--neon-amber); background: rgba(245,158,11,0.02);">
+                <div class="whale-row-top">
+                  <span class="whale-side-badge ${sideClass}">${w.side}</span>
+                  <span class="whale-size">${size}</span>
+                  <span class="whale-time">${timeFmt}</span>
                 </div>
-                <div style="color:var(--text-secondary); margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${eventLinkHtml}</div>
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <div style="color:var(--neon-amber); font-family:var(--font-mono); font-size:9px; font-weight:bold; display:flex; align-items:center; gap:4px;">
-                    <i data-lucide="target" style="width:10px; height:10px;"></i> TRACKED WALLET
-                  </div>
-                  <div style="color:var(--text-tertiary); font-family:var(--font-mono); font-size:9px;">${walletShort}</div>
+                <div class="whale-market">${eventLinkHtml}</div>
+                <div style="display:flex; align-items:center;">
+                  <div style="color:var(--text-tertiary); font-family:var(--font-mono); font-size:9px; margin-top:2px;">${walletShort}</div>
+                  <div class="whale-tracked-badge"><i data-lucide="target" style="width:8px; height:8px;"></i> Target</div>
                 </div>
               </div>
              `;
            }
-           trackedWhaleList.innerHTML = html;
-        } else if (trackedWhaleList) {
-          trackedWhaleList.innerHTML = `<div style="text-align:center; padding:60px 20px; color:var(--text-tertiary); font-size:13px;">No activity from tracked wallets yet.</div>`;
+           if (dashTrackedFeed) {
+             dashTrackedFeed.innerHTML = dashTrackedHtml;
+             if (typeof lucide !== 'undefined') lucide.createIcons({root: dashTrackedFeed});
+           }
+        } else {
+          if (dashTrackedFeed) dashTrackedFeed.innerHTML = `<div class="tracker-empty"><i data-lucide="target" class="tracker-empty-icon"></i><p>No trades from tracked wallets.</p></div>`;
+          if (dashTrackedFeed && typeof lucide !== 'undefined') lucide.createIcons({root: dashTrackedFeed});
         }
-      } else if (!data.isSnifferActive && snifferWhaleList) {
-        snifferWhaleList.innerHTML = `
-          <div style="text-align:center; padding:60px 20px; color:var(--text-tertiary); display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%;">
-            <i data-lucide="activity" style="width:48px; height:48px; opacity:0.2; margin-bottom:16px;"></i>
-            <div style="font-size:16px; font-weight:500; color:var(--text-secondary); margin-bottom:8px;">Tracker is Offline</div>
-            <div style="font-size:13px;">Turn on the tracker to intercept live whale trades...</div>
-          </div>`;
-        if (typeof lucide !== 'undefined') lucide.createIcons({root: snifferWhaleList});
+      } else {
+        const dashTrackerFeed = document.getElementById('dashTrackerFeed');
+        if (dashTrackerFeed) {
+          dashTrackerFeed.innerHTML = `<div class="tracker-empty"><i data-lucide="activity" class="tracker-empty-icon"></i><p>Tracker offline.<br>Turn on to intercept whale trades.</p></div>`;
+          if (typeof lucide !== 'undefined') lucide.createIcons({root: dashTrackerFeed});
+        }
       }
       
       isFirstLoad = false;
@@ -4256,77 +4360,35 @@ if (snifferToggleBtn) {
   // Sidebar Toggles
   const tabSniffer = document.getElementById('tabSniffer');
   const tabTrackWallet = document.getElementById('tabTrackWallet');
-  const snifferViewPane = document.getElementById('snifferViewPane');
-  const trackerViewPane = document.getElementById('trackerViewPane');
-
-  if (tabSniffer && tabTrackWallet) {
-    tabSniffer.addEventListener('click', () => {
-      tabSniffer.style.background = 'rgba(6,182,212,0.1)';
-      tabSniffer.style.borderRight = '3px solid var(--neon-cyan)';
-      tabSniffer.style.color = 'var(--text-primary)';
-      tabTrackWallet.style.background = 'transparent';
-      tabTrackWallet.style.borderRight = '3px solid transparent';
-      tabTrackWallet.style.color = 'var(--text-tertiary)';
-      
-      snifferViewPane.style.display = 'flex';
-      trackerViewPane.style.display = 'none';
-    });
-
-    tabTrackWallet.addEventListener('click', () => {
-      tabTrackWallet.style.background = 'rgba(245,158,11,0.1)';
-      tabTrackWallet.style.borderRight = '3px solid var(--neon-amber)';
-      tabTrackWallet.style.color = 'var(--text-primary)';
-      tabSniffer.style.background = 'transparent';
-      tabSniffer.style.borderRight = '3px solid transparent';
-      tabSniffer.style.color = 'var(--text-tertiary)';
-      
-      snifferViewPane.style.display = 'none';
-      trackerViewPane.style.display = 'flex';
-    });
-  }
-
   // Tracker Config Logic
   let activeTrackedWallets = [];
-  const trackerMinSizeInput = document.getElementById('trackerMinSizeInput');
-  const trackerWalletInput = document.getElementById('trackerWalletInput');
-  const trackerWalletNickname = document.getElementById('trackerWalletNickname');
-  const trackedWalletsTags = document.getElementById('trackedWalletsTags');
-  const btnSaveSnifferConfig = document.getElementById('btnSaveSnifferConfig');
-  const btnAddWallet = document.getElementById('btnAddWallet');
 
   function renderWalletTags() {
-    if (!trackedWalletsTags) return;
-    if (activeTrackedWallets.length === 0) {
-      trackedWalletsTags.innerHTML = '';
-      return;
+    if (dashWalletTags) {
+      if (activeTrackedWallets.length === 0) {
+        dashWalletTags.innerHTML = '';
+      } else {
+        dashWalletTags.innerHTML = activeTrackedWallets.map(w => `
+          <div class="wallet-tag" title="${w.address}">
+            <span>${w.nickname || (w.address.slice(0,6)+'...')}</span>
+            <button type="button" onclick="window.removeDashWallet('${w.address}')">
+              <i data-lucide="x" style="width:10px; height:10px;"></i>
+            </button>
+          </div>
+        `).join("");
+        if (typeof lucide !== 'undefined') lucide.createIcons({root: dashWalletTags});
+      }
     }
-    trackedWalletsTags.innerHTML = activeTrackedWallets.map(w => `
-      <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border); padding:8px 12px; border-radius:6px; display:flex; justify-content:space-between; align-items:center;">
-        <div style="display:flex; flex-direction:column; gap:2px;">
-          <span style="font-weight:bold; color:var(--text-primary); font-size:13px;">${w.nickname || "No Nickname"}</span>
-          <span style="font-family:var(--font-mono); font-size:11px; color:var(--text-secondary);">${w.address}</span>
-        </div>
-        <div style="display:flex; gap:8px;">
-          <button type="button" onclick="window.viewWalletPositions('${w.address}', '${w.nickname || 'Unknown'}')" style="background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); padding:4px 8px; border-radius:4px; cursor:pointer; color:var(--neon-amber); display:flex; align-items:center; gap:4px; font-size:11px; transition:all 0.2s;">
-            <i data-lucide="briefcase" style="width:12px; height:12px;"></i> View Positions
-          </button>
-          <button type="button" onclick="window.removeWallet('${w.address}')" style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); padding:4px 8px; border-radius:4px; cursor:pointer; color:#ef4444; display:flex; align-items:center; gap:4px; font-size:11px; transition:all 0.2s;">
-            <i data-lucide="trash-2" style="width:12px; height:12px;"></i> Remove
-          </button>
-        </div>
-      </div>
-    `).join("");
-    if (typeof lucide !== 'undefined') lucide.createIcons({root: trackedWalletsTags});
   }
 
-  window.removeWallet = async (addressToRemove) => {
+  window.removeDashWallet = async (addressToRemove) => {
     activeTrackedWallets = activeTrackedWallets.filter(wallet => wallet.address !== addressToRemove);
     renderWalletTags();
     await saveConfig();
   };
 
   async function saveConfig() {
-    const minUsd = parseInt(trackerMinSizeInput?.value, 10) || 0;
+    const minUsd = parseInt(dashTrackerMinSize?.value, 10) || 0;
     try {
       await fetch('/api/tracker-config', {
         method: 'POST',
@@ -4336,26 +4398,25 @@ if (snifferToggleBtn) {
     } catch (e) { console.error(e); }
   }
 
-  if (btnAddWallet) {
-    btnAddWallet.addEventListener('click', async () => {
-      const w = trackerWalletInput.value.trim().toLowerCase();
-      const n = trackerWalletNickname ? trackerWalletNickname.value.trim() : "";
+  if (dashWalletAddBtn) {
+    dashWalletAddBtn.addEventListener('click', async () => {
+      const w = dashWalletInput.value.trim().toLowerCase();
+      const n = dashWalletNick ? dashWalletNick.value.trim() : "";
       if (w.length > 0 && !activeTrackedWallets.some(x => x.address === w)) {
+        dashWalletAddBtn.innerText = 'Adding...';
         activeTrackedWallets.push({ address: w, nickname: n });
-        trackerWalletInput.value = "";
-        if (trackerWalletNickname) trackerWalletNickname.value = "";
+        dashWalletInput.value = "";
+        if (dashWalletNick) dashWalletNick.value = "";
         renderWalletTags();
         await saveConfig();
+        dashWalletAddBtn.innerText = 'Add';
       }
     });
   }
 
-  if (btnSaveSnifferConfig) {
-    btnSaveSnifferConfig.addEventListener('click', async () => {
-      btnSaveSnifferConfig.innerText = '...';
+  if (dashTrackerMinSize) {
+    dashTrackerMinSize.addEventListener('change', async () => {
       await saveConfig();
-      btnSaveSnifferConfig.innerText = 'Saved';
-      setTimeout(() => btnSaveSnifferConfig.innerText = 'Save', 2000);
     });
   }
 
@@ -4363,7 +4424,7 @@ if (snifferToggleBtn) {
     try {
       const res = await fetch('/api/tracker-config');
       const data = await res.json();
-      if (trackerMinSizeInput) trackerMinSizeInput.value = data.minUsd;
+      if (dashTrackerMinSize) dashTrackerMinSize.value = data.minUsd;
       activeTrackedWallets = data.wallets || [];
       renderWalletTags();
     } catch (e) {
@@ -4529,8 +4590,6 @@ if (snifferToggleBtn) {
   // Initial load
   loadTrackerConfig();
   updateSnifferUI();
-}
-
 
 // --- LIVE PRICES SSE ---
 const livePriceSource = new EventSource('/api/live-prices');
@@ -4709,19 +4768,21 @@ if (polyTitleEl) {
   titleObserver.observe(polyTitleEl, { childList: true, characterData: true, subtree: true });
 }
 
-/* --- Engines Popup Toggle --- */
-
-
-/* --- Engines Popup Toggle (Foolproof) --- */
+/* --- Engines Popup Toggle (Body-Level Fixed Positioning) --- */
 setTimeout(() => {
   const btn = document.getElementById('btnToggleEngines');
   const popup = document.getElementById('enginesPopup');
-  console.log('Attaching popup listeners', btn, popup);
   if (btn && popup) {
+    function positionPopup() {
+      const rect = btn.getBoundingClientRect();
+      popup.style.left = rect.left + 'px';
+      popup.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+      popup.style.top = 'auto';
+    }
     btn.addEventListener('click', (e) => {
-      console.log('Button clicked!');
       e.stopPropagation();
       if (popup.style.display === 'none' || popup.style.display === '') {
+        positionPopup();
         popup.style.display = 'flex';
         setTimeout(() => popup.classList.remove('engines-closed'), 10);
       } else {

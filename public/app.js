@@ -1410,7 +1410,68 @@ function addMessage(message, tabId = activeTabId) {
 }
 
 function addUserInput(text, tabId) { addMessage({ role: "user", text }, tabId); }
-function addError(text, tabId) { addMessage({ role: "error", text }, tabId); }
+
+function showToast(text, type = "error", durationMs = 8000) {
+  const container = document.getElementById("toastContainer");
+  if (!container) return;
+
+  const toast = document.createElement("div");
+  const isError = type === "error";
+  toast.style.cssText = `
+    pointer-events: all;
+    background: ${isError ? "rgba(20,5,5,0.96)" : "rgba(5,15,10,0.96)"};
+    border: 1px solid ${isError ? "rgba(239,68,68,0.5)" : "rgba(16,185,129,0.5)"};
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    line-height: 1.5;
+    color: ${isError ? "#fca5a5" : "#6ee7b7"};
+    max-width: 100%;
+    word-break: break-word;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+    opacity: 0;
+    transform: translateX(12px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    cursor: pointer;
+  `;
+  
+  const icon = isError ? "⚠" : "✓";
+  toast.innerHTML = `<span style="flex-shrink:0; font-size:12px;">${icon}</span><span>${text.replace(/\n/g, "<br>")}</span>`;
+  toast.title = "Click to dismiss";
+  toast.addEventListener("click", () => removeToast(toast));
+  
+  container.appendChild(toast);
+  
+  // Animate in
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      toast.style.opacity = "1";
+      toast.style.transform = "translateX(0)";
+    });
+  });
+
+  // Auto dismiss
+  const timer = setTimeout(() => removeToast(toast), durationMs);
+  toast._timer = timer;
+  
+  function removeToast(t) {
+    clearTimeout(t._timer);
+    t.style.opacity = "0";
+    t.style.transform = "translateX(12px)";
+    setTimeout(() => t.remove(), 280);
+  }
+}
+
+function addError(text, tabId) { 
+  // Show as a visible toast so errors are never silently swallowed in the hidden console feed
+  showToast(text, "error", 10000);
+  // Also store in messages for tab history
+  addMessage({ role: "error", text }, tabId); 
+}
 
 function warnIfServerVersionMismatch(data = {}, tabId = activeTabId) {
   if (!data.version || data.version === CLIENT_VERSION || versionWarningShown) return;

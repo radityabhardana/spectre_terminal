@@ -315,9 +315,10 @@ h1 {
    WORKSPACE LAYOUT
    ================================================================ */
 .console-main-row {
-  display: flex;
-  flex-direction: row;
-  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+  padding: 16px 20px 0 20px;
   min-height: 0;
   overflow: hidden;
   margin-left: 366px;
@@ -1930,7 +1931,7 @@ textarea::-webkit-scrollbar-thumb,
   transform: translate(1px, -1px) scale(1.05);
 }
 
-.center-dashboard { flex: 0 0 auto; display: flex; background: transparent; padding: 16px 20px 16px 20px; margin-left: 366px; gap: 12px; margin-top: auto; }
+.center-dashboard { flex: 0 0 auto; display: flex; align-items: flex-start; background: transparent; padding: 4px 20px 16px 20px; margin-left: 366px; gap: 12px; }
 .dash-col { display: flex; flex-direction: column; }
 .dash-live-readiness { flex: 0 0 25%; }
 .dash-agent-analysis { flex: 1; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 6px; display: flex; flex-direction: column; overflow: hidden; max-height: 280px; cursor: grab; user-select: none; }
@@ -1963,7 +1964,7 @@ textarea::-webkit-scrollbar-thumb,
    TRACKER CARD — Dashboard Embedded (Double-Bezel)
    ================================================================ */
 .dash-tracker-card {
-  flex: 1;
+  align-self: flex-end;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 12px;
@@ -2400,41 +2401,6 @@ textarea::-webkit-scrollbar-thumb,
   padding: 24px 32px;
 }
 
-/* Premium Overrides for Analysis Cards inside Static Panel */
-#staticResultBody .analysis-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 16px;
-  padding: 20px 24px;
-  margin-bottom: 20px;
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.05);
-  transition: transform 0.3s ease, background 0.3s ease;
-}
-#staticResultBody .analysis-card:hover {
-  background: rgba(255, 255, 255, 0.04);
-  transform: translateY(-2px);
-}
-#staticResultBody .analysis-card-title {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--neon-green);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  padding-bottom: 12px;
-  margin-bottom: 16px;
-  letter-spacing: 0.1em;
-}
-#staticResultBody .msg-text, #staticResultBody .text-row {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 13px;
-  line-height: 1.7;
-  color: rgba(255, 255, 255, 0.85);
-}
-#staticResultBody .msg-text code {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 12px;
-}
 
 .static-result-body .action-grid {
   display: grid;
@@ -2468,14 +2434,7 @@ textarea::-webkit-scrollbar-thumb,
   transform: scale(0.98);
 }
 
-/* ================================================================
-   FUTURE RIGHT SPACE (KANAN)
-   ================================================================ */
-.future-right-space {
-  flex: 1;
-  min-width: 200px;
-  background: transparent;
-}
+
 /* Custom scrollbar for modal */
 .holographic-modal-content::-webkit-scrollbar {
   width: 6px;
@@ -2513,5 +2472,433 @@ textarea::-webkit-scrollbar-thumb,
 @keyframes modal-pop {
   0% { opacity: 0; transform: scale(0.9) translateY(20px); }
   100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+/* ================================================================
+   PREMIUM RESULT DASHBOARD (KANAN ATAS)
+   ================================================================ */
+.premium-result-panel {
+  min-width: 0;
+  background: transparent;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.premium-result-panel::before {
+  display: none;
+}
+
+.premium-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0 16px 0;
+  border-bottom: none;
+  background: transparent;
+}
+
+.prh-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.prh-icon-box {
+  width: 40px; height: 40px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);
+}
+
+.prh-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+  letter-spacing: 0.05em;
+}
+
+.prh-subtitle {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.pulse-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--neon-green);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 6px 12px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 6px;
+}
+.pulse-indicator .pulse-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--neon-green);
+  box-shadow: 0 0 8px var(--neon-green);
+  animation: pulse-op 1.5s infinite;
+}
+@keyframes pulse-op { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+.premium-result-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 0 32px 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-auto-rows: max-content;
+  gap: 16px;
+}
+
+/* Premium Overrides for Injected Analysis Cards (Double-Bezel) */
+.premium-result-body .analysis-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 6px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+.premium-result-body .analysis-card-inner {
+  background: var(--bg-elevated, #161618);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,0.06);
+  padding: 20px 24px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.premium-result-body .analysis-card:hover {
+  transform: translateY(-2px) scale(0.995);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.3);
+}
+
+.premium-result-body .analysis-card-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--neon-cyan);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  padding-bottom: 10px;
+  margin-bottom: 8px;
+  letter-spacing: 0.1em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: uppercase;
+}
+
+.premium-result-body .text-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px dashed rgba(255,255,255,0.05);
+  align-items: baseline;
+}
+.premium-result-body .text-row:last-child {
+  border-bottom: none;
+}
+.premium-result-body .text-row .label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.premium-result-body .text-row .val {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.premium-result-body .msg-text {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+.premium-result-body .msg-li {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  padding-left: 12px;
+  position: relative;
+  margin-bottom: 6px;
+}
+.premium-result-body .msg-li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+
+.premium-result-body .msg-text code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  background: rgba(255,255,255,0.05);
+  color: var(--neon-purple);
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.premium-result-body .realtime-ticker-kv {
+  background: rgba(0,0,0,0.2);
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-top: 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.premium-result-body .verdict-banner {
+  grid-column: 1 / -1;
+  border-radius: 12px;
+  padding: 2px;
+  background: rgba(16, 185, 129, 0.1);
+  background-image: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(16, 185, 129, 0) 100%);
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-left: none;
+  margin-bottom: 0;
+}
+
+.premium-result-body .verdict-banner-inner {
+  border-radius: 10px;
+  background: var(--bg-elevated, #161618);
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-left: 3px solid var(--neon-green);
+  box-shadow: inset 0 1px 1px rgba(16,185,129,0.1);
+}
+
+.premium-result-body .verdict-banner.danger {
+  background: rgba(239, 68, 68, 0.1);
+  background-image: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(239, 68, 68, 0) 100%);
+}
+.premium-result-body .verdict-banner.danger .verdict-banner-inner {
+  border-left-color: var(--neon-red);
+  box-shadow: inset 0 1px 1px rgba(239,68,68,0.1);
+}
+
+.premium-result-body .verdict-banner.warning {
+  background: rgba(245, 158, 11, 0.1);
+  background-image: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(245, 158, 11, 0) 100%);
+}
+.premium-result-body .verdict-banner.warning .verdict-banner-inner {
+  border-left-color: var(--neon-amber);
+  box-shadow: inset 0 1px 1px rgba(245,158,11,0.1);
+}
+
+.premium-result-body .verdict-title {
+  font-family: "Outfit", sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ================================================================
+   FUTURE RIGHT SPACE (KANAN)
+   ================================================================ */
+.future-right-space {
+  min-width: 0;
+  background: transparent;
+}
+/* Custom scrollbar for modal */
+.holographic-modal-content::-webkit-scrollbar {
+  width: 6px;
+}
+.holographic-modal-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ================================================================
+   BENTO GRID DESIGN
+   ================================================================ */
+.bento-grid-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: transparent;
+  padding: 0;
+  width: 100%;
+}
+
+.bento-glass-panel {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 0 30px rgba(16, 185, 129, 0.05), inset 0 0 20px rgba(16, 185, 129, 0.02);
+  position: relative;
+  overflow: hidden;
+}
+.bento-glass-panel::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.5), transparent);
+}
+
+.bento-title-header {
+  font-family: "Outfit", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+  margin-bottom: 16px;
+  text-shadow: 0 0 10px rgba(255,255,255,0.2);
+}
+
+.bento-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.bento-row:last-child {
+  margin-bottom: 0;
+}
+
+.bento-box {
+  background: rgba(20, 20, 22, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.2s ease;
+}
+.bento-box:hover {
+  background: rgba(30, 30, 33, 0.8);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.bento-box.interactive {
+  cursor: pointer;
+}
+.bento-box.interactive:hover {
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.1);
+}
+
+.bento-box-label {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.bento-box-value {
+  font-family: "Outfit", sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #fff;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.bento-box-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  line-height: 1.4;
+}
+
+/* Colors and Glows */
+.bento-glow-up {
+  color: var(--neon-green);
+  text-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+}
+.bento-glow-down {
+  color: var(--neon-red);
+  text-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+.bento-glow-neutral {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 12px rgba(6, 182, 212, 0.4);
+}
+
+.bento-badge-up {
+  background: var(--neon-green);
+  color: #000;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);
+  display: inline-block;
+}
+.bento-badge-down {
+  background: var(--neon-red);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
+  display: inline-block;
+}
+.bento-badge-outline-cyan {
+  border: 2px solid var(--neon-cyan);
+  color: var(--neon-cyan);
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  box-shadow: inset 0 0 10px rgba(6, 182, 212, 0.2), 0 0 10px rgba(6, 182, 212, 0.2);
+  display: inline-block;
 }
 

@@ -549,14 +549,33 @@ function setBusy(nextBusy) {
     }, 500);
 
     const dConc = document.getElementById("dashConclusionText");
-    if (dConc) {
+    const staticPanel = document.getElementById("staticResultPanel");
+    const staticBody = document.getElementById("staticResultBody");
+
+    if (dConc || (staticPanel && staticBody)) {
       let stageIdx = 0;
-      dConc.innerText = pipelineStages[0];
+      const initialText = pipelineStages[0];
+      
+      if (dConc) dConc.innerText = initialText;
+      
+      if (staticPanel && staticBody) {
+        staticPanel.classList.remove("hidden");
+        staticBody.innerHTML = `
+          <div class="empty-dashboard-state" style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; gap: 16px;">
+            <div class="spinner" style="width:48px; height:48px; border-width:4px; border-color:var(--neon-green) transparent transparent transparent;"></div>
+            <p id="staticLoadingText" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; letter-spacing: 0.1em; color: var(--neon-green); text-transform: uppercase;">${initialText}</p>
+          </div>
+        `;
+      }
+
       if (pipelineInterval) clearInterval(pipelineInterval);
       pipelineInterval = setInterval(() => {
         stageIdx++;
         if (stageIdx < pipelineStages.length) {
-          dConc.innerText = pipelineStages[stageIdx];
+          const newText = pipelineStages[stageIdx];
+          if (dConc) dConc.innerText = newText;
+          const slt = document.getElementById("staticLoadingText");
+          if (slt) slt.innerText = newText;
         }
       }, 3000);
     }
@@ -567,6 +586,13 @@ function setBusy(nextBusy) {
     if (pipelineInterval) clearInterval(pipelineInterval);
     const dConc = document.getElementById("dashConclusionText");
     if (dConc) dConc.innerText = "STANDBY - Siap menerima instruksi.";
+    
+    // Also reset static loading if it was aborted or finished without output
+    const slt = document.getElementById("staticLoadingText");
+    if (slt) {
+      slt.innerText = "ANALISIS SELESAI";
+      slt.style.color = "var(--text-secondary)";
+    }
   }
 }
 
@@ -779,24 +805,37 @@ function appendMessageElement(message) {
         // If there's no section, it's usually an error or plain text. 
         // Don't wrap in analysis-card so it doesn't trigger the static panel.
         html += `<div class="raw-text-message" style="color:var(--neon-red); padding:10px; background:rgba(255,0,0,0.1); border-radius:4px; margin-bottom:8px;">${sectionContent}</div>`;
-      } else if (currentSection.includes("KESIMPULAN") || currentSection.includes("VERDICT") || currentSection.includes("CONCLUSION")) {
         const isDanger = sectionContent.includes("SKIP") || sectionContent.includes("TIDAK LAYAK");
         const isWarn = sectionContent.includes("WAIT") || sectionContent.includes("HATI-HATI") || sectionContent.includes("WATCHLIST");
-        const cls = isDanger ? "danger" : (isWarn ? "warning" : "");
-        html += `<div class="verdict-banner ${cls}">
-          <div class="verdict-title">${currentSection}</div>
-          ${sectionContent}
+        const color = isDanger ? "var(--neon-red)" : (isWarn ? "var(--neon-amber)" : "var(--neon-green)");
+        const bgWrap = isDanger ? "rgba(239, 68, 68, 0.08)" : (isWarn ? "rgba(245, 158, 11, 0.08)" : "rgba(16, 185, 129, 0.08)");
+        
+        html += `<div class="dash-agent-analysis" style="border-radius:12px; margin-bottom:12px; height:auto; max-height:none; padding:6px; flex:none; background:${bgWrap}; border:1px solid ${color}; box-shadow:0 0 20px ${bgWrap};">
+          <div class="dash-inner-core" style="padding:16px; box-shadow:inset 0 1px 1px rgba(255,255,255,0.06); background:var(--bg-elevated); border-radius:8px; border-left:3px solid ${color};">
+            <div class="dash-col-header" style="font-size:12px; font-weight:800; color:${color}; margin-bottom:14px; display:flex; align-items:center; gap:8px; text-transform:uppercase; letter-spacing:1px;">
+              <i data-lucide="zap" style="width:16px;height:16px;color:${color};"></i> ${currentSection}
+            </div>
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              ${sectionContent}
+            </div>
+          </div>
         </div>`;
       } else {
         // Normal card
         let content = sectionContent;
         if (currentSection === "SNAPSHOT DATA" && metricGrid) {
-          content += `<div class="metric-grid">${metricGrid}</div>`;
+          content += `<div class="dash-grid-2x2" style="margin-bottom:0;">${metricGrid}</div>`;
         }
         let icon = getIconForSection(currentSection);
-        html += `<div class="analysis-card">
-          <div class="analysis-card-title"><i data-lucide="${icon}" style="width:14px;height:14px;"></i> ${currentSection}</div>
-          ${content}
+        html += `<div class="dash-agent-analysis" style="border-radius:12px; margin-bottom:12px; height:auto; max-height:none; padding:6px; flex:none;">
+          <div class="dash-inner-core" style="padding:16px; box-shadow:inset 0 1px 1px rgba(255,255,255,0.06); background:var(--bg-elevated); border-radius:8px;">
+            <div class="dash-col-header" style="font-size:11px; font-weight:600; color:var(--text-primary); margin-bottom:14px; display:flex; align-items:center; gap:8px; text-transform:uppercase; letter-spacing:1px;">
+              <i data-lucide="${icon}" style="width:16px;height:16px;color:var(--neon-purple);"></i> ${currentSection}
+            </div>
+            <div style="display:flex; flex-direction:column; gap:6px;">
+              ${content}
+            </div>
+          </div>
         </div>`;
       }
       sectionContent = "";
@@ -819,7 +858,7 @@ function appendMessageElement(message) {
 
         if (key === "Realtime Ticker" && val.length > 0) {
           const payload = val;
-          sectionContent += `<div class="msg-kv" style="flex-direction:column; align-items:flex-start; margin-top:8px; background:rgba(0,0,0,0.2); padding:8px; border-radius:6px; border:1px solid var(--border);"><span class="live-ticker" data-tokens="${payload}" style="width:100%; display:flex; flex-direction:column; gap:6px;">⏳ Syncing CLOB & Crypto Feed...</span></div>`;
+          sectionContent += `<div class="msg-kv realtime-ticker-kv"><span class="live-ticker" data-tokens="${payload}">⏳ Syncing CLOB & Crypto Feed...</span></div>`;
           continue;
         }
 
@@ -845,23 +884,28 @@ function appendMessageElement(message) {
         val = val.replace(/(\$[\d,]+(\.\d+)?|\d+(\.\d+)?%)/g, '<span class="hl-val">$1</span>');
         
         if (currentSection === "SNAPSHOT DATA" && (key === "Liquidity" || key === "Gamma volume" || key.startsWith("Orderbook"))) {
-          metricGrid += `<div class="metric-box"><span class="metric-label">${key}</span><span class="metric-value">${val}</span></div>`;
+          metricGrid += `<div class="dash-box"><div class="dash-label">${key}</div><div class="dash-val" style="font-size:12px; color:var(--text-primary); font-family:'JetBrains Mono', monospace;">${val}</div></div>`;
         } else {
-           sectionContent += `<div class="text-row"><span class="label">${key}:</span><span class="val">${val}</span></div>`;
+           sectionContent += `
+             <div class="dash-box" style="margin-bottom:2px;">
+               <div class="dash-label">${key}</div>
+               <div class="dash-val" style="font-size:12px; white-space:normal; line-height:1.4; color:var(--text-secondary); font-family:'JetBrains Mono', monospace;">${val}</div>
+             </div>
+           `;
         }
       } 
       // List items
-      else if (line.trim().startsWith("- ")) {
-        sectionContent += `<div class="msg-li" style="font-size:12px; color:var(--text-secondary); margin-bottom:2px; padding-left:10px; border-left:2px solid var(--border);">${line.replace("- ", "")}</div>`;
+      else if (line.startsWith("- ") || line.startsWith("* ")) {
+        sectionContent += `<div style="font-size:11px; color:var(--text-secondary); margin-bottom:6px; line-height:1.5; padding-left:12px; position:relative;"><span style="position:absolute; left:0; color:var(--neon-purple);">&bull;</span> ${line.substring(2)}</div>`;
       } 
       // Normal text
       else {
         let htmlLine = line
-          .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--text-primary);">$1</strong>')
-          .replace(/\*(.*?)\*/g, '<strong style="color:var(--text-primary);">$1</strong>')
-          .replace(/_(.*?)_/g, '<em style="color:var(--text-tertiary);">$1</em>')
-          .replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.1);color:var(--neon-green);padding:2px 4px;border-radius:4px;">$1</code>');
-        sectionContent += `<div class="msg-text" style="font-size:12px; color:var(--text-secondary); margin-bottom:4px; line-height:1.5;">${htmlLine}</div>`;
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
+          .replace(/_(.*?)_/g, '<em>$1</em>')
+          .replace(/`([^`]+)`/g, '<code>$1</code>');
+        sectionContent += `<div class="msg-text">${htmlLine}</div>`;
       }
     }
     flushSection();
@@ -876,21 +920,39 @@ function appendMessageElement(message) {
     }
 
     // [STATIC PANEL INJECTION LOGIC]
-    // ONLY inject into the static panel if it's a genuine structured analysis result.
-    // Raw text / errors must NEVER trigger the static panel — they go into the console feed only.
     const staticPanel = document.getElementById("staticResultPanel");
     const staticBody = document.getElementById("staticResultBody");
     if (staticPanel && staticBody) {
-      if (html.includes('class="analysis-card-title"') || html.includes('class="verdict-banner"')) {
-        // Real Qwen analysis result — show in static panel
-        staticBody.innerHTML = html;
+      if (html.includes('class="dash-agent-analysis"')) {
+        // Real Qwen analysis result - show in static panel
+        if (message.text && message.text.includes("MARKET SUMMARY")) {
+          const bentoHtml = typeof buildBentoGrid === "function" ? buildBentoGrid(message.text) : html;
+          staticBody.innerHTML = bentoHtml;
+          setTimeout(() => {
+            const btn = document.getElementById('bentoKesimpulanBox');
+            if (btn) {
+              btn.onclick = () => {
+                const modalHtml = `<div style="padding:10px;">${html}</div>`;
+                document.getElementById('summaryModalContent').innerHTML = modalHtml;
+                document.getElementById('summaryModal').style.display = 'flex';
+                if (window.lucide) window.lucide.createIcons({ root: document.getElementById('summaryModalContent') });
+              };
+            }
+          }, 50);
+        } else {
+          staticBody.innerHTML = html;
+        }
+        
         staticPanel.classList.remove("hidden");
-        const headerText = staticPanel.querySelector('.kicker');
-        if (headerText) headerText.innerHTML = "QWEN ANALYSIS RESULT";
+        if (window.lucide) window.lucide.createIcons({ root: staticBody });
+        wrapper.style.display = "none";
+      } else {
+        // Raw text / errors: also show them in the static panel if the console feed is hidden
+        staticBody.innerHTML = `<div style="display:flex; flex-direction:column; justify-content:center; padding: 24px; background:var(--bg-elevated); border-radius:12px; border:1px solid rgba(255,255,255,0.05);">${html}</div>`;
+        staticPanel.classList.remove("hidden");
         if (window.lucide) window.lucide.createIcons({ root: staticBody });
         wrapper.style.display = "none";
       }
-      // raw-text-message / errors: do NOT show in static panel. They appear in the console feed only.
     }
   }
   wrapper.append(header, body);
@@ -2795,6 +2857,10 @@ function stopShortRealtimeTimer() {
 }
 
 window.analyzeShortMarket = function(marketId, url) {
+  if (busy) {
+    showCustomAlert("⚠️ Analisis sedang berjalan. Mohon tunggu sampai selesai, atau masukkan ke antrean (Queue).");
+    return;
+  }
   const input = document.querySelector("#commandInput");
   if (input) {
     input.value = url || marketId;
@@ -4913,3 +4979,67 @@ window.addEventListener('load', () => {
 });
 
 function closeStaticPanel() { document.getElementById('staticResultPanel').classList.add('hidden'); } window.closeStaticPanel = closeStaticPanel;
+
+function buildBentoGrid(text) {
+  const data = {
+     arah: "-", entry: "-", liquidity: "-", gammaVol: "-", orderbook: "-", conf: "-", qwenScore: "-", risk: "-"
+  };
+  const lines = text.split("\n");
+  for (let line of lines) {
+    if (line.includes("Arah market:")) data.arah = line.split("Arah market:")[1].trim().split(" ")[0].toUpperCase();
+    if (line.includes("Entry status:")) data.entry = line.split("Entry status:")[1].trim().split(" ")[0].replace(/[^a-zA-Z]/g, "").toUpperCase();
+    if (line.includes("Liquidity:")) data.liquidity = line.split("Liquidity:")[1].trim().split(" ")[0];
+    if (line.includes("Gamma volume:")) data.gammaVol = line.split("Gamma volume:")[1].trim().split(" ")[0];
+    if (line.startsWith("Orderbook")) data.orderbook = line.split("|").slice(0, 2).join(" | ").replace("Orderbook UP:", "").replace("Orderbook DOWN:", "").trim();
+    if (line.includes("Data confidence:")) data.conf = line.split("|")[0].replace("Data confidence:", "").trim();
+    if (line.includes("Qwen confidence:")) data.qwenScore = line.split("Qwen confidence:")[1].trim();
+  }
+
+  const arahBadge = data.arah === "UP" ? "bento-badge-up" : (data.arah === "DOWN" ? "bento-badge-down" : "bento-badge-outline-cyan");
+  const arahGlow = data.arah === "UP" ? "bento-glow-up" : (data.arah === "DOWN" ? "bento-glow-down" : "bento-glow-neutral");
+  const entryGlow = (data.entry === "WAIT" || data.entry === "WATCHLIST") ? "color:var(--neon-amber)" : (data.entry === "SKIP" ? "color:var(--neon-red)" : "color:var(--neon-green)");
+
+  return `
+    <div class="bento-title-header">MARKET SUMMARY</div>
+    <div class="bento-grid-container" style="flex:1; display:flex; flex-direction:column; justify-content:space-between;">
+      <div class="bento-row">
+        <div id="bentoKesimpulanBox" class="bento-box bento-glass-panel interactive" style="flex:1.5;">
+          <div class="bento-box-label">KESIMPULAN CEPAT <i data-lucide="zap" style="width:14px;height:14px;color:var(--neon-green)"></i></div>
+          <div style="display:flex; align-items:center; gap:16px;">
+             <span class="${arahBadge}">${data.arah}</span>
+             <i data-lucide="trending-up" class="${arahGlow}" style="width:32px;height:32px;"></i>
+          </div>
+          <div class="bento-box-sub" style="color:var(--text-tertiary); margin-top:12px;">Click to view full AI analysis report...</div>
+        </div>
+        <div class="bento-box bento-glass-panel" style="flex:1;">
+          <div class="bento-box-label">ENTRY STATUS <i data-lucide="star" style="width:14px;height:14px;color:var(--neon-cyan)"></i></div>
+          <div class="bento-box-value" style="font-size:20px; ${entryGlow}">${data.entry}</div>
+        </div>
+      </div>
+      <div class="bento-row">
+        <div class="bento-box bento-glass-panel">
+           <div class="bento-box-label">LIQUIDITY</div>
+           <div class="bento-box-value" style="font-size:16px; color:var(--neon-green)">${data.liquidity}</div>
+        </div>
+        <div class="bento-box bento-glass-panel">
+           <div class="bento-box-label">GAMMA VOLUME</div>
+           <div class="bento-box-value" style="font-size:16px; color:var(--neon-cyan)">${data.gammaVol}</div>
+        </div>
+        <div class="bento-box bento-glass-panel" style="flex:1.5;">
+           <div class="bento-box-label">ORDERBOOK</div>
+           <div class="bento-box-value" style="font-size:13px; color:var(--text-primary); white-space:normal;">${data.orderbook}</div>
+        </div>
+      </div>
+      <div class="bento-row">
+        <div class="bento-box bento-glass-panel" style="flex:1;">
+           <div class="bento-box-label">DATA CONF.</div>
+           <div class="bento-box-value" style="font-size:15px; color:var(--text-secondary)">${data.conf}</div>
+        </div>
+        <div class="bento-box bento-glass-panel" style="flex:1;">
+           <div class="bento-box-label">QWEN SCORE</div>
+           <div class="bento-box-value" style="font-size:15px; color:var(--neon-purple)">${data.qwenScore}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}

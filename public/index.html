@@ -10,11 +10,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
     rel="stylesheet"
   />
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <link rel="stylesheet" href="/styles.css?v=brutalist-v41" />
+  <script src="/Sortable.min.js"></script>
+  <script src="/lucide.min.js"></script>
+  <link rel="stylesheet" href="/styles.css?v=110-static-panel" />
   </head>
   <body>
     <!-- Left Sidebar - Houses Short Market and Queue Panel -->
@@ -298,30 +299,52 @@
           <div id="deckTabs" class="deck-tabs" aria-label="Command output tabs"></div>
 
           <div class="console-body">
-            <div class="console-feed">
-              <div id="emptyState" class="empty-state">
-                <img class="empty-asset" src="/assets/market-lens.svg" alt="" />
-                <h2>&gt; Ready for signal_</h2>
-                <p>Polymarket Gamma + CLOB + Qwen pipeline.</p>
+            <div class="console-main-row">
+              <!-- 1. KIRI: Console Feed (Logs) - HIDDEN as per user request -->
+              <div class="console-feed hidden" style="flex:0 0 300px; border-right:1px solid var(--border); display:none;">
+                <div id="emptyState" class="empty-state hidden"></div>
+
+                <div id="loadingState" class="loading-state hidden">
+                  <div class="spinner" aria-hidden="true"></div>
+                  <div>
+                    <strong>Processing</strong>
+                    <span id="timerText">0s</span>
+                  </div>
+                </div>
+
+                <div id="messages" class="messages" aria-live="polite"></div>
               </div>
 
-              <div id="loadingState" class="loading-state hidden">
-                <div class="spinner" aria-hidden="true"></div>
-                <div>
-                  <strong>Processing</strong>
-                  <span id="timerText">0s</span>
+              <!-- 2. KANAN: Panel Statis untuk Result -->
+              <div id="staticResultPanel" class="static-result-panel hidden">
+                <div class="static-result-inner">
+                  <div class="static-result-header">
+                    <i data-lucide="cpu" style="width:16px; height:16px; color:var(--neon-green);"></i>
+                    <span class="kicker">QWEN ANALYSIS RESULT</span>
+                  </div>
+                  <div id="staticResultBody" class="static-result-body custom-scrollbar">
+                    <!-- Hasil Qwen dimasukin ke sini via JS -->
+                  </div>
                 </div>
               </div>
 
-              <div id="messages" class="messages" aria-live="polite"></div>
+              <!-- 3. KANAN: Empty Space for Future Panel -->
+              <div class="future-right-space">
+                 <!-- Sengaja dikosongin buat panel lu nanti -->
+              </div>
             </div>
+            
             <!-- === CENTER DASHBOARD (Live Readiness & Agent) === -->
             <div id="centerDashboard" class="center-dashboard">
 
               <!-- Col 2: Analisis Agent -->
               <div class="dash-col dash-agent-analysis">
                 <div class="dash-inner-core">
-                  <div class="dash-col-header" style="justify-content:space-between">
+                  <!-- Drag Handle Strip -->
+                  <div style="display:flex; justify-content:center; padding-bottom:4px; margin-top:-4px;">
+                    <i data-lucide="grip-horizontal" class="card-drag-handle" style="width:20px; height:20px; color:var(--text-tertiary); opacity:0.5; transition:opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'"></i>
+                  </div>
+                  <div class="dash-col-header" style="justify-content:space-between; position:relative;">
                     <span>Analisis Agent</span>
                     <span style="color:var(--text-tertiary); font-size:9px;">3-PHASE LLM</span>
                   </div>
@@ -373,6 +396,10 @@
               <!-- Col 3: Archive Slot -->
               <aside id="dashboardArchivePanel" class="dash-history-panel">
                 <div class="dash-inner-core">
+                  <!-- Drag Handle Strip -->
+                  <div style="display:flex; justify-content:center; padding-bottom:4px; margin-top:-4px;">
+                    <i data-lucide="grip-horizontal" class="card-drag-handle" style="width:20px; height:20px; color:var(--text-tertiary); opacity:0.5; transition:opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'"></i>
+                  </div>
                   <div class="poly-head" style="padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
                     <div>
                       <span class="panel-kicker" style="color:var(--neon-purple); font-size:10px; font-weight:bold; letter-spacing:1px; text-transform:uppercase;">Archive</span>
@@ -397,6 +424,10 @@
               <div class="dash-tracker-card" id="dashTrackerCard">
                 <div class="tracker-inner">
 
+                  <!-- Drag Handle Strip -->
+                  <div style="display:flex; justify-content:center; padding-bottom:4px; margin-top:-4px;">
+                    <i data-lucide="grip-horizontal" class="card-drag-handle" style="width:20px; height:20px; color:var(--text-tertiary); opacity:0.5; transition:opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'"></i>
+                  </div>
                   <!-- Tab Bar -->
                   <div class="tracker-tab-bar">
                     <button class="tracker-tab-btn active" id="trackerCardTabSniffer" title="Live Whale Sniffer">
@@ -454,7 +485,6 @@
                       </div>
                     </div>
                   </div>
-
                 </div>
               </div>
             </div>
@@ -503,17 +533,17 @@
         <!-- Center Section: Crypto Prices -->
         <div class="padre-footer-center" id="priceTickerFooter">
           <div class="padre-price-item">
-            <img src="https://cdn.simpleicons.org/bitcoin/F7931A" style="width:12px; height:12px;" alt="BTC" />
+            <img src="/btc-icon.svg" style="width:12px; height:12px;" alt="BTC" />
             <span class="price-label">BTC</span>
             <span id="priceBTC" class="price-value">...</span>
           </div>
           <div class="padre-price-item">
-            <img src="https://cdn.simpleicons.org/ethereum/627EEA" style="width:12px; height:12px;" alt="ETH" />
+            <img src="/eth-icon.svg" style="width:12px; height:12px;" alt="ETH" />
             <span class="price-label">ETH</span>
             <span id="priceETH" class="price-value">...</span>
           </div>
           <div class="padre-price-item">
-            <img src="https://cdn.simpleicons.org/dogecoin/C2A633" style="width:12px; height:12px;" alt="DOGE" />
+            <img src="/doge-icon.svg" style="width:12px; height:12px;" alt="DOGE" />
             <span class="price-label">DOGE</span>
             <span id="priceDOGE" class="price-value">...</span>
           </div>
@@ -1063,7 +1093,7 @@
       </div>
     </div>
 
-    <script src="/app.js?v=78-archive-fix" type="module"></script>
+    <script src="/app.js?v=102-final-fix" type="module"></script>
   <!-- Agent Analysis Modal -->
   <div id="agentModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.8); backdrop-filter:blur(4px); align-items:center; justify-content:center;">
     <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; width:600px; max-width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.5); display:flex; flex-direction:column;">
@@ -1164,5 +1194,6 @@
     </div>
   </div>
 
+  <!-- End of workspace -->
   </body>
 </html>

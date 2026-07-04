@@ -703,10 +703,12 @@ function setPolymarketEmbed(value, source = "Detected market") {
   if (!embedUrl) return false;
   // polyFrame.src = embedUrl;
   // polyFrame.classList.remove("hidden");
-  polyEmpty.classList.add("hidden");
-  polyTitle.textContent = source;
-  polyOpenLink.href = value;
-  polyOpenLink.classList.remove("disabled");
+  if (typeof polyEmpty !== 'undefined' && polyEmpty) polyEmpty.classList.add("hidden");
+  if (typeof polyTitle !== 'undefined' && polyTitle) polyTitle.textContent = source;
+  if (typeof polyOpenLink !== 'undefined' && polyOpenLink) {
+    polyOpenLink.href = value;
+    polyOpenLink.classList.remove("disabled");
+  }
   
   if (typeof showPanel === "function") {
     showPanel('poly');
@@ -889,6 +891,19 @@ function appendMessageElement(message) {
       window.lucide.createIcons({
         root: body
       });
+    }
+
+    // [STATIC PANEL INJECTION LOGIC]
+    if (html.includes('class="analysis-card"') || html.includes('class="verdict-banner"')) {
+      const staticPanel = document.getElementById("staticResultPanel");
+      const staticBody = document.getElementById("staticResultBody");
+      if (staticPanel && staticBody) {
+        staticBody.innerHTML = html;
+        staticPanel.classList.remove("hidden");
+        if (window.lucide) window.lucide.createIcons({ root: staticBody });
+      }
+      // Hide the message entirely from the console feed as requested by the user
+      wrapper.style.display = "none";
     }
   }
   wrapper.append(header, body);
@@ -1753,7 +1768,7 @@ function showPanel(panelType) {
     if (currentPanelLabel) currentPanelLabel.textContent = "Polymarket";
     
     // If turning on but empty, show default empty state
-    if (typeof polyEmpty !== 'undefined' && document.querySelector("#polyLiveTicker").style.display === "none") {
+    if (typeof polyEmpty !== 'undefined' && polyEmpty && document.querySelector("#polyLiveTicker") && document.querySelector("#polyLiveTicker").style.display === "none") {
       polyEmpty.classList.remove("hidden");
     }
   } else if (panelType === 'x') {
@@ -2735,10 +2750,6 @@ function stopShortRealtimeTimer() {
 }
 
 window.analyzeShortMarket = function(marketId, url) {
-  if (shortMarketPanel) shortMarketPanel.style.display = "none";
-  if (shortMarketTimer) clearTimeout(shortMarketTimer);
-  stopShortRealtimeTimer();
-  
   const input = document.querySelector("#commandInput");
   if (input) {
     input.value = url || marketId;
@@ -4120,6 +4131,7 @@ let isFirstLoad = true;
   };
 
   // Power Button Logic (Modal)
+  const panelSnifferPowerBtn = document.getElementById('panelSnifferPowerBtn');
   if (panelSnifferPowerBtn) {
     panelSnifferPowerBtn.addEventListener('click', async () => {
       const isCurrentlyOff = panelSnifferPowerBtn.innerText.includes('TURN ON');
@@ -4817,3 +4829,42 @@ if (agentConclusionBox && agentModal && closeAgentModal) {
     }
   });
 }
+
+/* --- Dashboard Drag and Drop Logic --- */
+window.addEventListener('load', () => {
+  const centerDashboard = document.getElementById("centerDashboard");
+  if (!centerDashboard) return;
+
+  if (typeof Sortable === 'undefined') {
+    console.error('[DragDrop] SortableJS not loaded — drag disabled');
+    return;
+  }
+
+  Sortable.create(centerDashboard, {
+    animation: 150,
+    handle: '.card-drag-handle',  // ponytail: use header as handle — avoids conflict with interactive elements inside cards
+    forceFallback: true,
+    fallbackTolerance: 3,
+    ghostClass: "sortable-ghost",
+    chosenClass: "sortable-chosen",
+    fallbackClass: "sortable-drag",
+    onEnd: function () {
+      const newOrder = Array.from(centerDashboard.children).map(c => c.id || c.className.split(' ')[1]);
+      localStorage.setItem("dashboardOrder", JSON.stringify(newOrder));
+    }
+  });
+
+  // Restore saved order
+  try {
+    const savedOrder = JSON.parse(localStorage.getItem("dashboardOrder"));
+    if (savedOrder && savedOrder.length) {
+      const cols = Array.from(centerDashboard.children);
+      savedOrder.forEach(key => {
+        const el = cols.find(c => c.id === key || c.className.includes(key));
+        if (el) centerDashboard.appendChild(el);
+      });
+    }
+  } catch(e) {}
+});
+
+function closeStaticPanel() { document.getElementById('staticResultPanel').classList.add('hidden'); } window.closeStaticPanel = closeStaticPanel;

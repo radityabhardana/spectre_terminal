@@ -745,7 +745,7 @@ function renderMessages() {
   messagesEl.innerHTML = "";
   const tab = activeTab();
   const messages = tab?.messages || [];
-  emptyState.classList.toggle("hidden", messages.length > 0 && !messages.every(m => m.deleted));
+  if (emptyState) emptyState.classList.toggle("hidden", messages.length > 0 && !messages.every(m => m.deleted));
   for (const message of messages) {
     if (message.deleted) continue;
     appendMessageElement(message);
@@ -1400,7 +1400,7 @@ function addMessage(message, tabId = activeTabId) {
   renderTabs();
 
   if (tab.id === activeTabId) {
-    emptyState.classList.add("hidden");
+    if (emptyState) emptyState.classList.add("hidden");
     appendMessageElement(message);
     if (message.role === "user") {
       requestAnimationFrame(() => { messagesEl.scrollTop = 0; });

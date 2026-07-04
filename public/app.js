@@ -506,25 +506,12 @@ function setActiveTab(tabInfo, options = {}) {
   const consoleBody = document.querySelector(".console-body");
   
   if (activeTabId === "history-archive") {
-    if (polyPanelContainer) polyPanelContainer.style.display = "none";
     if (historyListPanel) {
       historyListPanel.style.display = "flex";
       renderHistoryListPanel();
     }
-    if (consoleBody) consoleBody.classList.add("has-embed");
   } else {
-    if (polyPanelContainer) polyPanelContainer.style.display = "";
     if (historyListPanel) historyListPanel.style.display = "none";
-    
-    if (consoleBody) {
-      // Return has-embed to its natural state for console tab based on empty state
-      const polyEmpty = document.querySelector("#polyEmpty");
-      if (polyEmpty && polyEmpty.classList.contains("hidden")) {
-        consoleBody.classList.add("has-embed");
-      } else {
-        consoleBody.classList.remove("has-embed");
-      }
-    }
   }
 }
 
@@ -711,12 +698,7 @@ function setPolymarketEmbed(value, source = "Detected market") {
   }
   
   if (typeof showPanel === "function") {
-    showPanel('poly');
-  } else {
-    const consoleBody = document.querySelector(".console-body");
-    if (consoleBody) consoleBody.classList.add("has-embed");
-    if (typeof polyPanelContainer !== 'undefined' && polyPanelContainer) polyPanelContainer.style.display = "flex";
-    if (typeof xPanelContainer !== 'undefined' && xPanelContainer) xPanelContainer.style.display = "none";
+    // showPanel removed
   }
   
   return true;
@@ -1817,15 +1799,12 @@ function showPanel(panelType) {
   
   if (polyMenuDropdown) polyMenuDropdown.style.display = "none";
   
-  if (activeRightPanel === panelType && consoleBody.classList.contains("has-embed")) {
-     // Toggle off if clicking the same currently active panel
-     consoleBody.classList.remove("has-embed");
+  if (activeRightPanel === panelType) {
      activeRightPanel = null;
      if (currentPanelLabel) currentPanelLabel.textContent = "Select Panel";
      return;
   }
   
-  consoleBody.classList.add("has-embed");
   activeRightPanel = panelType;
   
   if (panelType === 'poly') {

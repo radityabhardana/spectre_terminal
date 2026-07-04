@@ -842,7 +842,6 @@ textarea:focus {
   flex-direction: column;
   position: relative;
 }
-.console-body.has-embed { display: grid; grid-template-columns: minmax(0, 1fr) minmax(380px, 34%); }
 
 .console-feed {
   flex: 1 1 0;
@@ -852,7 +851,6 @@ textarea:focus {
   display: flex;
   flex-direction: column;
 }
-.console-body.has-embed .console-feed { border-right: 1px solid var(--border); }
 
 /* ================================================================
    EMPTY STATE
@@ -1046,8 +1044,6 @@ textarea:focus {
   overflow: hidden;
   background: var(--bg-surface);
 }
-.console-body:not(.has-embed) .poly-panel { display: none !important; }
-.console-body.has-embed .poly-panel { display: flex; }
 
 .poly-head {
   display: flex;
@@ -1202,15 +1198,12 @@ textarea::-webkit-scrollbar-thumb,
 @media (max-width: 1024px) {
   .control-panel { flex: 0 0 272px; }
   .console-body { padding-left: 0; }
-  .console-body.has-embed { display: grid; grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(220px, 36%); }
-  .console-body.has-embed .console-feed { border-right: none; border-bottom: 1px solid var(--border); }
   .header-clock { display: none; }
 }
 
 @media (max-width: 768px) {
   .workspace { grid-template-columns: 1fr; grid-template-rows: minmax(180px, 30%) minmax(0, 1fr); }
   .control-panel { border-right: none; border-bottom: 1px solid var(--border); }
-  .console-body.has-embed { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(200px, 40%); }
   .header-clock { display: none; }
   .status-pill:not(:nth-child(-n+2)) { display: none; }
 }

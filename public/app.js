@@ -794,28 +794,28 @@ function appendMessageElement(message) {
     const flushSection = () => {
       if (!currentSection && !sectionContent) return;
       if (!currentSection) {
-        html += `<div class="analysis-card">${sectionContent}</div>`;
+        // If there's no section, it's usually an error or plain text. 
+        // Don't wrap in analysis-card so it doesn't trigger the static panel.
+        html += `<div class="raw-text-message" style="color:var(--neon-red); padding:10px; background:rgba(255,0,0,0.1); border-radius:4px; margin-bottom:8px;">${sectionContent}</div>`;
+      } else if (currentSection.includes("KESIMPULAN") || currentSection.includes("VERDICT") || currentSection.includes("CONCLUSION")) {
+        const isDanger = sectionContent.includes("SKIP") || sectionContent.includes("TIDAK LAYAK");
+        const isWarn = sectionContent.includes("WAIT") || sectionContent.includes("HATI-HATI") || sectionContent.includes("WATCHLIST");
+        const cls = isDanger ? "danger" : (isWarn ? "warning" : "");
+        html += `<div class="verdict-banner ${cls}">
+          <div class="verdict-title">${currentSection}</div>
+          ${sectionContent}
+        </div>`;
       } else {
-        if (currentSection === "KESIMPULAN CEPAT" || currentSection === "ENTRY VERDICT") {
-          const isDanger = sectionContent.includes("SKIP") || sectionContent.includes("TIDAK LAYAK");
-          const isWarn = sectionContent.includes("WAIT") || sectionContent.includes("HATI-HATI") || sectionContent.includes("WATCHLIST");
-          const cls = isDanger ? "danger" : (isWarn ? "warning" : "");
-          html += `<div class="verdict-banner ${cls}">
-            <div class="verdict-title">${currentSection}</div>
-            ${sectionContent}
-          </div>`;
-        } else {
-          // Normal card
-          let content = sectionContent;
-          if (currentSection === "SNAPSHOT DATA" && metricGrid) {
-            content += `<div class="metric-grid">${metricGrid}</div>`;
-          }
-          let icon = getIconForSection(currentSection);
-          html += `<div class="analysis-card">
-            <div class="analysis-card-title"><i data-lucide="${icon}" style="width:14px;height:14px;"></i> ${currentSection}</div>
-            ${content}
-          </div>`;
+        // Normal card
+        let content = sectionContent;
+        if (currentSection === "SNAPSHOT DATA" && metricGrid) {
+          content += `<div class="metric-grid">${metricGrid}</div>`;
         }
+        let icon = getIconForSection(currentSection);
+        html += `<div class="analysis-card">
+          <div class="analysis-card-title"><i data-lucide="${icon}" style="width:14px;height:14px;"></i> ${currentSection}</div>
+          ${content}
+        </div>`;
       }
       sectionContent = "";
       metricGrid = "";
@@ -894,16 +894,29 @@ function appendMessageElement(message) {
     }
 
     // [STATIC PANEL INJECTION LOGIC]
-    if (html.includes('class="analysis-card"') || html.includes('class="verdict-banner"')) {
-      const staticPanel = document.getElementById("staticResultPanel");
-      const staticBody = document.getElementById("staticResultBody");
-      if (staticPanel && staticBody) {
+    const staticPanel = document.getElementById("staticResultPanel");
+    const staticBody = document.getElementById("staticResultBody");
+    if (staticPanel && staticBody) {
+      if (html.includes('class="analysis-card-title"') || html.includes('class="verdict-banner"')) {
+        // Only trigger static panel if it is a real analysis result
         staticBody.innerHTML = html;
         staticPanel.classList.remove("hidden");
+        const headerText = staticPanel.querySelector('.kicker');
+        if (headerText) headerText.innerHTML = "QWEN ANALYSIS RESULT";
+        
         if (window.lucide) window.lucide.createIcons({ root: staticBody });
+        wrapper.style.display = "none";
+      } else if (html.includes('class="raw-text-message"')) {
+        // If it's a raw error message, we display it as a toast/notification in the static panel temporarily, 
+        // or just show it in the panel but change the title to ERROR
+        staticBody.innerHTML = html;
+        staticPanel.classList.remove("hidden");
+        const headerText = staticPanel.querySelector('.kicker');
+        if (headerText) headerText.innerHTML = "SYSTEM MESSAGE / ERROR";
+        
+        if (window.lucide) window.lucide.createIcons({ root: staticBody });
+        wrapper.style.display = "none";
       }
-      // Hide the message entirely from the console feed as requested by the user
-      wrapper.style.display = "none";
     }
   }
   wrapper.append(header, body);

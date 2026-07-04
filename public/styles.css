@@ -317,7 +317,7 @@ h1 {
 .console-main-row {
   display: flex;
   flex-direction: row;
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 0;
   overflow: hidden;
   margin-left: 366px;
@@ -1937,7 +1937,7 @@ textarea::-webkit-scrollbar-thumb,
   transform: translate(1px, -1px) scale(1.05);
 }
 
-.center-dashboard { flex: 0 0 auto; display: flex; background: transparent; padding: 16px 20px 16px 20px; margin-left: 366px; gap: 12px; }
+.center-dashboard { flex: 0 0 auto; display: flex; background: transparent; padding: 16px 20px 16px 20px; margin-left: 366px; gap: 12px; margin-top: auto; }
 .dash-col { display: flex; flex-direction: column; }
 .dash-live-readiness { flex: 0 0 25%; }
 .dash-agent-analysis { flex: 1; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 6px; display: flex; flex-direction: column; overflow: hidden; max-height: 280px; cursor: grab; user-select: none; }

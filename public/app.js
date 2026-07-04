@@ -894,29 +894,21 @@ function appendMessageElement(message) {
     }
 
     // [STATIC PANEL INJECTION LOGIC]
+    // ONLY inject into the static panel if it's a genuine structured analysis result.
+    // Raw text / errors must NEVER trigger the static panel — they go into the console feed only.
     const staticPanel = document.getElementById("staticResultPanel");
     const staticBody = document.getElementById("staticResultBody");
     if (staticPanel && staticBody) {
       if (html.includes('class="analysis-card-title"') || html.includes('class="verdict-banner"')) {
-        // Only trigger static panel if it is a real analysis result
+        // Real Qwen analysis result — show in static panel
         staticBody.innerHTML = html;
         staticPanel.classList.remove("hidden");
         const headerText = staticPanel.querySelector('.kicker');
         if (headerText) headerText.innerHTML = "QWEN ANALYSIS RESULT";
-        
-        if (window.lucide) window.lucide.createIcons({ root: staticBody });
-        wrapper.style.display = "none";
-      } else if (html.includes('class="raw-text-message"')) {
-        // If it's a raw error message, we display it as a toast/notification in the static panel temporarily, 
-        // or just show it in the panel but change the title to ERROR
-        staticBody.innerHTML = html;
-        staticPanel.classList.remove("hidden");
-        const headerText = staticPanel.querySelector('.kicker');
-        if (headerText) headerText.innerHTML = "SYSTEM MESSAGE / ERROR";
-        
         if (window.lucide) window.lucide.createIcons({ root: staticBody });
         wrapper.style.display = "none";
       }
+      // raw-text-message / errors: do NOT show in static panel. They appear in the console feed only.
     }
   }
   wrapper.append(header, body);

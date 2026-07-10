@@ -1931,16 +1931,144 @@ textarea::-webkit-scrollbar-thumb,
   transform: translate(1px, -1px) scale(1.05);
 }
 
-.center-dashboard { flex: 0 0 auto; display: flex; align-items: flex-start; background: transparent; padding: 4px 20px 16px 20px; margin-left: 366px; gap: 12px; }
+/* ================================================================
+   CENTER DASHBOARD — Professional 3-card row pinned to bottom
+   ================================================================ */
+.center-dashboard {
+  position: fixed;
+  bottom: 40px; /* above status bar */
+  left: 354px;  /* after left sidebar */
+  right: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 10px;
+  padding: 0 14px;
+  z-index: 800;
+  pointer-events: none;
+}
+.center-dashboard > * {
+  pointer-events: auto;
+}
+
+/* The 3 bottom cards — all identical in height & structure */
+.dash-bottom-card {
+  flex: 1;
+  height: 320px;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+.dash-bottom-card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.dash-bottom-card.sortable-ghost {
+  opacity: 0.4;
+  border: 1.5px dashed var(--neon-cyan);
+  background: rgba(6, 182, 212, 0.04);
+}
+.dash-bottom-card.sortable-chosen {
+  cursor: grabbing;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Shared inner core (for cards using dash-inner-core) */
+.dash-inner-core {
+  background: var(--bg-elevated);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 12px 14px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Drag handle strip at top of each card — WIDE FULL-WIDTH ZONE */
+.card-drag-strip {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 24px;
+  flex-shrink: 0;
+  cursor: grab;
+  width: 100%;
+  border-radius: 4px;
+  transition: background 0.15s;
+  margin-bottom: 2px;
+}
+.card-drag-strip:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.card-drag-strip:active {
+  cursor: grabbing;
+  background: rgba(255, 255, 255, 0.08);
+}
+.card-drag-handle {
+  width: 24px;
+  height: 24px;
+  color: var(--text-tertiary);
+  opacity: 0.3;
+  transition: opacity 0.2s;
+  pointer-events: none; /* let the strip capture events, not the icon */
+}
+.card-drag-strip:hover .card-drag-handle {
+  opacity: 0.8;
+}
+.card-drag-strip:active .card-drag-handle { opacity: 1; }
+
+/* Card header row */
+.dash-col-header {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Small badge beside card title */
+.card-badge {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.07);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Signal direction badge */
+.dir-badge {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-secondary);
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+}
+
+/* Legacy references — kept for JS compatibility */
 .dash-col { display: flex; flex-direction: column; }
 .dash-live-readiness { flex: 0 0 25%; }
-.dash-agent-analysis { flex: 1; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 6px; display: flex; flex-direction: column; overflow: hidden; max-height: 280px; cursor: grab; user-select: none; }
-.dash-history-panel { flex: 1; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 6px; display: flex; flex-direction: column; overflow: hidden; max-height: 280px; cursor: grab; user-select: none; }
-.dash-inner-core { background: var(--bg-elevated); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 14px; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .dash-empty-slot { flex: 0 0 25%; }
-.dash-col-header { font-size: 11px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-.card-drag-handle { cursor: grab !important; }
-.card-drag-handle:active { cursor: grabbing !important; }
 .badge-locked { background: rgba(245, 158, 11, 0.1); color: var(--neon-amber); font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 700; }
 .dash-grid-2x2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
 .dash-box { background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; }
@@ -1948,12 +2076,12 @@ textarea::-webkit-scrollbar-thumb,
 .dash-val { font-size: 14px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
 .dash-sub { font-size: 9px; color: var(--text-tertiary); }
 .dash-compounding-locked { border: 1px solid rgba(245, 158, 11, 0.2); background: rgba(245, 158, 11, 0.05); border-radius: 6px; padding: 10px; }
-.agent-conclusion-box { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 12px; font-size: 10.5px; line-height: 1.5; color: var(--text-secondary); font-style: italic; cursor: pointer; transition: all 0.2s; }
+.agent-conclusion-box { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 10px 12px; font-size: 10.5px; line-height: 1.5; color: var(--text-secondary); font-style: italic; cursor: pointer; transition: all 0.2s; }
 .agent-conclusion-box:hover { border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.03); }
 .confluence-bar-bg { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
 .confluence-bar-fill { height: 100%; background: var(--neon-amber); border-radius: 2px; }
-.grade-distribution { display: flex; gap: 6px; }
-.grade-box { flex: 1; background: rgba(255,255,255,0.02); border: 1px solid var(--border-strong); border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6px 0; }
+.grade-distribution { display: flex; gap: 5px; }
+.grade-box { flex: 1; background: rgba(255,255,255,0.02); border: 1px solid var(--border-strong); border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5px 0; }
 .grade-box .g-title { font-size: 11px; font-weight: 700; margin-bottom: 2px; }
 .grade-box .g-val { font-size: 10px; color: var(--text-secondary); }
 .signal-list { display: flex; flex-direction: column; gap: 8px; }
@@ -1961,20 +2089,11 @@ textarea::-webkit-scrollbar-thumb,
 .sig-levels, .sig-cf { font-size: 9.5px; color: var(--text-secondary); font-family: var(--font-mono); }
 
 /* ================================================================
-   TRACKER CARD — Dashboard Embedded (Double-Bezel)
+   TRACKER CARD — now uses .dash-bottom-card (unified)
+   This legacy block kept for fallback selector compat only
    ================================================================ */
 .dash-tracker-card {
-  align-self: flex-end;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  max-height: 280px;
-  cursor: grab;
-  user-select: none;
+  flex: 1;
 }
 
 .tracker-inner {
@@ -1985,7 +2104,7 @@ textarea::-webkit-scrollbar-thumb,
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding-top: 10px;
+  min-height: 0;
 }
 
 /* Tab Bar */

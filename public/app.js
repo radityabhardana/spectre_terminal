@@ -4952,28 +4952,40 @@ window.addEventListener('load', () => {
   }
 
   Sortable.create(centerDashboard, {
-    animation: 150,
-    handle: '.card-drag-handle',  // ponytail: use header as handle — avoids conflict with interactive elements inside cards
+    animation: 200,
+    easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+    handle: '.card-drag-strip',  // full-width bar — much easier to grab than icon alone
+    filter: '#staticResultPanel', // exclude bento grid panel from being dragged
+    draggable: '.dash-bottom-card', // only drag the 3 uniform cards
     forceFallback: true,
-    fallbackTolerance: 3,
+    fallbackTolerance: 4,
     ghostClass: "sortable-ghost",
     chosenClass: "sortable-chosen",
     fallbackClass: "sortable-drag",
-    onEnd: function () {
-      const newOrder = Array.from(centerDashboard.children).map(c => c.id || c.className.split(' ')[1]);
-      localStorage.setItem("dashboardOrder", JSON.stringify(newOrder));
+    onStart: function (evt) {
+      evt.item.style.opacity = '0.9';
+    },
+    onEnd: function (evt) {
+      evt.item.style.opacity = '';
+      const cards = Array.from(centerDashboard.querySelectorAll('.dash-bottom-card'));
+      const newOrder = cards.map(c => c.id).filter(Boolean);
+      localStorage.setItem("dashboardCardOrder", JSON.stringify(newOrder));
     }
   });
 
-  // Restore saved order
+  // Restore saved card order
   try {
-    const savedOrder = JSON.parse(localStorage.getItem("dashboardOrder"));
+    const savedOrder = JSON.parse(localStorage.getItem("dashboardCardOrder"));
     if (savedOrder && savedOrder.length) {
-      const cols = Array.from(centerDashboard.children);
-      savedOrder.forEach(key => {
-        const el = cols.find(c => c.id === key || c.className.includes(key));
-        if (el) centerDashboard.appendChild(el);
+      const staticPanel = document.getElementById('staticResultPanel');
+      savedOrder.forEach(id => {
+        const el = document.getElementById(id);
+        if (el && el.classList.contains('dash-bottom-card')) {
+          centerDashboard.appendChild(el);
+        }
       });
+      // Keep staticResultPanel as first child always
+      if (staticPanel) centerDashboard.insertBefore(staticPanel, centerDashboard.firstChild);
     }
   } catch(e) {}
 });

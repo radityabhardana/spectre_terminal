@@ -154,7 +154,7 @@
     <!-- Left Sidebar - Houses Short Market and Queue Panel -->
     <aside id="leftSidebar" style="position:fixed; top:70px; bottom:40px; left:12px; width:340px; z-index:9000; display:flex; flex-direction:column; gap:12px; pointer-events:none;">
       <!-- Short Market Card - Koyfin-style compact widget -->
-      <div id="shortMarketPanel" style="display:flex; flex-direction:column; flex-shrink:0; pointer-events:auto; background:#161618; border:1px solid rgba(255,255,255,0.1); border-radius:8px; box-shadow:0 4px 24px rgba(0,0,0,0.5); overflow:hidden; font-family:'Inter', system-ui, sans-serif;">
+      <div id="shortMarketPanel" style="display:flex; flex-direction:column; flex:0 0 340px; pointer-events:auto; background:#161618; border:1px solid rgba(255,255,255,0.1); border-radius:8px; box-shadow:0 4px 24px rgba(0,0,0,0.5); overflow:hidden; font-family:'Inter', system-ui, sans-serif;">
       <!-- Header row -->
       <div style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center; position:relative;">
         <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em;">Short Market Events</span>
@@ -215,7 +215,7 @@
         <div></div>
       </div>
       <!-- Data List -->
-      <div id="shortMarketList" style="max-height:280px; overflow-y:auto; overflow-x:hidden;">
+      <div id="shortMarketList" style="flex:1; overflow-y:auto; overflow-x:hidden;">
         <div style="text-align:center; padding:20px 12px; color:#444; font-size:10px;">
           <i data-lucide="loader" style="width:16px; height:16px; margin-bottom:8px; opacity:0.4;"></i><br>
           Loading markets...
@@ -452,36 +452,29 @@
             </div>
             
             <!-- === CENTER DASHBOARD (Live Readiness & Agent) === -->
-            <div id="centerDashboard" class="center-dashboard" style="align-items: flex-start; padding-top: 0;">
+            <div id="centerDashboard" class="center-dashboard">
 
-              <!-- Left Side Group (Analysis Panel + Bottom Cards) -->
-              <div class="dash-left-group" style="display:flex; flex-direction:column; flex:2; gap:0;">
-                
-                <!-- NEW: BENTO GRID RESULT PANEL -->
-                <div id="staticResultPanel" class="hidden" style="width:100%;">
-                  <div id="staticResultBody" class="bento-grid-container">
-                    <!-- Bento grid injected via JS -->
-                  </div>
+              <!-- Bento Grid Result Panel (shows when analysis runs) -->
+              <div id="staticResultPanel" class="hidden" style="width:100%; grid-column: 1 / -1;">
+                <div id="staticResultBody" class="bento-grid-container">
+                  <!-- Bento grid injected via JS -->
                 </div>
-                
-                <!-- Bottom Cards Row -->
-                <div style="display:flex; gap:12px; margin-top:40px;">
-                  
-                  <!-- Col 2: Analisis Agent -->
-                  <div class="dash-col dash-agent-analysis" style="flex:1;">
+              </div>
+
+              <!-- === CARD 1: Analisis Agent === -->
+              <div class="dash-bottom-card" id="cardAnalisisAgent">
                 <div class="dash-inner-core">
-                  <!-- Drag Handle Strip -->
-                  <div style="display:flex; justify-content:center; padding-bottom:4px; margin-top:-4px;">
-                    <i data-lucide="grip-horizontal" class="card-drag-handle" style="width:20px; height:20px; color:var(--text-tertiary); opacity:0.5; transition:opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'"></i>
+                  <div class="card-drag-strip">
+                    <i data-lucide="grip-horizontal" class="card-drag-handle"></i>
                   </div>
-                  <div class="dash-col-header" style="justify-content:space-between; position:relative;">
+                  <div class="dash-col-header" style="justify-content:space-between;">
                     <span>Analisis Agent</span>
-                    <span style="color:var(--text-tertiary); font-size:9px;">3-PHASE LLM</span>
+                    <span class="card-badge">3-PHASE LLM</span>
                   </div>
                   <div style="margin-bottom:8px; display:flex; align-items:center; gap:6px;">
                     <span style="font-size:11px; font-weight:600;">Sinyal Terakhir</span>
                     <span id="dashSignalAsset" style="font-weight:700; color:var(--text-primary); font-size:11px;">-</span>
-                    <span id="dashSignalDir" style="background:rgba(255,255,255,0.1); color:var(--text-secondary); font-size:9px; padding:2px 6px; border-radius:4px; font-weight:700;">WAITING</span>
+                    <span id="dashSignalDir" class="dir-badge">WAITING</span>
                   </div>
                   <div class="agent-conclusion-box interactive" id="agentConclusionBox" title="Klik untuk melihat detail analisis AI">
                     <span id="dashConclusionText">Menunggu sinyal...</span>
@@ -523,12 +516,12 @@
                   </div>
                 </div>
               </div>
-              <!-- Col 3: Archive Slot -->
-              <aside id="dashboardArchivePanel" class="dash-history-panel">
+
+              <!-- === CARD 2: Archive === -->
+              <aside class="dash-bottom-card" id="dashboardArchivePanel">
                 <div class="dash-inner-core">
-                  <!-- Drag Handle Strip -->
-                  <div style="display:flex; justify-content:center; padding-bottom:4px; margin-top:-4px;">
-                    <i data-lucide="grip-horizontal" class="card-drag-handle" style="width:20px; height:20px; color:var(--text-tertiary); opacity:0.5; transition:opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'"></i>
+                  <div class="card-drag-strip">
+                    <i data-lucide="grip-horizontal" class="card-drag-handle"></i>
                   </div>
                   <div class="poly-head" style="padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
                     <div>
@@ -542,26 +535,19 @@
                       </button>
                     </div>
                   </div>
-                  <style>
-                    #historyListContainer::-webkit-scrollbar { display: none; }
-                  </style>
+                  <style>#historyListContainer::-webkit-scrollbar { display: none; }</style>
                   <div id="historyListContainer" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:4px; scrollbar-width:none; -ms-overflow-style:none;">
                     <div style="text-align:center; padding:20px; color:var(--text-tertiary);">Loading history...</div>
                   </div>
                 </div>
               </aside>
-                </div>
-              </div>
-              
-              <!-- Col 4: Tracker Card (Double-Bezel, Dual-Tab) -->
-              <div class="dash-tracker-card" id="dashTrackerCard" style="align-self: flex-end;">
-                <div class="tracker-inner">
 
-                  <!-- Drag Handle Strip -->
-                  <div style="display:flex; justify-content:center; padding-bottom:4px; margin-top:-4px;">
-                    <i data-lucide="grip-horizontal" class="card-drag-handle" style="width:20px; height:20px; color:var(--text-tertiary); opacity:0.5; transition:opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'"></i>
+              <!-- === CARD 3: Tracker (Live Sniffer + Wallet) === -->
+              <div class="dash-bottom-card" id="dashTrackerCard">
+                <div class="tracker-inner">
+                  <div class="card-drag-strip">
+                    <i data-lucide="grip-horizontal" class="card-drag-handle"></i>
                   </div>
-                  <!-- Tab Bar -->
                   <div class="tracker-tab-bar">
                     <button class="tracker-tab-btn active" id="trackerCardTabSniffer" title="Live Whale Sniffer">
                       <span class="tab-dot"></span>
@@ -576,10 +562,7 @@
                       <span id="trackerCardStatusText">Live</span>
                     </div>
                   </div>
-
-                  <!-- === PANE 1: Live Sniffer === -->
                   <div class="tracker-pane active" id="trackerCardPaneSniffer">
-                    <!-- Controls -->
                     <div class="tracker-controls">
                       <label>Min $</label>
                       <input type="number" id="dashTrackerMinSize" value="1000" min="100" step="100">
@@ -588,7 +571,6 @@
                         Turn Off
                       </button>
                     </div>
-                    <!-- Feed -->
                     <div class="tracker-feed" id="dashTrackerFeed">
                       <div class="tracker-empty" id="dashTrackerEmpty">
                         <i data-lucide="activity" class="tracker-empty-icon"></i>
@@ -596,21 +578,15 @@
                       </div>
                     </div>
                   </div>
-
-                  <!-- === PANE 2: Track Wallet === -->
                   <div class="tracker-pane" id="trackerCardPaneWallet">
-                    <!-- Add Wallet -->
                     <div class="tracker-wallet-add">
                       <div class="tracker-wallet-row">
                         <input type="text" class="tracker-wallet-input" id="dashWalletInput" placeholder="0x... wallet address">
                         <input type="text" class="tracker-wallet-input" id="dashWalletNick" placeholder="Nickname" style="flex:0 0 90px;">
                         <button class="tracker-btn-add" id="dashWalletAddBtn" type="button">Add</button>
                       </div>
-                      <div class="tracker-wallet-tags" id="dashWalletTags">
-                        <!-- Tags injected by JS -->
-                      </div>
+                      <div class="tracker-wallet-tags" id="dashWalletTags"></div>
                     </div>
-                    <!-- Tracked Feed -->
                     <div class="tracker-feed" id="dashTrackedFeed">
                       <div class="tracker-empty" id="dashTrackedEmpty">
                         <i data-lucide="target" class="tracker-empty-icon"></i>
@@ -620,6 +596,7 @@
                   </div>
                 </div>
               </div>
+
             </div>
           </div>
         </section>

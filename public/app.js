@@ -3254,6 +3254,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (el) document.body.appendChild(el);
   });
 
+  // Init lucide icons in Polymarket panel (it's a direct body child, added last)
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+
   const btnFilterHistoryDate = document.getElementById("btnFilterHistoryDate");
   if (btnFilterHistoryDate) {
     btnFilterHistoryDate.addEventListener("click", () => {
@@ -5129,9 +5132,18 @@ window.addEventListener('load', () => {
 
 function closeStaticPanel() { document.getElementById('staticResultPanel').classList.add('hidden'); } window.closeStaticPanel = closeStaticPanel;
 
+function togglePmPanel() {
+  const panel = document.getElementById('pmRightPanel');
+  if (!panel) return;
+  const isHidden = panel.style.transform === 'translateX(300px)';
+  panel.style.transform = isHidden ? 'translateX(0)' : 'translateX(300px)';
+}
+window.togglePmPanel = togglePmPanel;
+
 function buildBentoGrid(text) {
   const data = {
-     arah: "-", entry: "-", liquidity: "-", gammaVol: "-", orderbook: "-", conf: "-", qwenScore: "-", risk: "-"
+     arah: "-", entry: "-", liquidity: "-", gammaVol: "-", orderbook: "-", conf: "-", qwenScore: "-", risk: "-",
+     deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-"
   };
   const lines = text.split("\n");
   for (let line of lines) {
@@ -5142,53 +5154,186 @@ function buildBentoGrid(text) {
     if (line.startsWith("Orderbook")) data.orderbook = line.split("|").slice(0, 2).join(" | ").replace("Orderbook UP:", "").replace("Orderbook DOWN:", "").trim();
     if (line.includes("Data confidence:")) data.conf = line.split("|")[0].replace("Data confidence:", "").trim();
     if (line.includes("Qwen confidence:")) data.qwenScore = line.split("Qwen confidence:")[1].trim();
+    if (line.includes("API close/resolution:")) data.deadline = line.split("API close/resolution:")[1].replace("WIB", "").trim();
+    if (line.includes("Kesimpulan Analisis:")) data.summary = line.split("Kesimpulan Analisis:")[1].trim();
+    if (line.includes("Target Price:")) data.targetPrice = line.split("Target Price:")[1].trim();
+    if (line.includes("Realtime Price:")) data.realtimePrice = line.split("Realtime Price:")[1].trim();
+  }
+  
+  // Fallback extraction from summary if backend explicit fields are missing
+  if (data.targetPrice === "-" && data.summary.match(/Target Price\s*\(?\$?([0-9.,]+)\)?/i)) {
+      data.targetPrice = data.summary.match(/Target Price\s*\(?\$?([0-9.,]+)\)?/i)[1];
+  }
+  if (data.realtimePrice === "-" && data.summary.match(/Oracle Pyth\s*\(?\$?([0-9.,]+)\)?/i)) {
+      data.realtimePrice = data.summary.match(/Oracle Pyth\s*\(?\$?([0-9.,]+)\)?/i)[1];
   }
 
-  const arahBadge = data.arah === "UP" ? "bento-badge-up" : (data.arah === "DOWN" ? "bento-badge-down" : "bento-badge-outline-cyan");
-  const arahGlow = data.arah === "UP" ? "bento-glow-up" : (data.arah === "DOWN" ? "bento-glow-down" : "bento-glow-neutral");
-  const entryGlow = (data.entry === "WAIT" || data.entry === "WATCHLIST") ? "color:var(--neon-amber)" : (data.entry === "SKIP" ? "color:var(--neon-red)" : "color:var(--neon-green)");
+  const arahColor = data.arah === "UP" ? "var(--neon-green)" : (data.arah === "DOWN" ? "var(--neon-red)" : "var(--neon-cyan)");
+  const arahBg = data.arah === "UP" ? "rgba(16,185,129,0.12)" : (data.arah === "DOWN" ? "rgba(239,68,68,0.12)" : "rgba(6,182,212,0.1)");
+  const arahBorderColor = data.arah === "UP" ? "rgba(16,185,129,0.35)" : (data.arah === "DOWN" ? "rgba(239,68,68,0.35)" : "rgba(6,182,212,0.3)");
+  const entryColor = (data.entry === "WAIT" || data.entry === "WATCHLIST") ? "var(--neon-amber)" : (data.entry === "SKIP" ? "var(--neon-red)" : "var(--neon-green)");
+  const arahArrow = data.arah === "UP" ? "↑" : data.arah === "DOWN" ? "↓" : "—";
+
+  let bidPct = 50;
+  let askPct = 50;
+  let bidStr = "50%";
+  let askStr = "50%";
+  if (data.orderbook && data.orderbook !== "-") {
+     const matchBid = data.orderbook.match(/bid\s+([0-9.]+)/i);
+     const matchAsk = data.orderbook.match(/ask\s+([0-9.]+)/i);
+     if (matchBid && matchAsk) {
+         let b = parseFloat(matchBid[1]);
+         let a = parseFloat(matchAsk[1]);
+         if (b + a > 0) {
+            bidPct = (b / (b + a)) * 100;
+            askPct = (a / (b + a)) * 100;
+            bidStr = bidPct.toFixed(0) + "%";
+            askStr = askPct.toFixed(0) + "%";
+         }
+     }
+  }
+
+  if (typeof injectMspStyles === "function") injectMspStyles();
 
   return `
-    <div class="bento-title-header">MARKET SUMMARY</div>
-    <div class="bento-grid-container" style="flex:1; display:flex; flex-direction:column; justify-content:space-between;">
-      <div class="bento-row">
-        <div id="bentoKesimpulanBox" class="bento-box bento-glass-panel interactive" style="flex:1.5;">
-          <div class="bento-box-label">KESIMPULAN CEPAT <i data-lucide="zap" style="width:14px;height:14px;color:var(--neon-green)"></i></div>
-          <div style="display:flex; align-items:center; gap:16px;">
-             <span class="${arahBadge}">${data.arah}</span>
-             <i data-lucide="trending-up" class="${arahGlow}" style="width:32px;height:32px;"></i>
+    <div class="msp-shell">
+      <div class="msp-core">
+        <div class="msp-top-row">
+          <span class="msp-eyebrow">MARKET SUMMARY</span>
+          <div style="display:flex; gap:12px; align-items:center;">
+             ${data.deadline !== "-" ? `<span style="font-family:'Plus Jakarta Sans', sans-serif; font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="clock" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.deadline}</span>` : ""}
+             <span class="msp-link" id="bentoKesimpulanBox" style="cursor:pointer;">View full report →</span>
           </div>
-          <div class="bento-box-sub" style="color:var(--text-tertiary); margin-top:12px;">Click to view full AI analysis report...</div>
         </div>
-        <div class="bento-box bento-glass-panel" style="flex:1;">
-          <div class="bento-box-label">ENTRY STATUS <i data-lucide="star" style="width:14px;height:14px;color:var(--neon-cyan)"></i></div>
-          <div class="bento-box-value" style="font-size:20px; ${entryGlow}">${data.entry}</div>
+        <div class="msp-hero-row">
+          <div class="msp-signal-block">
+            <div class="msp-signal-pill" style="background:${arahBg}; border:1px solid ${arahBorderColor}; color:${arahColor};">
+              <span class="msp-signal-arrow">${arahArrow}</span>
+              <span class="msp-signal-text">${data.arah}</span>
+            </div>
+            <span class="msp-field-label">AI Signal</span>
+          </div>
+          <div class="msp-vline"></div>
+          
+          <div style="flex:2.2; display:flex; flex-direction:column; justify-content:center; padding:0 12px;">
+             
+             <!-- Premium Price Ticker -->
+             <div style="display:flex; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 14px; margin-bottom:12px; align-items:center; justify-content:space-between; box-shadow:inset 0 2px 10px rgba(0,0,0,0.4);">
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                   <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.1em;">Realtime (Pyth)</span>
+                   <div style="font-family:'Outfit', monospace; font-size:18px; font-weight:800; color:var(--text-primary); text-shadow:0 0 12px rgba(255,255,255,0.15); line-height:1;">
+                      ${data.realtimePrice !== "-" ? `$${data.realtimePrice.replace(/^\$/, '')}` : '<span style="font-size:11px;color:rgba(255,255,255,0.2);">WAITING DATA</span>'}
+                   </div>
+                </div>
+                
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 12px;">
+                   <div style="width:1px; height:8px; background:rgba(255,255,255,0.1); margin-bottom:4px;"></div>
+                   <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; font-weight:800; color:rgba(255,255,255,0.2); font-style:italic;">VS</span>
+                   <div style="width:1px; height:8px; background:rgba(255,255,255,0.1); margin-top:4px;"></div>
+                </div>
+                
+                <div style="display:flex; flex-direction:column; gap:4px; text-align:right;">
+                   <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; font-weight:700; color:var(--neon-cyan); text-transform:uppercase; letter-spacing:0.1em; opacity:0.8;">Price to Beat</span>
+                   <div style="font-family:'Outfit', monospace; font-size:18px; font-weight:800; color:var(--neon-cyan); text-shadow:0 0 12px rgba(6,182,212,0.4); line-height:1;">
+                      ${data.targetPrice !== "-" ? `$${data.targetPrice.replace(/^\$/, '')}` : '<span style="font-size:11px;color:rgba(255,255,255,0.2);">WAITING DATA</span>'}
+                   </div>
+                </div>
+             </div>
+
+             <!-- AI Rationale -->
+             <div style="border-left:2px solid rgba(16,185,129,0.3); padding-left:12px; margin-left:2px;">
+                <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; font-weight:700; color:rgba(255,255,255,0.3); text-transform:uppercase; margin-bottom:4px; letter-spacing:0.1em; display:block;">AI Rationale Snippet</span>
+                <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:10.5px; line-height:1.45; color:var(--text-secondary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${data.summary}</p>
+             </div>
+             
+          </div>
+          
+          <div class="msp-vline"></div>
+          <div class="msp-entry-block">
+            <div class="msp-entry-val" style="color:${entryColor};">${data.entry}</div>
+            <span class="msp-field-label">Entry Status</span>
+          </div>
         </div>
-      </div>
-      <div class="bento-row">
-        <div class="bento-box bento-glass-panel">
-           <div class="bento-box-label">LIQUIDITY</div>
-           <div class="bento-box-value" style="font-size:16px; color:var(--neon-green)">${data.liquidity}</div>
+        <div class="msp-hline"></div>
+        <div class="msp-strip">
+          <div class="msp-strip-item">
+            <span class="msp-strip-label">LIQUIDITY</span>
+            <span class="msp-strip-val" style="color:var(--neon-green);">${data.liquidity}</span>
+          </div>
+          <div class="msp-strip-sep"></div>
+          <div class="msp-strip-item">
+            <span class="msp-strip-label">GAMMA VOL</span>
+            <span class="msp-strip-val" style="color:var(--neon-cyan);">${data.gammaVol}</span>
+          </div>
+          <div class="msp-strip-sep"></div>
+          <div class="msp-strip-item msp-strip-item--wide">
+            <span class="msp-strip-label">ORDERBOOK</span>
+            <span class="msp-strip-val" style="color:var(--text-primary); font-size:12px;">${data.orderbook}</span>
+          </div>
+          <div class="msp-strip-sep"></div>
+          <div class="msp-strip-item">
+            <span class="msp-strip-label">DATA CONF</span>
+            <span class="msp-strip-val" style="color:var(--text-secondary);">${data.conf}</span>
+          </div>
+          <div class="msp-strip-sep"></div>
+          <div class="msp-strip-item">
+            <span class="msp-strip-label">QWEN</span>
+            <span class="msp-strip-val" style="color:var(--neon-purple);">${data.qwenScore}</span>
+          </div>
         </div>
-        <div class="bento-box bento-glass-panel">
-           <div class="bento-box-label">GAMMA VOLUME</div>
-           <div class="bento-box-value" style="font-size:16px; color:var(--neon-cyan)">${data.gammaVol}</div>
-        </div>
-        <div class="bento-box bento-glass-panel" style="flex:1.5;">
-           <div class="bento-box-label">ORDERBOOK</div>
-           <div class="bento-box-value" style="font-size:13px; color:var(--text-primary); white-space:normal;">${data.orderbook}</div>
-        </div>
-      </div>
-      <div class="bento-row">
-        <div class="bento-box bento-glass-panel" style="flex:1;">
-           <div class="bento-box-label">DATA CONF.</div>
-           <div class="bento-box-value" style="font-size:15px; color:var(--text-secondary)">${data.conf}</div>
-        </div>
-        <div class="bento-box bento-glass-panel" style="flex:1;">
-           <div class="bento-box-label">QWEN SCORE</div>
-           <div class="bento-box-value" style="font-size:15px; color:var(--neon-purple)">${data.qwenScore}</div>
+        <div class="msp-hline"></div>
+        <div class="msp-depth">
+          <div class="msp-depth-meta">
+            <span class="msp-depth-bid-txt">BID ${bidStr}</span>
+            <span class="msp-depth-center-txt">MARKET DEPTH</span>
+            <span class="msp-depth-ask-txt">ASK ${askStr}</span>
+          </div>
+          <div class="msp-depth-bar">
+            <div class="msp-depth-bid-fill" style="width:${bidPct}%;"></div>
+            <div class="msp-depth-ask-fill" style="width:${askPct}%;"></div>
+          </div>
         </div>
       </div>
     </div>
   `;
+}
+
+function injectMspStyles() {
+  if (document.getElementById('msp-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'msp-styles';
+  style.innerHTML = `
+/* Outer bezel */
+.msp-shell { height: 340px; box-sizing: border-box; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; padding: 2px; box-shadow: 0 12px 40px rgba(0,0,0,0.6), 0 0 0 0.5px rgba(255,255,255,0.04) inset; }
+.msp-core { height: 100%; box-sizing: border-box; background: rgba(22,22,26,0.98); border-radius: 12px; border: 1px solid rgba(255,255,255,0.07); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); padding: 18px 20px 16px; display: flex; flex-direction: column; justify-content: space-between; gap: 0; }
+.msp-top-row { display: flex; justify-content: space-between; align-items: center; }
+.msp-eyebrow { font-family: "Plus Jakarta Sans", monospace, sans-serif; font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.18em; }
+.msp-link { font-family: "Plus Jakarta Sans", sans-serif; font-size: 10px; font-weight: 500; color: rgba(16,185,129,0.55); letter-spacing: 0.02em; cursor: pointer; transition: color 0.2s ease; }
+.msp-link:hover { color: var(--neon-green); }
+.msp-hero-row { display: flex; align-items: center; flex: 1; margin: 10px 0; }
+.msp-signal-block { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.msp-signal-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px 6px 12px; border-radius: 8px; width: fit-content; }
+.msp-signal-arrow { font-size: 18px; font-weight: 900; line-height: 1; }
+.msp-signal-text { font-family: "Outfit", sans-serif; font-size: 22px; font-weight: 800; letter-spacing: 0.05em; line-height: 1; }
+.msp-vline { width: 1px; height: 48px; background: rgba(255,255,255,0.1); margin: 0 20px; flex-shrink: 0; }
+.msp-entry-block { display: flex; flex-direction: column; gap: 6px; text-align: right; }
+.msp-entry-val { font-family: "Outfit", sans-serif; font-size: 18px; font-weight: 800; letter-spacing: 0.04em; line-height: 1; }
+.msp-field-label { font-family: "Plus Jakarta Sans", sans-serif; font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
+.msp-hline { height: 1px; background: rgba(255,255,255,0.08); margin: 0 -20px; }
+.msp-strip { display: flex; align-items: stretch; padding: 12px 0; }
+.msp-strip-item { flex: 1; display: flex; flex-direction: column; gap: 5px; padding: 2px 0; }
+.msp-strip-item--wide { flex: 1.6; }
+.msp-strip-sep { width: 1px; background: rgba(255,255,255,0.08); margin: 0 14px; flex-shrink: 0; }
+.msp-strip-label { font-family: "Plus Jakarta Sans", sans-serif; font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
+.msp-strip-val { font-family: "Outfit", monospace; font-size: 13px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+.msp-depth { padding-top: 14px; }
+.msp-depth-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.msp-depth-bid-txt { font-family: "Plus Jakarta Sans", sans-serif; font-size: 9px; font-weight: 700; color: var(--neon-green); text-transform: uppercase; letter-spacing: 0.07em; }
+.msp-depth-center-txt { font-family: "Plus Jakarta Sans", sans-serif; font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.28); text-transform: uppercase; letter-spacing: 0.12em; }
+.msp-depth-ask-txt { font-family: "Plus Jakarta Sans", sans-serif; font-size: 9px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 0.07em; }
+.msp-depth-bar { display: flex; width: 100%; height: 6px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); gap: 1px; }
+.msp-depth-bid-fill { height: 100%; background: linear-gradient(90deg, rgba(16,185,129,0.4), rgba(16,185,129,0.85)); border-radius: 4px 0 0 4px; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(16,185,129,0.5); }
+.msp-depth-ask-fill { height: 100%; background: linear-gradient(90deg, rgba(239,68,68,0.85), rgba(239,68,68,0.4)); border-radius: 0 4px 4px 0; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(239,68,68,0.5); }
+`;
+  document.head.appendChild(style);
 }

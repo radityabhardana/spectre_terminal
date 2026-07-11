@@ -552,6 +552,8 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction }) {
     `Data Confidence: ${confidenceText(score.confidenceScore)}`,
     `Qwen Confidence: ${confidenceText(qwen.confidence)}`,
     `Kesimpulan Analisis: ${qwen.summary || "n/a"}`,
+    qwen.targetPrice != null ? `Target Price: ${qwen.targetPrice}` : null,
+    qwen.pythPrice != null ? `Realtime Price: ${qwen.pythPrice}` : null,
     "",
     "Disclaimer: Analisis ini bukan financial advice dan tidak menjamin hasil.",
   ]

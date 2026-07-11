@@ -1954,7 +1954,7 @@ textarea::-webkit-scrollbar-thumb,
 /* The 3 bottom cards — all identical in height & structure */
 .dash-bottom-card {
   flex: 1;
-  height: 320px;
+  height: 350px;
   min-width: 0;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.07);
@@ -3021,3 +3021,634 @@ textarea::-webkit-scrollbar-thumb,
   display: inline-block;
 }
 
+
+/* Market Depth Visualizer */
+.depth-visualizer-container {
+  display: flex;
+  width: 100%;
+  height: 24px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  position: relative;
+}
+
+.depth-bar-bid {
+  height: 100%;
+  background: rgba(16, 185, 129, 0.25);
+  border-right: 2px solid rgba(16, 185, 129, 0.8);
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: inset 0 0 10px rgba(16, 185, 129, 0.1);
+}
+
+.depth-bar-ask {
+  height: 100%;
+  background: rgba(239, 68, 68, 0.25);
+  border-left: 2px solid rgba(239, 68, 68, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: inset 0 0 10px rgba(239, 68, 68, 0.1);
+}
+
+.depth-label-left {
+  color: var(--neon-green);
+  font-size: 11px;
+  font-weight: 700;
+  text-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.depth-label-right {
+  color: var(--neon-red);
+  font-size: 11px;
+  font-weight: 700;
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+}
+
+/* ================================================================
+   MARKET SUMMARY — Compact Command-Center Redesign
+   ================================================================ */
+
+.ms-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.ms-title {
+  font-family: "Outfit", "Plus Jakarta Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.ms-click-hint {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(16, 185, 129, 0.5);
+  letter-spacing: 0.04em;
+  transition: color 0.2s cubic-bezier(0.16,1,0.3,1);
+}
+.ms-click-hint:hover {
+  color: var(--neon-green);
+}
+
+/* Hero panel: Signal + Entry side by side */
+.ms-hero-panel {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+  position: relative;
+  overflow: hidden;
+}
+.ms-hero-panel::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+}
+
+.ms-hero-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ms-signal-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border: 1px solid;
+  border-radius: 6px;
+  font-family: "Outfit", monospace;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  width: fit-content;
+  transition: all 0.4s cubic-bezier(0.16,1,0.3,1);
+}
+
+.ms-hero-divider {
+  width: 1px;
+  height: 44px;
+  background: rgba(255,255,255,0.07);
+  margin: 0 20px;
+  flex-shrink: 0;
+}
+
+.ms-hero-right {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: right;
+}
+
+.ms-entry-value {
+  font-family: "Outfit", sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+.ms-hero-sub {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* Metrics row — inline chip strip */
+.ms-metrics-row {
+  display: flex;
+  align-items: stretch;
+  background: rgba(255,255,255,0.015);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.ms-metric {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 12px;
+}
+
+.ms-metric-sep {
+  width: 1px;
+  background: rgba(255,255,255,0.05);
+  margin: 6px 0;
+  flex-shrink: 0;
+}
+
+.ms-metric-label {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 8.5px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.ms-metric-value {
+  font-family: "Outfit", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Depth bar — clean split track */
+.ms-depth-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ms-depth-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ms-depth-label-bid {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--neon-green);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ms-depth-label-center {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 8px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.ms-depth-label-ask {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--neon-red);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ms-depth-track {
+  display: flex;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.04);
+  gap: 1px;
+}
+
+.ms-depth-fill-bid {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(16,185,129,0.3), rgba(16,185,129,0.7));
+  border-radius: 3px 0 0 3px;
+  transition: width 1s cubic-bezier(0.16,1,0.3,1);
+  box-shadow: 0 0 8px rgba(16,185,129,0.3);
+}
+
+.ms-depth-fill-ask {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(239,68,68,0.7), rgba(239,68,68,0.3));
+  border-radius: 0 3px 3px 0;
+  transition: width 1s cubic-bezier(0.16,1,0.3,1);
+  box-shadow: 0 0 8px rgba(239,68,68,0.3);
+}
+
+/* ================================================================
+   MARKET SUMMARY PANEL — msp-* system (replaces old bento cards)
+   ================================================================ */
+.ms-container {
+  width: 100%;
+}
+
+/* ================================================================
+   MARKET SUMMARY PANEL — Premium compact command-center
+   ================================================================ */
+
+/* Outer bezel */
+.msp-shell {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+  padding: 2px;
+  box-shadow:
+    0 12px 40px rgba(0,0,0,0.6),
+    0 0 0 0.5px rgba(255,255,255,0.04) inset;
+}
+
+/* Inner core — slightly lighter than page bg to create depth */
+.msp-core {
+  background: rgba(22,22,26,0.98);
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.07);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Top eyebrow + link row */
+.msp-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.msp-eyebrow {
+  font-family: "Plus Jakarta Sans", monospace, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+}
+
+.msp-link {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(16,185,129,0.55);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.msp-link:hover {
+  color: var(--neon-green);
+}
+
+/* Hero row: Signal left + divider + Entry right */
+.msp-hero-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.msp-signal-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.msp-signal-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px 6px 12px;
+  border-radius: 8px;
+  width: fit-content;
+}
+
+.msp-signal-arrow {
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.msp-signal-text {
+  font-family: "Outfit", sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  line-height: 1;
+}
+
+.msp-vline {
+  width: 1px;
+  height: 48px;
+  background: rgba(255,255,255,0.1);
+  margin: 0 20px;
+  flex-shrink: 0;
+}
+
+.msp-entry-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: right;
+}
+
+.msp-entry-val {
+  font-family: "Outfit", sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+.msp-field-label {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.32);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* Hairline divider */
+.msp-hline {
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 0 -20px 14px;
+}
+.msp-strip + .msp-hline {
+  margin-top: 14px;
+}
+.msp-depth {
+  margin-top: 14px;
+}
+
+/* Metrics strip */
+.msp-strip {
+  display: flex;
+  align-items: stretch;
+}
+
+.msp-strip-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 2px 0;
+}
+.msp-strip-item--wide {
+  flex: 1.6;
+}
+
+.msp-strip-sep {
+  width: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 0 14px;
+  flex-shrink: 0;
+}
+
+.msp-strip-label {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 8px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.32);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.msp-strip-val {
+  font-family: "Outfit", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Depth visualizer */
+.msp-depth-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.msp-depth-bid-txt {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--neon-green);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.msp-depth-center-txt {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 8px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.28);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.msp-depth-ask-txt {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  color: #ef4444;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.msp-depth-bar {
+  display: flex;
+  width: 100%;
+  height: 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.06);
+  gap: 1px;
+}
+
+.msp-depth-bid-fill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(16,185,129,0.4), rgba(16,185,129,0.85));
+  border-radius: 4px 0 0 4px;
+  transition: width 1.2s cubic-bezier(0.16,1,0.3,1);
+  box-shadow: 0 0 12px rgba(16,185,129,0.5);
+}
+
+.msp-depth-ask-fill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(239,68,68,0.85), rgba(239,68,68,0.4));
+  border-radius: 0 4px 4px 0;
+  transition: width 1.2s cubic-bezier(0.16,1,0.3,1);
+  box-shadow: 0 0 12px rgba(239,68,68,0.5);
+}
+
+/* ================================================================
+   POLYMARKET ACCOUNT RIGHT PANEL
+   ================================================================ */
+.right-panel {
+  position: fixed;
+  top: 52px; /* below topbar */
+  right: 0;
+  bottom: 40px; /* above footer */
+  width: 320px;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  z-index: 950;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.4);
+}
+
+.right-panel.closed {
+  transform: translateX(320px);
+}
+
+.pm-panel-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pm-panel-title {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.pm-panel-content {
+  flex: 1;
+  padding: 16px;
+  position: relative;
+  overflow-y: auto;
+}
+
+/* Mock Data & Blur Overlay */
+.pm-mock-layer {
+  filter: blur(5px);
+  opacity: 0.6;
+  pointer-events: none;
+  user-select: none;
+  transition: all 0.3s ease;
+}
+
+.pm-wallet-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  background: rgba(14, 14, 17, 0.4);
+}
+
+.pm-connect-btn {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: var(--neon-green);
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
+  transition: all 0.2s ease;
+}
+.pm-connect-btn:hover {
+  background: rgba(16, 185, 129, 0.25);
+  box-shadow: 0 0 24px rgba(16, 185, 129, 0.4);
+  transform: translateY(-1px);
+}
+
+.pm-mock-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.pm-mock-label {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 9px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 4px;
+}
+.pm-mock-value {
+  font-family: "Outfit", monospace;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.pm-mock-sub {
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 10px;
+  color: var(--neon-cyan);
+  margin-top: 4px;
+}

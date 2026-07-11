@@ -249,14 +249,22 @@ export function getDashboardMetrics() {
       else grades.D++;
     }
 
-    const latestEvent = db.prepare("SELECT question, prediction, analysis_conclusion, qwen_confidence FROM analyzed_events ORDER BY id DESC LIMIT 1").get();
+    const latestEvent = db.prepare("SELECT question, prediction, analysis_conclusion, qwen_confidence, created_at, resolved_at, status FROM analyzed_events ORDER BY id DESC LIMIT 1").get();
     
     let signalText = "-";
     let signalDir = "WAITING";
     let conclusion = "Menunggu data...";
     let confluenceScore = "0%";
+    let eventName = "-";
+    let eventTime = "-";
     
     if (latestEvent) {
+      eventName = latestEvent.question;
+      if (latestEvent.status === 'selesai' && latestEvent.resolved_at) {
+        eventTime = latestEvent.resolved_at;
+      } else {
+        eventTime = latestEvent.created_at || "-";
+      }
       let assetMatch = latestEvent.question.match(/^([A-Z0-9]+)\b/i);
       if (assetMatch) {
           signalText = assetMatch[1].toUpperCase();
@@ -299,7 +307,9 @@ export function getDashboardMetrics() {
         asset: signalText,
         direction: signalDir,
         conclusion,
-        confluenceScore
+        confluenceScore,
+        eventName,
+        eventTime
       }
     };
   } catch (error) {

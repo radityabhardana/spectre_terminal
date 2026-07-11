@@ -1633,12 +1633,18 @@ async function executeCommand(commandText, isBackground = false) {
     }
   } finally {
     activeRequest = null;
+    // Refresh history so that recent analysis is shown in the History tab
+    await fetchHistoryEvents();
+    
     setBusy(false);
     if (isBackground) playQueueDoneSound();
     
-    // Refresh history so that recent analysis is shown in the History tab
-    fetchHistoryEvents();
-    
+    // Jika fetch gagal atau tidak ok, sembunyikan static panel
+    if (!data || !data.ok) {
+       const staticPanel = document.getElementById("staticResultPanel");
+       if (staticPanel) staticPanel.classList.add("hidden");
+    }
+
     // Jika fetch sukses, state udah disync via syncRateLimit.
     // Jika gagal network, set local fallback cooldown.
     if (!data || !data.rateLimit) {
@@ -2475,6 +2481,9 @@ function toggleSniper() {
     btnRunQueue.style.background = "rgba(245, 158, 11, 0.2)";
     btnRunQueue.style.color = "var(--neon-amber)";
     stopSniper();
+    if (analysisQueue.length > 0) {
+      showSniperSummaryModal();
+    }
   }
   if (typeof lucide !== 'undefined') lucide.createIcons();
   
@@ -2484,6 +2493,125 @@ function toggleSniper() {
   }
   
   renderQueue();
+}
+
+function showSniperSummaryModal() {
+  const modal = document.getElementById("sniperSummaryModal");
+  const tbody = document.getElementById("sniperSummaryTableBody");
+  const metrics = document.getElementById("sniperSummaryMetrics");
+  if (!modal || !tbody) return;
+  
+  let html = "";
+  let total = 0;
+  let upCount = 0;
+  let downCount = 0;
+  
+  analysisQueue.forEach(m => {
+    const historyItem = allHistoryEvents.find(h => String(h.market_id) === String(m.id));
+    let title = m.groupItemTitle || m.question.replace(new RegExp(`(Bitcoin|Ethereum|Dogecoin) Up or Down -? ?`, 'i'), '').trim();
+    
+    if (historyItem) {
+      total++;
+      if (historyItem.prediction === 'UP') upCount++;
+      if (historyItem.prediction === 'DOWN') downCount++;
+      
+      let dirColor = "var(--text-secondary)";
+      let dirBg = "rgba(255,255,255,0.05)";
+      if (historyItem.prediction === 'UP') {
+         dirColor = "var(--neon-green)";
+         dirBg = "rgba(16,185,129,0.1)";
+      } else if (historyItem.prediction === 'DOWN') {
+         dirColor = "var(--neon-red)";
+         dirBg = "rgba(239,68,68,0.1)";
+      }
+      
+      let gradeStr = '-';
+      if (historyItem.grades) {
+         try {
+           const g = typeof historyItem.grades === 'string' ? JSON.parse(historyItem.grades) : historyItem.grades;
+           gradeStr = `S:${g.S||0} A:${g.A||0} B:${g.B||0} C:${g.C||0}`;
+         } catch(e) {}
+      }
+      
+      html += `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:10px 16px;">
+            <div style="font-weight:600; color:#fff;">${title}</div>
+            <div style="font-size:10px; color:var(--text-tertiary); margin-top:2px;">${m.id}</div>
+          </td>
+          <td style="padding:10px 16px; text-align:center;">
+            <span style="background:${dirBg}; color:${dirColor}; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:11px;">${historyItem.prediction || '-'}</span>
+          </td>
+          <td style="padding:10px 16px; text-align:center; font-family:monospace; color:var(--neon-amber);">${historyItem.confluence_score ? historyItem.confluence_score + '%' : '-'}</td>
+          <td style="padding:10px 16px; text-align:center;">
+             <span style="color:var(--text-secondary); font-size:11px; background:rgba(255,255,255,0.02); padding:4px 6px; border-radius:4px;">${gradeStr}</span>
+          </td>
+        </tr>
+      `;
+    } else {
+      html += `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.05); opacity:0.5;">
+          <td style="padding:10px 16px;">
+            <div style="font-weight:600; color:#fff;">${title}</div>
+          </td>
+          <td style="padding:10px 16px; text-align:center;">-</td>
+          <td style="padding:10px 16px; text-align:center;">-</td>
+          <td style="padding:10px 16px; text-align:center;">Belum Dianalisis / Gagal</td>
+        </tr>
+      `;
+    }
+  });
+  
+  if (html === "") {
+    html = `<tr><td colspan="4" style="padding:20px; text-align:center; color:var(--text-tertiary);">Tidak ada data summary.</td></tr>`;
+  }
+  
+  tbody.innerHTML = html;
+  
+  if (metrics) {
+    metrics.innerHTML = `
+      <div style="background:rgba(0,0,0,0.2); border:1px solid var(--border); padding:8px 12px; border-radius:6px; flex:1;">
+        <div style="font-size:10px; color:var(--text-tertiary); text-transform:uppercase;">Total Analyzed</div>
+        <div style="font-size:18px; font-weight:bold; color:#fff;">${total}</div>
+      </div>
+      <div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.2); padding:8px 12px; border-radius:6px; flex:1;">
+        <div style="font-size:10px; color:var(--neon-green); text-transform:uppercase;">UP Signals</div>
+        <div style="font-size:18px; font-weight:bold; color:var(--neon-green);">${upCount}</div>
+      </div>
+      <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); padding:8px 12px; border-radius:6px; flex:1;">
+        <div style="font-size:10px; color:var(--neon-red); text-transform:uppercase;">DOWN Signals</div>
+        <div style="font-size:18px; font-weight:bold; color:var(--neon-red);">${downCount}</div>
+      </div>
+    `;
+  }
+  
+  modal.style.display = "flex";
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+  
+  // Wire up the copy button
+  const btnCopy = document.getElementById("btnCopySniperSummary");
+  if (btnCopy) {
+    btnCopy.onclick = () => {
+      let txt = "Sniper Session Summary:\n";
+      txt += `Total: ${total} | UP: ${upCount} | DOWN: ${downCount}\n\n`;
+      analysisQueue.forEach(m => {
+        let title = m.groupItemTitle || m.question.replace(new RegExp(`(Bitcoin|Ethereum|Dogecoin) Up or Down -? ?`, 'i'), '').trim();
+        const historyItem = allHistoryEvents.find(h => String(h.market_id) === String(m.id));
+        if (historyItem) {
+           txt += `- ${title}: ${historyItem.prediction} (${historyItem.confluence_score ? historyItem.confluence_score + '%' : ''})\n`;
+        } else {
+           txt += `- ${title}: FAILED/WAITING\n`;
+        }
+      });
+      navigator.clipboard.writeText(txt);
+      btnCopy.innerHTML = `<i data-lucide="check" style="width:14px; height:14px; margin-right:6px; color:var(--neon-green);"></i>Copied`;
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+      setTimeout(() => {
+        btnCopy.innerHTML = `<i data-lucide="copy" style="width:14px; height:14px; margin-right:6px;"></i>Copy Report`;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+      }, 2000);
+    };
+  }
 }
 
 if (btnRunQueue) {
@@ -2751,7 +2879,11 @@ function renderShortMarkets(markets) {
     const cardBg = isFuture ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.15)";
     const cardBorder = isFuture ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.05)";
     const cardHoverBorder = isFuture ? "rgba(255,255,255,0.1)" : "rgba(245,158,11,0.3)";
-    const onClickAttr = isFuture ? `onclick="showCustomAlert('Market belum aktif. Drag ke antrean (Sniper) untuk dianalisis otomatis nanti.')"` : `onclick="analyzeShortMarket('${m.id}', '${m.url}')"`;
+    const onClickAttr = isClosed 
+      ? `onclick="showCustomAlert('Event sudah ditutup dan tidak dapat dianalisis lagi.')"` 
+      : isFuture 
+        ? `onclick="showCustomAlert('Market belum aktif. Drag ke antrean (Sniper) untuk dianalisis otomatis nanti.')"` 
+        : `onclick="analyzeShortMarket('${m.id}', '${m.url}')"`;
     const onDragAttr = `draggable="true" ondragstart="handleDragStart(event, this)" ondragend="handleDragEnd(event)"`;
 
     let priceInfo = "";
@@ -2771,7 +2903,7 @@ function renderShortMarkets(markets) {
         <div style="display:flex; justify-content:space-between; margin-bottom:4px; align-items:flex-start;">
           <span style="font-weight:600; color:var(--text-primary); font-size:11px; flex:1; min-width:0; word-wrap:break-word;">${(m.groupItemTitle || m.question || '').trim()}</span>
           <div style="display:flex; align-items:center;">
-            <span class="short-market-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${labelYes}" data-l-no="${labelNo}" style="color:${timeColor}; font-weight:700; font-size:10px; white-space:nowrap; flex-shrink:0; text-align:right; margin-left:8px;">${timeText}</span>
+            <span class="short-market-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${labelYes}" data-l-no="${labelNo}" data-is-future="${isFuture}" style="color:${timeColor}; font-weight:700; font-size:10px; white-space:nowrap; flex-shrink:0; text-align:right; margin-left:8px;">${timeText}</span>
             ${addBtnHtml}
           </div>
         </div>
@@ -2841,6 +2973,14 @@ function startShortRealtimeTimer() {
           timeText = "Resolving ⏳";
           timeColor = "var(--neon-cyan)";
         }
+      }
+      
+      const prevIsFuture = el.getAttribute("data-is-future") === "true";
+      if (prevIsFuture !== isFuture && shortMarketsCache && shortMarketsCache.length > 0) {
+        // State has changed from future to active! 
+        // We must re-render so that buttons and click handlers are updated.
+        renderShortMarkets(shortMarketsCache);
+        return; // Break out of this interval tick since we just re-rendered the whole list
       }
       
       el.style.color = timeColor;

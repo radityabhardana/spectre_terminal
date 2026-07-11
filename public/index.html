@@ -154,7 +154,7 @@
     <!-- Left Sidebar - Houses Short Market and Queue Panel -->
     <aside id="leftSidebar" style="position:fixed; top:70px; bottom:40px; left:12px; width:340px; z-index:9000; display:flex; flex-direction:column; gap:12px; pointer-events:none;">
       <!-- Short Market Card - Koyfin-style compact widget -->
-      <div id="shortMarketPanel" style="display:flex; flex-direction:column; flex:0 0 340px; pointer-events:auto; background:#161618; border:1px solid rgba(255,255,255,0.1); border-radius:8px; box-shadow:0 4px 24px rgba(0,0,0,0.5); overflow:hidden; font-family:'Inter', system-ui, sans-serif;">
+      <div id="shortMarketPanel" style="display:flex; flex-direction:column; flex:0 0 340px; width:100% !important; box-sizing:border-box; pointer-events:auto; background:#161618; border:1px solid rgba(255,255,255,0.1); border-radius:8px; box-shadow:0 4px 24px rgba(0,0,0,0.5); overflow:hidden; font-family:'Inter', system-ui, sans-serif;">
       <!-- Header row -->
       <div style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center; position:relative;">
         <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em;">Short Market Events</span>
@@ -224,7 +224,7 @@
     </div>
 
       <!-- Queue Panel - Permanent top-left Koyfin-style widget (under Short Market) -->
-      <div id="queuePanel" style="display:flex; flex-direction:column; flex:1; min-height:0; pointer-events:auto; background:#161618; border:1px solid rgba(255,255,255,0.1); border-radius:8px; box-shadow:0 4px 24px rgba(0,0,0,0.5); overflow:hidden; font-family:'Inter', system-ui, sans-serif;">
+      <div id="queuePanel" style="display:flex; flex-direction:column; flex:1; min-height:0; width:100% !important; box-sizing:border-box; pointer-events:auto; background:#161618; border:1px solid rgba(255,255,255,0.1); border-radius:8px; box-shadow:0 4px 24px rgba(0,0,0,0.5); overflow:hidden; font-family:'Inter', system-ui, sans-serif;">
       <!-- Header row -->
       <div id="queuePanelHeader" style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em; display:flex; align-items:center; gap:6px;">
@@ -1325,6 +1325,42 @@
     </div>
   </div>
 
+  <!-- Sniper Session Summary Modal -->
+  <div id="sniperSummaryModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.8); backdrop-filter:blur(4px); align-items:center; justify-content:center;">
+    <div style="background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:12px; width:900px; max-width:95%; max-height:85vh; box-shadow:0 10px 40px rgba(0,0,0,0.6); display:flex; flex-direction:column;">
+      <div style="padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); border-radius:12px 12px 0 0;">
+        <h3 style="margin:0; font-size:16px; color:var(--text-primary); font-family:'Plus Jakarta Sans', sans-serif; display:flex; align-items:center; gap:8px;">
+          <i data-lucide="target" style="width:18px; height:18px; color:var(--neon-amber);"></i>
+          Sniper Session Summary
+        </h3>
+        <button onclick="document.getElementById('sniperSummaryModal').style.display='none'" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:20px; height:20px;"></i></button>
+      </div>
+      <div style="padding:16px 24px; overflow-y:auto; font-family:'Inter', sans-serif; display:flex; flex-direction:column; gap:16px;">
+        <div id="sniperSummaryMetrics" style="display:flex; gap:16px; margin-bottom:8px;">
+          <!-- metrics injected here -->
+        </div>
+        <div style="border:1px solid var(--border); border-radius:8px; overflow:hidden;">
+          <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:left;">
+            <thead style="background:rgba(255,255,255,0.05); border-bottom:1px solid var(--border); color:var(--text-secondary);">
+              <tr>
+                <th style="padding:10px 16px;">Market / Event</th>
+                <th style="padding:10px 16px; text-align:center;">Direction</th>
+                <th style="padding:10px 16px; text-align:center;">Score</th>
+                <th style="padding:10px 16px; text-align:center;">Grades</th>
+              </tr>
+            </thead>
+            <tbody id="sniperSummaryTableBody" style="color:var(--text-primary);">
+              <!-- injected rows -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style="padding:16px 24px; border-top:1px solid var(--border); text-align:right; background:rgba(255,255,255,0.01); border-radius:0 0 12px 12px; display:flex; justify-content:flex-end; gap:12px;">
+        <button id="btnCopySniperSummary" class="btn-secondary" style="height:32px; font-size:11px; padding:0 16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:4px; cursor:pointer;"><i data-lucide="copy" style="width:14px; height:14px; margin-right:6px;"></i>Copy Report</button>
+        <button onclick="document.getElementById('sniperSummaryModal').style.display='none'" class="btn-primary" style="height:32px; font-size:11px; padding:0 16px; background:var(--neon-purple); color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">Selesai</button>
+      </div>
+    </div>
+  </div>
   </body>
 </html>
 

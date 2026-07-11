@@ -24,5 +24,8 @@
     "htmlhint": "^1.9.2",
     "node-telegram-bot-api": "^1.1.2",
     "ws": "^8.21.0"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
   }
 }

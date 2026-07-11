@@ -5117,15 +5117,12 @@ window.addEventListener('load', () => {
   try {
     const savedOrder = JSON.parse(localStorage.getItem("dashboardCardOrder"));
     if (savedOrder && savedOrder.length) {
-      const staticPanel = document.getElementById('staticResultPanel');
       savedOrder.forEach(id => {
         const el = document.getElementById(id);
         if (el && el.classList.contains('dash-bottom-card')) {
           centerDashboard.appendChild(el);
         }
       });
-      // Keep staticResultPanel as first child always
-      if (staticPanel) centerDashboard.insertBefore(staticPanel, centerDashboard.firstChild);
     }
   } catch(e) {}
 });

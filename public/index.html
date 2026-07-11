@@ -451,15 +451,17 @@
 
             </div>
             
+            <!-- Bento Grid Result Panel (shows when analysis runs) - positioned in scrollable main area -->
+            <div id="staticResultPanel" class="hidden" style="position:fixed; top:52px; left:354px; right:0; bottom:230px; z-index:100; overflow-y:auto; padding:16px 20px; background:var(--bg-base);">
+              <div id="staticResultBody" class="bento-grid-container" style="max-width:960px; margin:0;">
+                <!-- Bento grid injected via JS -->
+              </div>
+            </div>
+
             <!-- === CENTER DASHBOARD (Live Readiness & Agent) === -->
             <div id="centerDashboard" class="center-dashboard">
 
-              <!-- Bento Grid Result Panel (shows when analysis runs) -->
-              <div id="staticResultPanel" class="hidden" style="width:100%; grid-column: 1 / -1;">
-                <div id="staticResultBody" class="bento-grid-container">
-                  <!-- Bento grid injected via JS -->
-                </div>
-              </div>
+
 
               <!-- === CARD 1: Analisis Agent === -->
               <div class="dash-bottom-card" id="cardAnalisisAgent">

@@ -6,7 +6,6 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/start-all.js",
-    "telegram": "node src/index.js",
     "web": "node src/web.js",
     "check": "node --check src/index.js && node --check src/web.js && node --check src/start-all.js && node --check public/app.js",
     "search": "node src/cli-search.js",
@@ -22,7 +21,6 @@
     "dotenv": "^17.4.2",
     "ethers": "^6.17.0",
     "htmlhint": "^1.9.2",
-    "node-telegram-bot-api": "^1.1.2",
     "ws": "^8.21.0"
   },
   "allowScripts": {

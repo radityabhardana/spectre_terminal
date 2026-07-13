@@ -26,14 +26,12 @@ import {
   searchMarkets,
 } from "./polymarket.js";
 import { askQwen, askQwenEvent, askQwenHotNiche } from "./qwen.js";
-import { scrapeTwitter } from "./twitter_scraper.js";
 import { broadcastAlert } from "./web.js";
 import { buildResearchContext } from "./research.js";
 import { enterCommandGuard, releaseCommandGuard } from "./rate-limit.js";
 import { scoreMarket } from "./scoring.js";
 import { getRecentWhales, formatSnifferWhales, setSnifferState, getSnifferState, setNotificationCallback, getTrackerConfig, setTrackerConfig, getAggressiveMode } from "./sniffer.js";
 import { appendAnalysisLog, addAnalyzedEvent } from "./storage.js";
-import { TelegramBot } from "./telegram.js";
 
 // Helper untuk UI
 export async function getWhalesData(minSize = 500) {
@@ -1125,93 +1123,29 @@ export async function handleCommand(text, message, ctx) {
   }
 }
 
-let activeBot = null;
-
-export function startTelegramBot() {
-  assertConfig();
-  activeBot = new TelegramBot(config.telegramToken, (text, msg, ctx) => {
-    // Tangkap adminChatId secara otomatis saat interaksi pertama
-    if (ctx && ctx.chatId) {
-      adminChatId = ctx.chatId;
-    }
-    return handleCommand(text, msg, ctx);
-  });
-
-  // Daftarkan callback notifikasi untuk Sniffer
-  setNotificationCallback(async (payload) => {
-    if (typeof payload === "string") {
-      const textMsg = payload;
-      console.log("\n[Whale Alert]\n" + textMsg.replace(/\*/g, ""));
-      if (adminChatId && activeBot) {
-        await activeBot.sendMessage(adminChatId, textMsg, { parse_mode: "Markdown" }).catch(() => {});
-      }
-    } else if (payload && payload.type === "HOT_NICHE") {
-      const { marketInfo, recentTradesCount, triggerWhale } = payload;
-      console.log(`\n[Hot Niche Alert] Market: ${marketInfo.question}`);
+// ── Background Monitors ──────────────────────────────────────────────
+setNotificationCallback(async (payload) => {
+  if (typeof payload === "string") {
+    console.log("\n[Whale Alert]\n" + payload.replace(/\*/g, ""));
+  } else if (payload && payload.type === "HOT_NICHE") {
+    const { marketInfo, recentTradesCount, triggerWhale } = payload;
+    console.log(`\n[Hot Niche Alert] Market: ${marketInfo.question}`);
+    
+    try {
+      const volumeSpike = `${recentTradesCount} whale trades dalam 15 menit. Trigger: ${triggerWhale.side} $${triggerWhale.sizeUsdc.toFixed(0)}`;
       
-      try {
-        const tweets = await scrapeTwitter(marketInfo.question);
-        const volumeSpike = `${recentTradesCount} whale trades dalam 15 menit. Trigger: ${triggerWhale.side} $${triggerWhale.sizeUsdc.toFixed(0)}`;
-        
-        const qwenAnalysis = await askQwenHotNiche({ market: marketInfo, volumeSpike, tweets });
-        
-        let textMsg = `🔥 *HOT NICHE DETECTED* 🔥\n\n`;
-        textMsg += `📊 *Market:* [${marketInfo.question}](https://polymarket.com/event/${marketInfo.slug})\n`;
-        textMsg += `📈 *Volume Spike:* ${volumeSpike}\n\n`;
-        textMsg += `🐦 *X (Twitter) Sentiment:*\n`;
-        textMsg += `Sentimen: *${qwenAnalysis.sentiment}*\n`;
-        textMsg += `_Ringkasan:_ ${qwenAnalysis.summary}\n`;
-        
-        if (adminChatId && activeBot) {
-          await activeBot.sendMessage(adminChatId, textMsg, { parse_mode: "Markdown", disable_web_page_preview: true }).catch(() => {});
-        }
-        
-        // Broadcast ke SSE web UI
-        broadcastAlert({
-          type: "HOT_NICHE_UPDATE",
-          marketInfo,
-          volumeSpike,
-          sentiment: qwenAnalysis.sentiment,
-          summary: qwenAnalysis.summary
-        });
-      } catch (err) {
-         console.error("[Hot Niche Error]", err);
-      }
+      const qwenAnalysis = await askQwenHotNiche({ market: marketInfo, volumeSpike });
+      
+      // Broadcast ke SSE web UI
+      broadcastAlert({
+        type: "HOT_NICHE_UPDATE",
+        marketInfo,
+        volumeSpike,
+        sentiment: qwenAnalysis.sentiment,
+        summary: qwenAnalysis.summary
+      });
+    } catch (err) {
+       console.error("[Hot Niche Error]", err);
     }
-  });
-
-  // Start alert monitor — kirim alert price ke semua chat yang punya alert aktif
-  // (simplified: kirim ke semua chat via broadcast, atau simpan chatId per alert)
-  // Untuk sekarang: bot hanya bisa broadcast ke satu chatId yang pertama kirim command
-  // Future: extend storage untuk per-user alert
-  const stopAlerts = startAlertMonitor(async (msg) => {
-    if (adminChatId && activeBot) {
-      await activeBot.sendMessage(adminChatId, msg).catch(() => {});
-    }
-    console.log("[Alert]", msg.replace(/\*/g, ""));
-  });
-
-  // Cleanup on stop
-  const originalStop = activeBot.stop.bind(activeBot);
-  activeBot.stop = () => {
-    stopAlerts();
-    originalStop();
-  };
-
-  activeBot.start();
-  return activeBot;
-}
-
-export function stopTelegramBot() {
-  if (activeBot) {
-    activeBot.stop();
-    activeBot = null;
   }
-}
-
-const isMainModule =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-
-if (isMainModule) {
-  startTelegramBot();
-}
+});

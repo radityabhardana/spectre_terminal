@@ -352,10 +352,24 @@ export async function getShortTermMarkets(asset = "btc") {
   url1h.searchParams.set("closed", "false");
   url1h.searchParams.set("limit", "100");
 
-  const [events5m, events15m, events1h] = await Promise.all([
+  const url4h = new URL("/events", config.gammaUrl);
+  url4h.searchParams.set("series_slug", `${assetLower}-up-or-down-4h`);
+  url4h.searchParams.set("active", "true");
+  url4h.searchParams.set("closed", "false");
+  url4h.searchParams.set("limit", "100");
+
+  const url1d = new URL("/events", config.gammaUrl);
+  url1d.searchParams.set("series_slug", `${assetLower}-up-or-down-daily`);
+  url1d.searchParams.set("active", "true");
+  url1d.searchParams.set("closed", "false");
+  url1d.searchParams.set("limit", "100");
+
+  const [events5m, events15m, events1h, events4h, events1d] = await Promise.all([
     fetchJson(url5m.toString()),
     fetchJson(url15m.toString()),
-    fetchJson(url1h.toString())
+    fetchJson(url1h.toString()),
+    fetchJson(url4h.toString()),
+    fetchJson(url1d.toString())
   ]).catch(err => {
     console.error("[Polymarket] getShortTermMarkets fetch error:", err.message);
     throw new Error("Failed to fetch short markets from Polymarket: " + err.message);
@@ -371,14 +385,16 @@ export async function getShortTermMarkets(asset = "btc") {
       const rawMarket = event.markets[0];
       const m = normalizeMarket(rawMarket, event);
       m.duration_type = durationType;
+      m.asset = asset;
       
       const endTime = new Date(m.endDate).getTime();
+      const timeToClose = endTime - now;
         
       // Cache the raw market so getMarketById avoids network calls (prevents timeouts during snipe)
       setCache(new URL(`/markets/${rawMarket.id}`, config.gammaUrl).toString(), rawMarket);
 
-      // Hanya simpan event future atau yang max 15 menit lalu
-      if (now - endTime <= 15 * 60 * 1000) {
+      // Hanya simpan event future atau yang max 1 jam lalu (3600000 ms)
+      if (m.active && !m.closed && timeToClose > -3600000) {
         shortMarkets.push(m);
       }
     }
@@ -387,6 +403,8 @@ export async function getShortTermMarkets(asset = "btc") {
   processEvents(events5m, "5m");
   processEvents(events15m, "15m");
   processEvents(events1h, "1h");
+  processEvents(events4h, "4h");
+  processEvents(events1d, "1d");
   
   // Sort by end date
   shortMarkets.sort((a, b) => {

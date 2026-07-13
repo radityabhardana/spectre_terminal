@@ -3,6 +3,16 @@ import path from "node:path";
 import { config } from "./config.js";
 import { getRecentReflections } from "./storage.js";
 
+let tokenUsageByModel = {};
+
+export function getTotalAITokensUsed() {
+  return tokenUsageByModel;
+}
+
+export function resetTotalAITokensUsed() {
+  tokenUsageByModel = {};
+}
+
 const BINANCE_BASE_URLS = [
   'https://api.binance.com',
   'https://api-gcp.binance.com',
@@ -295,7 +305,12 @@ async function callQwen(payload, baseUrl, apiKey, signal = null, retries = 3) {
         throw new Error(`Qwen HTTP ${response.status}: ${text.slice(0, 300)}`);
       }
 
-      return await response.json();
+      const json = await response.json();
+      if (json.usage && json.usage.total_tokens) {
+        const mName = json.model || requestPayload.model || "unknown";
+        tokenUsageByModel[mName] = (tokenUsageByModel[mName] || 0) + json.usage.total_tokens;
+      }
+      return json;
     } catch (error) {
       if (i === retries - 1 || error.name === "AbortError") throw error;
 
@@ -1223,23 +1238,20 @@ Format JSON wajib:
   };
 }
 
-export async function askQwenHotNiche({ market, volumeSpike, tweets, signal = null }) {
+export async function askQwenHotNiche({ market, volumeSpike, signal = null }) {
   throwIfAborted(signal);
 
   const context = `
 MARKET: ${market.question}
 VOLUME SPIKE: ${volumeSpike}
-RECENT TWEETS (X):
-${JSON.stringify(tweets, null, 2)}
   `.trim();
 
   const prompt = `
-Kamu adalah analis sentimen sosial. Sebuah market di Polymarket baru saja mengalami lonjakan volume mendadak (Whale/Hot Niche).
-Berikut adalah data market dan beberapa cuitan (tweets) terbaru terkait topik ini.
+Kamu adalah analis market. Sebuah market di Polymarket baru saja mengalami lonjakan volume mendadak (Whale/Hot Niche).
+Berikut adalah data market terkait topik ini.
 
 Tugasmu:
-1. Analisis apakah cuitan-cuitan tersebut menjelaskan alasan lonjakan volume ini.
-2. Buat ringkasan singkat (1-2 kalimat) tentang sentimen atau berita utama yang memengaruhi market ini.
+1. Buat ringkasan singkat (1-2 kalimat) tentang sentimen atau faktor logis yang memengaruhi market ini berdasarkan pengetahuan umum.
 
 Format JSON wajib:
 {

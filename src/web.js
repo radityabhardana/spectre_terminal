@@ -8,8 +8,8 @@ import { getCooldownState } from "./rate-limit.js";
 import { SEARCH_ENGINE_VERSION, getMarketById, getShortTermMarkets } from "./polymarket.js";
 import { getAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, getReflectionByMarketId, getAllReflections, getAnalysisLogs } from "./storage.js";
 import { evaluateSingleEvent, evaluateAllResolutions } from "./evaluate.js";
-import { getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig, setAggressiveMode, getAggressiveMode } from "./sniffer.js";
-import { scrapeTwitter } from "./twitter_scraper.js";
+import { getBinanceWsStatus } from "./binance_ws.js";
+import { getSnifferWsStatus, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig, setAggressiveMode, getAggressiveMode } from "./sniffer.js";
 
 const sseClients = new Set();
 
@@ -284,6 +284,14 @@ export function startWebServer(options = {}) {
         });
         return;
       }
+
+      if (req.method === "GET" && req.url === "/api/ws-status") {
+        sendJson(res, 200, {
+          sniffer: getSnifferWsStatus(),
+          binance: getBinanceWsStatus()
+        });
+        return;
+      }
       
       if (req.method === "GET" && req.url === "/api/live-alerts") {
         res.writeHead(200, {
@@ -412,15 +420,6 @@ export function startWebServer(options = {}) {
         return;
       }
 
-      if (req.method === "GET" && req.url.startsWith("/api/twitter-search")) {
-        const urlObj = new URL(req.url, `http://${req.headers.host}`);
-        const q = urlObj.searchParams.get("q");
-        if (!q) {
-          return sendJson(res, 400, { ok: false, error: "Missing q parameter" });
-        }
-        const tweets = await scrapeTwitter(q);
-        return sendJson(res, 200, { ok: true, tweets });
-      }
 
       if (req.method === "GET" && req.url.startsWith("/api/history/events")) {
         const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -556,11 +555,19 @@ export function startWebServer(options = {}) {
       if (req.url === "/api/sniffer-whales" && req.method === "GET") {
         const whales = getRecentWhales(0); // Defer to sniffer config limit
         const trending = getTrendingMarkets(5); // Top 5 trending markets
+        
+        // Dynamic import to avoid circular dependency issues if any
+        const { getAccumulatedWhaleVolume, getTimeframeFilter } = await import('./sniffer.js');
+        const { getTotalAITokensUsed } = await import('./qwen.js');
+
         return sendJson(res, 200, {
           isSnifferActive: getSnifferState(),
           startTime: getSnifferStartTime(),
           whales: whales,
-          trending: trending
+          trending: trending,
+          accumulatedWhaleVolume: getAccumulatedWhaleVolume(),
+          timeframeFilter: getTimeframeFilter(),
+          totalAITokensUsed: getTotalAITokensUsed()
         });
       }
 
@@ -581,13 +588,19 @@ export function startWebServer(options = {}) {
       }
 
       if (req.url === "/api/tracker-config") {
+        const { getTimeframeFilter, setTimeframeFilter } = await import('./sniffer.js');
         if (req.method === "GET") {
-          return sendJson(res, 200, getTrackerConfig());
+          return sendJson(res, 200, { ...getTrackerConfig(), timeframeFilter: getTimeframeFilter() });
         }
         if (req.method === "POST") {
           const body = await readBody(req);
-          setTrackerConfig(body.minUsd, body.wallets);
-          return sendJson(res, 200, getTrackerConfig());
+          if (body.minUsd !== undefined || body.wallets !== undefined) {
+            setTrackerConfig(body.minUsd, body.wallets);
+          }
+          if (body.timeframeFilter !== undefined) {
+            setTimeframeFilter(body.timeframeFilter);
+          }
+          return sendJson(res, 200, { ...getTrackerConfig(), timeframeFilter: getTimeframeFilter() });
         }
       }
 

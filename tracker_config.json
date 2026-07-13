@@ -1,5 +1,5 @@
 {
-  "minUsd": 1000,
+  "minUsd": 100,
   "wallets": [
     {
       "address": "0x759d02625d81c376804289798660620148da0f3d",

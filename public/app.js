@@ -178,6 +178,13 @@ setInterval(updateClock, 1000);
   const langBtns = document.querySelectorAll("#themeLangGroup .theme-btn");
   const fontBtns = document.querySelectorAll("#themeFontGroup .theme-btn");
 
+  // Move modals to body to avoid stacking context issues with sidebars
+  const modalIds = ['settingsModal', 'historyModal', 'manualModal', 'improvementModal', 'alertModal', 'reasonModal', 'agentModal', 'positionsModal', 'summaryModal', 'sniperSummaryModal'];
+  modalIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) document.body.appendChild(el);
+  });
+
   // Restore from localStorage
   const savedMode = localStorage.getItem("razorbot_mode") || "dark";
   const savedFont = localStorage.getItem("razorbot_font") || "padre";
@@ -1673,6 +1680,35 @@ function runFromInput() {
   executeCommand(command);
 }
 
+/* --- Real-Time WS Status Polling --- */
+async function fetchWsStatus() {
+  try {
+    const res = await fetch('/api/ws-status');
+    const data = await res.json();
+    
+    const updateDot = (id, status) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (status === 'CONNECTED') el.style.background = 'var(--neon-green)';
+      else if (status === 'CONNECTING' || status === 'RECONNECTING') el.style.background = 'var(--neon-amber)';
+      else el.style.background = 'var(--neon-red)';
+    };
+
+    updateDot('wsStatusSniffer', data.sniffer);
+    updateDot('wsStatusLiq', data.binance?.liquidation);
+    updateDot('wsStatusDepth', data.binance?.depth);
+  } catch (e) {
+    // If backend is down, mark all as red
+    const els = ['wsStatusSniffer', 'wsStatusLiq', 'wsStatusDepth'];
+    els.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.background = 'var(--neon-red)';
+    });
+  }
+}
+setInterval(fetchWsStatus, 2000);
+fetchWsStatus(); // Initial call
+
 /* --- Health Check --- */
 async function loadHealth() {
   const fetchStart = Date.now();
@@ -1941,6 +1977,28 @@ function updateActiveAssetTab() {
   }
 }
 
+function updateActiveDurationTab() {
+  const tabs = {
+    '5m': document.getElementById('tabDuration5m'),
+    '15m': document.getElementById('tabDuration15m'),
+    '1h': document.getElementById('tabDuration1h'),
+    '4h': document.getElementById('tabDuration4h'),
+    '1d': document.getElementById('tabDuration1d')
+  };
+  
+  Object.keys(tabs).forEach(dur => {
+    const tab = tabs[dur];
+    if (!tab) return;
+    if (dur === activeShortDuration) {
+      tab.style.color = '#ccc';
+      tab.style.background = 'rgba(255,255,255,0.05)';
+    } else {
+      tab.style.color = '#555';
+      tab.style.background = 'transparent';
+    }
+  });
+}
+
 // Short Market Panel is a permanent sidebar widget - auto-load on startup
 if (btnShortMarket) {
   btnShortMarket.addEventListener("click", (e) => {
@@ -1954,10 +2012,9 @@ if (btnShortMarket) {
 // Auto-load short markets on page start
 (function initShortMarket() {
   activeShortAsset = "btc";
-  if (shortDurationSelect) {
-    shortDurationSelect.value = activeShortDuration;
-  }
+  activeShortDuration = "5m";
   updateActiveAssetTab();
+  updateActiveDurationTab();
   fetchShortMarkets();
   startShortRealtimeTimer();
 })();
@@ -2629,12 +2686,21 @@ if (tabAssetBtc) tabAssetBtc.addEventListener("click", () => { activeShortAsset 
 if (tabAssetEth) tabAssetEth.addEventListener("click", () => { activeShortAsset = 'eth'; updateActiveAssetTab(); fetchShortMarkets(); });
 if (tabAssetDoge) tabAssetDoge.addEventListener("click", () => { activeShortAsset = 'doge'; updateActiveAssetTab(); fetchShortMarkets(); });
 
-if (shortDurationSelect) {
-  shortDurationSelect.addEventListener("change", (e) => {
-    activeShortDuration = e.target.value;
-    renderShortMarkets(currentShortMarkets);
-  });
-}
+const setDurationTab = (dur) => {
+  activeShortDuration = dur;
+  updateActiveDurationTab();
+  renderShortMarkets(currentShortMarkets);
+};
+const t5 = document.getElementById('tabDuration5m');
+if (t5) t5.addEventListener("click", () => setDurationTab('5m'));
+const t15 = document.getElementById('tabDuration15m');
+if (t15) t15.addEventListener("click", () => setDurationTab('15m'));
+const t1h = document.getElementById('tabDuration1h');
+if (t1h) t1h.addEventListener("click", () => setDurationTab('1h'));
+const t4h = document.getElementById('tabDuration4h');
+if (t4h) t4h.addEventListener("click", () => setDurationTab('4h'));
+const t1d = document.getElementById('tabDuration1d');
+if (t1d) t1d.addEventListener("click", () => setDurationTab('1d'));
 
 if (btnRefreshShortMarket) {
   btnRefreshShortMarket.addEventListener("click", () => {
@@ -2751,6 +2817,8 @@ if (btnConfirmBulkAdd && inputBulkCount) {
     let durationLimit = 5 * 60 * 1000;
     if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
     else if (activeShortDuration === '1h') durationLimit = 60 * 60 * 1000;
+    else if (activeShortDuration === '4h') durationLimit = 4 * 60 * 60 * 1000;
+    else if (activeShortDuration === '1d') durationLimit = 24 * 60 * 60 * 1000;
 
     const validMarkets = currentShortMarkets.filter(m => {
       if (m.duration_type && m.duration_type !== activeShortDuration) return false;
@@ -2847,6 +2915,8 @@ function renderShortMarkets(markets) {
     let durationLimit = 5 * 60 * 1000;
     if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
     else if (activeShortDuration === '1h') durationLimit = 60 * 60 * 1000;
+    else if (activeShortDuration === '4h') durationLimit = 4 * 60 * 60 * 1000;
+    else if (activeShortDuration === '1d') durationLimit = 24 * 60 * 60 * 1000;
     
     const isFuture = timeToClose > durationLimit;
     const isClosingSoon = timeToClose > 0 && timeToClose < 2 * 60 * 1000 && !isFuture;
@@ -2949,6 +3019,8 @@ function startShortRealtimeTimer() {
       let durationLimit = 5 * 60 * 1000;
       if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
       else if (activeShortDuration === '1h') durationLimit = 60 * 60 * 1000;
+      else if (activeShortDuration === '4h') durationLimit = 4 * 60 * 60 * 1000;
+      else if (activeShortDuration === '1d') durationLimit = 24 * 60 * 60 * 1000;
       
       const isFuture = timeToClose > durationLimit;
       const isClosingSoon = timeToClose > 0 && timeToClose < 2 * 60 * 1000 && !isFuture;
@@ -4208,6 +4280,50 @@ fetch('/api/settings/aggressive-mode', {
   body: JSON.stringify({ enabled: isAggressiveMode })
 }).catch(() => {});
 
+function updateTrackerConfig(minUsd, wallets) {
+    // Send settings to backend
+    fetch('/api/tracker-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ minUsd, wallets })
+    }).catch(console.error);
+  }
+
+  let currentTrackerAsset = "all";
+  
+  const assetTabs = document.querySelectorAll('.tracker-asset-tab');
+  assetTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      // Update UI classes
+      assetTabs.forEach(t => {
+        t.classList.remove('active');
+        t.style.background = 'transparent';
+        t.style.color = '#aaa';
+      });
+      tab.classList.add('active');
+      tab.style.background = 'rgba(255,255,255,0.1)';
+      tab.style.color = '#fff';
+      currentTrackerAsset = tab.dataset.asset;
+      // Force immediate UI update instead of waiting for the 5s interval
+      updateSnifferUI();
+    });
+  });
+
+  // AI Token Popup Logic
+  const aiTokenBtn = document.getElementById('aiTokenBtn');
+  const aiTokenPopup = document.getElementById('aiTokenPopup');
+  if (aiTokenBtn && aiTokenPopup) {
+    aiTokenBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      aiTokenPopup.style.display = aiTokenPopup.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', (e) => {
+      if (!aiTokenPopup.contains(e.target) && !aiTokenBtn.contains(e.target)) {
+        aiTokenPopup.style.display = 'none';
+      }
+    });
+  }
+
 if (aggressiveModeBtn) {
   aggressiveModeBtn.addEventListener('click', () => {
     isAggressiveMode = !isAggressiveMode;
@@ -4230,6 +4346,49 @@ if (aggressiveModeBtn) {
 
 // Expose to be used by analysis result handler
 window.isAggressiveMode = () => isAggressiveMode;
+
+/* --- Polymarket Wallet Toggle Logic --- */
+const btnToggleWallet = document.getElementById('btnToggleWallet');
+const walletEyeIcon = document.getElementById('walletEyeIcon');
+const walletPortfolioValue = document.getElementById('walletPortfolioValue');
+const walletPortfolioChange = document.getElementById('walletPortfolioChange');
+const walletUsdcBalance = document.getElementById('walletUsdcBalance');
+const walletPositions = document.getElementById('walletPositions');
+const walletActiveVolume = document.getElementById('walletActiveVolume');
+let isWalletHidden = localStorage.getItem('walletHidden') === 'true';
+
+function updateWalletVisibility() {
+  if (isWalletHidden) {
+    if (walletEyeIcon) {
+      walletEyeIcon.setAttribute('data-lucide', 'eye-off');
+      if (typeof lucide !== 'undefined') lucide.createIcons({root: btnToggleWallet});
+    }
+    if (walletPortfolioValue) walletPortfolioValue.textContent = '*****';
+    if (walletPortfolioChange) walletPortfolioChange.textContent = '***';
+    if (walletUsdcBalance) walletUsdcBalance.textContent = '*****';
+    if (walletPositions) walletPositions.textContent = '***';
+    if (walletActiveVolume) walletActiveVolume.textContent = '*****';
+  } else {
+    if (walletEyeIcon) {
+      walletEyeIcon.setAttribute('data-lucide', 'eye');
+      if (typeof lucide !== 'undefined') lucide.createIcons({root: btnToggleWallet});
+    }
+    if (walletPortfolioValue) walletPortfolioValue.textContent = '$14,250.00';
+    if (walletPortfolioChange) walletPortfolioChange.textContent = '+ $450.00 (3.2%)';
+    if (walletUsdcBalance) walletUsdcBalance.textContent = '$2,100.00';
+    if (walletPositions) walletPositions.textContent = '3 Active';
+    if (walletActiveVolume) walletActiveVolume.textContent = '$5,450.00';
+  }
+}
+
+if (btnToggleWallet) {
+  updateWalletVisibility();
+  btnToggleWallet.addEventListener('click', () => {
+    isWalletHidden = !isWalletHidden;
+    localStorage.setItem('walletHidden', isWalletHidden.toString());
+    updateWalletVisibility();
+  });
+}
 
 /* --- Whale Sniffer UI Toggle --- */
 let currentSnifferStartTime = 0;
@@ -4453,15 +4612,98 @@ let isFirstLoad = true;
         }
       }
 
+      // Update Accumulated Whale Volume Grid
+      const grid = document.getElementById('dashAccumulatedVolumeGrid');
+      if (grid && data.accumulatedWhaleVolume) {
+        const timeframes = ["5m", "15m", "1h", "4h", "1d"];
+        let gridHtml = '';
+        
+        const formatVol = (v) => {
+          if (v === 0) return '-';
+          if (v >= 1000) return `$${(v/1000).toFixed(1)}k`;
+          return `$${Math.round(v)}`;
+        };
+        
+        if (currentTrackerAsset === 'all') {
+          grid.style.gridTemplateColumns = '30px repeat(5, 1fr)';
+          // Headers
+          gridHtml += `<div></div>`;
+          for (const tf of timeframes) {
+             gridHtml += `<div style="font-size:8px; color:#aaa; text-align:center; padding-bottom:2px;">${tf}</div>`;
+          }
+          const assets = ['btc', 'eth', 'doge'];
+          for (const asset of assets) {
+             gridHtml += `<div style="display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:bold; color:#777; border-right:1px solid rgba(255,255,255,0.05);">${asset.toUpperCase()}</div>`;
+             const volData = data.accumulatedWhaleVolume[asset] || {};
+             for (const tf of timeframes) {
+                const stats = volData[tf] || { UP: 0, DOWN: 0 };
+                gridHtml += `
+                  <div style="background:rgba(255,255,255,0.01); padding:2px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.02);">
+                    <div style="color:var(--neon-green); font-size:8px; font-weight:bold;">${formatVol(stats.UP)}</div>
+                    <div style="color:var(--neon-red); font-size:8px; font-weight:bold;">${formatVol(stats.DOWN)}</div>
+                  </div>
+                `;
+             }
+          }
+        } else {
+          grid.style.gridTemplateColumns = 'repeat(5, 1fr)';
+          const volData = data.accumulatedWhaleVolume[currentTrackerAsset] || {};
+          for (const tf of timeframes) {
+            const stats = volData[tf] || { UP: 0, DOWN: 0 };
+            const upStr = stats.UP > 0 ? `$${Math.round(stats.UP).toLocaleString()}` : '-';
+            const downStr = stats.DOWN > 0 ? `$${Math.round(stats.DOWN).toLocaleString()}` : '-';
+            
+            gridHtml += `
+              <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:4px; text-align:center;">
+                <div style="font-size:8px; color:#aaa; margin-bottom:2px;">${tf}</div>
+                <div style="color:var(--neon-green); font-size:9px; font-weight:bold;">${upStr}</div>
+                <div style="color:var(--neon-red); font-size:9px; font-weight:bold;">${downStr}</div>
+              </div>
+            `;
+          }
+        }
+        grid.innerHTML = gridHtml;
+      }
+
+      // Update AI Tokens (by model)
+      const tokenUsageObj = data.totalAITokensUsed || {};
+      let totalUsed = 0;
+      let html = '';
+      
+      for (const [model, tokens] of Object.entries(tokenUsageObj)) {
+        totalUsed += tokens;
+        html += `
+          <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; font-size:10px;">
+            <span style="color:var(--text-primary); font-family:var(--font-mono);">${model}</span>
+            <span style="color:var(--neon-green); font-weight:bold;">${tokens.toLocaleString()}</span>
+          </div>
+        `;
+      }
+      
+      if (totalUsed === 0) {
+        html = '<div style="font-size:10px; color:var(--text-tertiary); text-align:center;">No tokens used yet</div>';
+      }
+      
+      const aiPercentLabel = document.getElementById('aiTokenPercent');
+      if (aiPercentLabel) aiPercentLabel.innerText = `${totalUsed.toLocaleString()}`;
+      
+      const modelList = document.getElementById('aiTokenModelList');
+      if (modelList) modelList.innerHTML = html;
+
       // Update Whale List & Check for New Whales
       if (data.isSnifferActive && data.whales) {
         let newWhaleFound = null;
         
         // Filter logic based on config
-        let currentMinSize = 10;
-        if (trackerMinSizeInput) currentMinSize = parseInt(trackerMinSizeInput.value, 10) || 0;
+        let currentMinSize = 1000;
+        const dashTrackerMinSize = document.getElementById('dashTrackerMinSize');
+        if (dashTrackerMinSize) currentMinSize = parseInt(dashTrackerMinSize.value, 10) || 0;
         
-        const snifferFiltered = data.whales.filter(w => w.sizeUsdc >= currentMinSize);
+        const snifferFiltered = data.whales.filter(w => {
+          if (w.sizeUsdc < currentMinSize) return false;
+          if (currentTrackerAsset !== "all" && w.asset !== currentTrackerAsset) return false;
+          return true;
+        });
         const trackedFiltered = data.whales.filter(w => w.isTracked);
 
         // Render Trending Markets
@@ -4510,14 +4752,17 @@ let isFirstLoad = true;
              
 
              const sideClass = w.side.toLowerCase();
+             const outcomeStr = w.outcome === "UP" ? `<span style="color:var(--neon-green)">UP</span>` : (w.outcome === "DOWN" ? `<span style="color:var(--neon-red)">DOWN</span>` : `<span style="color:var(--text-tertiary)">???</span>`);
+             const durationStr = w.duration_type ? `<span style="background:rgba(255,255,255,0.05); padding:2px 4px; border-radius:3px;">${w.duration_type}</span>` : "";
+
              dashHtml += `
               <div class="tracker-whale-item">
                 <div class="whale-row-top">
-                  <span class="whale-side-badge ${sideClass}">${w.side}</span>
+                  <span class="whale-side-badge ${sideClass}">${w.side} ${outcomeStr}</span>
                   <span class="whale-size">${size}</span>
                   <span class="whale-time">${timeFmt}</span>
                 </div>
-                <div class="whale-market">${eventLinkHtml}</div>
+                <div class="whale-market">${eventLinkHtml} ${durationStr}</div>
                 <div style="display:flex; align-items:center;">
                   <div style="color:var(--text-tertiary); font-family:var(--font-mono); font-size:9px; margin-top:2px;">${walletShort}</div>
                   ${w.isTracked ? `<div class="whale-tracked-badge"><i data-lucide="target" style="width:8px; height:8px;"></i> Tracked</div>` : ''}
@@ -4586,8 +4831,14 @@ let isFirstLoad = true;
              if (typeof lucide !== 'undefined') lucide.createIcons({root: dashTrackedFeed});
            }
         } else {
-          if (dashTrackedFeed) dashTrackedFeed.innerHTML = `<div class="tracker-empty"><i data-lucide="target" class="tracker-empty-icon"></i><p>No trades from tracked wallets.</p></div>`;
-          if (dashTrackedFeed && typeof lucide !== 'undefined') lucide.createIcons({root: dashTrackedFeed});
+          if (dashTrackedFeed) {
+            if (activeTrackedWallets.length > 0) {
+              dashTrackedFeed.innerHTML = `<div class="tracker-empty"><i data-lucide="target" class="tracker-empty-icon"></i><p>Listening for trades from tracked wallets...</p></div>`;
+            } else {
+              dashTrackedFeed.innerHTML = `<div class="tracker-empty"><i data-lucide="target" class="tracker-empty-icon"></i><p>No wallets tracked.<br>Add an address to intercept their trades.</p></div>`;
+            }
+            if (typeof lucide !== 'undefined') lucide.createIcons({root: dashTrackedFeed});
+          }
         }
       } else {
         const dashTrackerFeed = document.getElementById('dashTrackerFeed');

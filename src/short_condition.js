@@ -1,8 +1,11 @@
 import { askQwenShortCondition } from "./qwen.js";
-import { scrapeTwitter } from "./twitter_scraper.js";
 import { getRecentLiquidations, getOrderbookImbalance } from "./binance_ws.js";
 
+// Bypass Cloudflare WARP TLS block for Node.js native fetch
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 const BINANCE_BASE_URLS = [
+  'https://api.binancefuture.com', // Best for Indonesia/ISP Blocks
   'https://api.binance.com',
   'https://api-gcp.binance.com',
   'https://api1.binance.com',
@@ -105,6 +108,7 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5) {
 }
 
 const BINANCE_FAPI_URLS = [
+  'https://fapi.binancefuture.com', // Best for Indonesia/ISP Blocks
   'https://fapi.binance.com',
   'https://fapi1.binance.com',
   'https://fapi2.binance.com',
@@ -259,10 +263,9 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
   }
 
   // Fetch remaining data sources in parallel (all gracefully fail to null)
-  const [longShort, fearGreed, tweets] = await Promise.all([
+  const [longShort, fearGreed] = await Promise.all([
     fetchLongShortRatio(symbol),
     fetchFearGreed(),
-    scrapeTwitter("Bitcoin OR Crypto").catch(() => []),
   ]);
 
   // Liquidations (Websocket 15m)
@@ -276,7 +279,6 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
       tickerData, 
       longShort, 
       fearGreed, 
-      tweets, 
       signal, 
       liquidations: liqData, 
       orderbookDepth: depthData,

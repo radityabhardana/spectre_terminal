@@ -1937,7 +1937,7 @@ textarea::-webkit-scrollbar-thumb,
 .center-dashboard {
   position: fixed;
   bottom: 40px; /* above status bar */
-  left: 354px;  /* after left sidebar */
+  left: 440px;  /* after left sidebar */
   right: 0;
   display: flex;
   flex-direction: row;
@@ -1985,9 +1985,9 @@ textarea::-webkit-scrollbar-thumb,
 
 /* Shared inner core (for cards using dash-inner-core) */
 .dash-inner-core {
-  background: var(--bg-elevated);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 18px; /* Match inner radius of premium-card */
   padding: 12px 14px;
   flex: 1;
   display: flex;
@@ -2097,9 +2097,9 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .tracker-inner {
-  background: var(--bg-elevated);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 18px; /* Match inner radius of premium-card */
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -3299,22 +3299,21 @@ textarea::-webkit-scrollbar-thumb,
 
 /* Outer bezel */
 .msp-shell {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 14px;
-  padding: 2px;
-  box-shadow:
-    0 12px 40px rgba(0,0,0,0.6),
-    0 0 0 0.5px rgba(255,255,255,0.04) inset;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 28px;
+  padding: 6px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+  transition: transform 0.5s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* Inner core — slightly lighter than page bg to create depth */
+/* Inner core — deep dark ethereal glass */
 .msp-core {
-  background: rgba(22,22,26,0.98);
-  border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.07);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
-  padding: 18px 20px 16px;
+  background: #09090b;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08);
+  padding: 24px 28px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -3651,4 +3650,111 @@ textarea::-webkit-scrollbar-thumb,
   font-size: 10px;
   color: var(--neon-cyan);
   margin-top: 4px;
+}
+/* ================================================================
+   HIGH-END AGENCY DESIGN SYSTEM (DOPPELRAND / ETHEREAL GLASS)
+   ================================================================ */
+.premium-card {
+  position: relative;
+  background: #09090b !important;
+  border: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-radius: 18px !important;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08) !important;
+  margin: 7px; /* Space for the outer bezel */
+  transition: transform 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+  z-index: 1; /* For stacking context */
+}
+.premium-card::before {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24px;
+  z-index: -1;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.03);
+  pointer-events: none;
+}
+.premium-card-hover:hover {
+  transform: translateY(-2px);
+}
+.gapless-bento-grid {
+  display: grid;
+  gap: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.gapless-bento-cell {
+  background: rgba(18, 18, 22, 0.9);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  transition: background 0.3s ease;
+}
+.gapless-bento-cell:hover {
+  background: rgba(25, 25, 30, 0.9);
+}
+.premium-label {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+.premium-value {
+  font-family: 'Outfit', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+.premium-title {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+.gapless-bento-grid {
+  display: grid;
+  gap: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.gapless-bento-cell {
+  background: rgba(18, 18, 22, 0.9);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  transition: background 0.3s ease;
+}
+.gapless-bento-cell:hover {
+  background: rgba(25, 25, 30, 0.9);
+}
+.premium-label {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+.premium-value {
+  font-family: 'Outfit', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+.premium-title {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }

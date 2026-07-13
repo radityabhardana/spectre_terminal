@@ -152,9 +152,9 @@
 </head>
   <body>
     <!-- Left Sidebar - Houses Short Market and Queue Panel -->
-    <aside id="leftSidebar" style="position:fixed; top:70px; bottom:40px; left:12px; width:340px; z-index:9000; display:flex; flex-direction:column; gap:12px; pointer-events:none;">
+    <aside id="leftSidebar" style="position:fixed; top:70px; bottom:40px; left:12px; width:420px; z-index:9000; display:flex; flex-direction:column; gap:12px; pointer-events:none;">
       <!-- Short Market Card - Koyfin-style compact widget -->
-      <div id="shortMarketPanel" style="display:flex; flex-direction:column; flex:0 0 340px; width:100% !important; box-sizing:border-box; pointer-events:auto; background:#161618; border:1px solid rgba(255,255,255,0.1); border-radius:8px; box-shadow:0 4px 24px rgba(0,0,0,0.5); overflow:hidden; font-family:'Inter', system-ui, sans-serif;">
+      <div id="shortMarketPanel" class="premium-card" style="display:flex; flex-direction:column; flex:1; min-height:0; width:calc(100% - 14px) !important; box-sizing:border-box; pointer-events:auto; overflow:hidden; font-family:'Plus Jakarta Sans', system-ui, sans-serif;">
       <!-- Header row -->
       <div style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center; position:relative;">
         <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em;">Short Market Events</span>
@@ -202,9 +202,11 @@
         <button type="button" id="tabAssetBtc" style="flex:1; padding:5px 4px; background:rgba(245,158,11,0.12); border:none; border-right:1px solid rgba(255,255,255,0.07); color:#f59e0b; font-size:10px; font-weight:600; cursor:pointer; transition:all 0.15s; letter-spacing:0.03em;">BTC</button>
         <button type="button" id="tabAssetEth" style="flex:1; padding:5px 4px; background:transparent; border:none; border-right:1px solid rgba(255,255,255,0.07); color:#555; font-size:10px; font-weight:500; cursor:pointer; transition:all 0.15s; letter-spacing:0.03em;">ETH</button>
         <button type="button" id="tabAssetDoge" style="flex:1; padding:5px 4px; background:transparent; border:none; border-right:1px solid rgba(255,255,255,0.07); color:#555; font-size:10px; font-weight:500; cursor:pointer; transition:all 0.15s; letter-spacing:0.03em;">DOGE</button>
-        <button type="button" id="tabDuration5m" style="flex:1; padding:5px 4px; background:rgba(255,255,255,0.05); border:none; border-right:1px solid rgba(255,255,255,0.07); color:#ccc; font-size:10px; cursor:pointer; transition:all 0.15s;">5m</button>
-        <button type="button" id="tabDuration15m" style="flex:1; padding:5px 4px; background:transparent; border:none; border-right:1px solid rgba(255,255,255,0.07); color:#555; font-size:10px; cursor:pointer; transition:all 0.15s;">15m</button>
-        <button type="button" id="tabDuration1h" style="flex:1; padding:5px 4px; background:transparent; border:none; color:#555; font-size:10px; cursor:pointer; transition:all 0.15s;">1h</button>
+        <button type="button" id="tabDuration5m" style="flex:1; padding:5px 2px; background:rgba(255,255,255,0.05); border:none; border-right:1px solid rgba(255,255,255,0.07); color:#ccc; font-size:10px; cursor:pointer; transition:all 0.15s;">5m</button>
+        <button type="button" id="tabDuration15m" style="flex:1; padding:5px 2px; background:transparent; border:none; border-right:1px solid rgba(255,255,255,0.07); color:#555; font-size:10px; cursor:pointer; transition:all 0.15s;">15m</button>
+        <button type="button" id="tabDuration1h" style="flex:1; padding:5px 2px; background:transparent; border:none; border-right:1px solid rgba(255,255,255,0.07); color:#555; font-size:10px; cursor:pointer; transition:all 0.15s;">1h</button>
+        <button type="button" id="tabDuration4h" style="flex:1; padding:5px 2px; background:transparent; border:none; border-right:1px solid rgba(255,255,255,0.07); color:#555; font-size:10px; cursor:pointer; transition:all 0.15s;">4h</button>
+        <button type="button" id="tabDuration1d" style="flex:1; padding:5px 2px; background:transparent; border:none; color:#555; font-size:10px; cursor:pointer; transition:all 0.15s;">1d</button>
       </div>
       <!-- Column headers -->
       <div style="display:grid; grid-template-columns:1fr 36px 36px 65px 30px; gap:0; padding:5px 12px 4px; background:rgba(0,0,0,0.2); border-bottom:1px solid rgba(255,255,255,0.05);">
@@ -224,7 +226,7 @@
     </div>
 
       <!-- Queue Panel - Permanent top-left Koyfin-style widget (under Short Market) -->
-      <div id="queuePanel" style="display:flex; flex-direction:column; flex:1; min-height:0; width:100% !important; box-sizing:border-box; pointer-events:auto; background:#161618; border:1px solid rgba(255,255,255,0.1); border-radius:8px; box-shadow:0 4px 24px rgba(0,0,0,0.5); overflow:hidden; font-family:'Inter', system-ui, sans-serif;">
+      <div id="queuePanel" class="premium-card" style="display:flex; flex-direction:column; flex:1; min-height:0; width:calc(100% - 14px) !important; box-sizing:border-box; pointer-events:auto; overflow:hidden; font-family:'Plus Jakarta Sans', system-ui, sans-serif;">
       <!-- Header row -->
       <div id="queuePanelHeader" style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em; display:flex; align-items:center; gap:6px;">
@@ -276,6 +278,17 @@
         </div>
 
         <div style="display:flex; align-items:center; gap:20px;">
+          <div id="wsStatusContainer" style="display:flex; gap:8px; margin-right:10px;">
+            <div title="Polymarket Sniffer" style="display:flex; align-items:center; gap:4px; font-size:9px; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; color:var(--text-secondary);">
+              <div id="wsStatusSniffer" style="width:6px; height:6px; border-radius:50%; background:var(--neon-red);"></div> S
+            </div>
+            <div title="Binance Liquidation" style="display:flex; align-items:center; gap:4px; font-size:9px; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; color:var(--text-secondary);">
+              <div id="wsStatusLiq" style="width:6px; height:6px; border-radius:50%; background:var(--neon-red);"></div> L
+            </div>
+            <div title="Binance Depth" style="display:flex; align-items:center; gap:4px; font-size:9px; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; color:var(--text-secondary);">
+              <div id="wsStatusDepth" style="width:6px; height:6px; border-radius:50%; background:var(--neon-red);"></div> D
+            </div>
+          </div>
           <div class="header-clock" id="headerClock" aria-label="Local time" style="margin:0;">
             <span class="clock-label">Local</span>
             <span id="clockTime">--:--:--</span>
@@ -458,7 +471,7 @@
             </div>
             
             <!-- Bento Grid Result Panel (shows when analysis runs) - positioned in scrollable main area -->
-            <div id="staticResultPanel" class="hidden" style="position:fixed; top:52px; left:354px; right:0; bottom:230px; z-index:100; overflow-y:auto; padding:16px 20px; background:var(--bg-base);">
+            <div id="staticResultPanel" class="hidden" style="position:fixed; top:52px; left:440px; right:0; bottom:230px; z-index:100; overflow-y:auto; padding:16px 20px; background:var(--bg-base);">
               <div id="staticResultBody" class="ms-container" style="max-width:800px; margin:0;">
                 <!-- Bento grid injected via JS -->
               </div>
@@ -470,7 +483,7 @@
 
 
               <!-- === CARD 1: Analisis Agent === -->
-              <div class="dash-bottom-card" id="cardAnalisisAgent">
+              <div class="dash-bottom-card premium-card premium-card-hover" id="cardAnalisisAgent">
                 <div class="dash-inner-core">
                   <div class="card-drag-strip">
                     <i data-lucide="grip-horizontal" class="card-drag-handle"></i>
@@ -536,7 +549,7 @@
               </div>
 
               <!-- === CARD 2: Archive === -->
-              <aside class="dash-bottom-card" id="dashboardArchivePanel">
+              <aside class="dash-bottom-card premium-card premium-card-hover" id="dashboardArchivePanel">
                 <div class="dash-inner-core">
                   <div class="card-drag-strip">
                     <i data-lucide="grip-horizontal" class="card-drag-handle"></i>
@@ -561,7 +574,7 @@
               </aside>
 
               <!-- === CARD 3: Tracker (Live Sniffer + Wallet) === -->
-              <div class="dash-bottom-card" id="dashTrackerCard">
+              <div class="dash-bottom-card premium-card premium-card-hover" id="dashTrackerCard">
                 <div class="tracker-inner">
                   <div class="card-drag-strip">
                     <i data-lucide="grip-horizontal" class="card-drag-handle"></i>
@@ -584,10 +597,26 @@
                     <div class="tracker-controls">
                       <label>Min $</label>
                       <input type="number" id="dashTrackerMinSize" value="1000" min="100" step="100">
-                      <button class="tracker-btn-power on" id="dashTrackerPowerBtn" type="button">
+                      
+                      <div id="dashTrackerAssetTabs" style="display:flex; gap:2px; margin-left:4px;">
+                        <button type="button" class="tracker-asset-tab active" data-asset="all" style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:2px 6px; font-size:9px; color:#fff; cursor:pointer;">ALL</button>
+                        <button type="button" class="tracker-asset-tab" data-asset="btc" style="background:transparent; border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:2px 6px; font-size:9px; color:#aaa; cursor:pointer;">BTC</button>
+                        <button type="button" class="tracker-asset-tab" data-asset="eth" style="background:transparent; border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:2px 6px; font-size:9px; color:#aaa; cursor:pointer;">ETH</button>
+                        <button type="button" class="tracker-asset-tab" data-asset="doge" style="background:transparent; border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:2px 6px; font-size:9px; color:#aaa; cursor:pointer;">DOGE</button>
+                      </div>
+
+                      <button class="tracker-btn-power on" id="dashTrackerPowerBtn" type="button" style="margin-left:auto;">
                         <i data-lucide="radar" style="width:9px;height:9px;"></i>
                         Turn Off
                       </button>
+                    </div>
+                    
+                    <div style="padding: 0 12px 8px; font-size: 10px; font-family: 'JetBrains Mono', monospace; display: flex; flex-direction:column; gap:4px;">
+                      <span style="color:#aaa; font-size:9px; text-transform:uppercase; letter-spacing:0.1em;">Whale Volume Accumulation</span>
+                      <div id="dashAccumulatedVolumeGrid" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:4px;">
+                        <!-- JS will populate this with 5m, 15m, 1h, 4h, 1d stats -->
+                        <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:4px; text-align:center; color:#555;">No Data</div>
+                      </div>
                     </div>
                     <div class="tracker-feed" id="dashTrackerFeed">
                       <div class="tracker-empty" id="dashTrackerEmpty">
@@ -630,7 +659,24 @@
             <span style="color:var(--neon-green); font-weight:600;">Stable</span>
           </div>
           <div class="padre-status-item">
+            <span class="ping-dot" style="background:var(--neon-green);"></span>
             <span id="sbLatency" style="font-weight:600; color:var(--text-secondary);">--ms</span>
+          </div>
+
+          
+          <div class="padre-status-item interactive" style="position: relative;">
+            <div id="aiTokenBtn" style="display:flex; align-items:center; gap:4px; font-weight:bold; color:var(--text-secondary);">
+              <i data-lucide="bot" style="width:12px;height:12px"></i>
+              <span id="aiTokenPercent">0%</span>
+            </div>
+            <div id="aiTokenPopup" style="display:none; position:absolute; bottom:120%; left:0; background:rgba(20,20,25,0.98); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:12px; width:220px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index:100; cursor:default;">
+              <div style="font-size:11px; color:var(--text-secondary); margin-bottom:8px; font-weight:bold; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:4px;">
+                AI Token Usage (by Model)
+              </div>
+              <div id="aiTokenModelList" style="display:flex; flex-direction:column; gap:6px;">
+                <!-- Model usage will be injected here -->
+              </div>
+            </div>
           </div>
           
           <div style="position:relative; display:flex; align-items:center;">
@@ -1420,9 +1466,14 @@
         
         <!-- Portfolio -->
         <div style="margin-bottom:28px;">
-          <div style="font-family:'Plus Jakarta Sans',sans-serif; font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px;">Portfolio Value</div>
-          <div style="font-family:'Outfit',sans-serif; font-size:42px; font-weight:800; color:#fff; line-height:1; letter-spacing:-0.03em;">$14,250.00</div>
-          <div style="font-family:'Plus Jakarta Sans',sans-serif; font-size:11px; color:#10b981; margin-top:8px; font-weight:600; letter-spacing:0.02em;">+ $450.00 (3.2%)</div>
+          <div style="font-family:'Plus Jakarta Sans',sans-serif; font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+            <span>Portfolio Value</span>
+            <button type="button" id="btnToggleWallet" style="background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.4); padding:0; display:flex;" title="Hide/Show Balances">
+              <i data-lucide="eye" id="walletEyeIcon" style="width:12px; height:12px;"></i>
+            </button>
+          </div>
+          <div id="walletPortfolioValue" style="font-family:'Outfit',sans-serif; font-size:42px; font-weight:800; color:#fff; line-height:1; letter-spacing:-0.03em;">$14,250.00</div>
+          <div id="walletPortfolioChange" style="font-family:'Plus Jakarta Sans',sans-serif; font-size:11px; color:#10b981; margin-top:8px; font-weight:600; letter-spacing:0.02em;">+ $450.00 (3.2%)</div>
         </div>
 
         <!-- Metrics Grid (Gapless Bento Architecture) -->
@@ -1432,7 +1483,7 @@
           <div style="grid-column: span 2; background:rgba(18,18,22,0.9); padding:16px 20px; display:flex; justify-content:space-between; align-items:center; transition:background 0.3s ease;" onmouseover="this.style.background='rgba(25,25,30,0.9)'" onmouseout="this.style.background='rgba(18,18,22,0.9)'">
             <div style="display:flex; flex-direction:column; gap:4px;">
               <div style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">USDC Balance (Liquid)</div>
-              <div style="font-family:'Outfit',sans-serif; font-size:20px; font-weight:700; color:#fff; letter-spacing:-0.01em;">$2,100.00</div>
+              <div id="walletUsdcBalance" style="font-family:'Outfit',sans-serif; font-size:20px; font-weight:700; color:#fff; letter-spacing:-0.01em;">$2,100.00</div>
             </div>
             <i data-lucide="wallet" style="width:20px; height:20px; color:rgba(16,185,129,0.7);"></i>
           </div>
@@ -1440,13 +1491,13 @@
           <!-- Bottom Left: Active Positions -->
           <div style="background:rgba(18,18,22,0.9); padding:16px 20px; display:flex; flex-direction:column; gap:4px; transition:background 0.3s ease;" onmouseover="this.style.background='rgba(25,25,30,0.9)'" onmouseout="this.style.background='rgba(18,18,22,0.9)'">
             <div style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">Positions</div>
-            <div style="font-family:'Outfit',sans-serif; font-size:16px; font-weight:700; color:#fff;">3 Active</div>
+            <div id="walletPositions" style="font-family:'Outfit',sans-serif; font-size:16px; font-weight:700; color:#fff;">3 Active</div>
           </div>
 
           <!-- Bottom Right: Active Volume -->
           <div style="background:rgba(18,18,22,0.9); padding:16px 20px; display:flex; flex-direction:column; gap:4px; transition:background 0.3s ease;" onmouseover="this.style.background='rgba(25,25,30,0.9)'" onmouseout="this.style.background='rgba(18,18,22,0.9)'">
             <div style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">Active Volume</div>
-            <div style="font-family:'Outfit',sans-serif; font-size:16px; font-weight:700; color:#fff;">$5,450.00</div>
+            <div id="walletActiveVolume" style="font-family:'Outfit',sans-serif; font-size:16px; font-weight:700; color:#fff;">$5,450.00</div>
           </div>
         </div>
 

@@ -42,7 +42,6 @@ function nonNegativeInt(value, fallback) {
 }
 
 export const config = {
-  telegramToken: process.env.TELEGRAM_BOT_TOKEN || "",
   qwenApiKey: process.env.QWEN_API_KEY || "",
   qwenApiKeyBackup: process.env.QWEN_API_KEY_BACKUP || "",
   qwenBaseUrl:
@@ -93,7 +92,6 @@ export const config = {
 
 export function assertConfig() {
   const missing = [];
-  if (!config.telegramToken) missing.push("TELEGRAM_BOT_TOKEN");
   if (!config.qwenApiKey) missing.push("QWEN_API_KEY");
 
   if (missing.length) {

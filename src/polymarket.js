@@ -395,7 +395,17 @@ export async function getShortTermMarkets(asset = "btc") {
 
       // Hanya simpan event future atau yang max 1 jam lalu (3600000 ms)
       if (m.active && !m.closed && timeToClose > -3600000) {
-        shortMarkets.push(m);
+        let maxFutureMs = 24 * 60 * 60 * 1000; // Default 1 hari
+        if (durationType === "5m") maxFutureMs = 60 * 60 * 1000; // 1 jam ke depan
+        else if (durationType === "15m") maxFutureMs = 3 * 60 * 60 * 1000; // 3 jam ke depan
+        else if (durationType === "1h") maxFutureMs = 12 * 60 * 60 * 1000; // 12 jam ke depan
+        else if (durationType === "4h") maxFutureMs = 2 * 24 * 60 * 60 * 1000; // 2 hari ke depan
+        else if (durationType === "1d") maxFutureMs = 3 * 24 * 60 * 60 * 1000; // 3 hari ke depan
+
+        // Jangan track event yang mulainya masih terlalu lama (karena buang-buang limit langganan websocket)
+        if (timeToClose <= maxFutureMs) {
+          shortMarkets.push(m);
+        }
       }
     }
   };

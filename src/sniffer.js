@@ -175,7 +175,7 @@ async function fetchAndCacheMarkets(force = false) {
       if (eth[i]) allShorts.push(eth[i]);
       if (doge[i]) allShorts.push(doge[i]);
     }
-    const filteredShorts = currentTimeframeFilter === "all" 
+    let filteredShorts = currentTimeframeFilter === "all" 
       ? allShorts 
       : allShorts.filter(m => m.duration_type === currentTimeframeFilter);
       
@@ -248,7 +248,9 @@ async function connectSnifferWs() {
   for (let i = 0; i < cachedClobIds.length; i += SHARD_SIZE) {
     const chunk = cachedClobIds.slice(i, i + SHARD_SIZE);
     createSnifferShard(chunk, Math.floor(i / SHARD_SIZE) + 1);
-    await new Promise(r => setTimeout(r, 1000)); // Stagger connections
+    // Stagger connections sufficiently so their subscription phases do not overlap
+    // (500 tokens / 50 per chunk = 10 messages * 700ms = 7 seconds)
+    await new Promise(r => setTimeout(r, 8000)); 
   }
   
   snifferIsConnecting = false;
@@ -269,7 +271,7 @@ function createSnifferShard(ids, shardId) {
       const chunk = ids.slice(i, i + CHUNK_SIZE);
       ws.send(JSON.stringify({ assets_ids: chunk, type: "market" }));
       sentCount += chunk.length;
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 700)); // 700ms delay to safely stay under 2 msgs/sec
     }
     console.log(`[Sniffer Shard ${shardId}] Subscribed to ${sentCount} tokens.`);
   });

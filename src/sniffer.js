@@ -138,7 +138,7 @@ export function getAccumulatedWhaleVolume() {
 // FIX: WS lifecycle state at MODULE level (not inside function)
 // This prevents all the race conditions and interval leaks
 // ================================================================
-let snifferWs = null;            // Active WS instance
+let snifferWsPool = [];            // Active WS instance
 let snifferPingInterval = null;  // Ping heartbeat interval
 let snifferSubInterval = null;   // Short market re-subscription interval
 let snifferIsConnecting = false; // Anti double-start guard
@@ -202,14 +202,12 @@ async function fetchAndCacheMarkets(force = false) {
 }
 
 async function connectSnifferWs() {
-  // FIX: Anti double-start guard — prevent overlapping connections
-  if (snifferWs || snifferIsConnecting) {
+  if (snifferIsConnecting) {
     console.log("[Sniffer] Already connected or connecting, skipping.");
     return;
   }
   snifferIsConnecting = true;
 
-  // Ensure market data is ready (uses cache if fresh)
   await fetchAndCacheMarkets();
 
   if (cachedClobIds.length === 0) {
@@ -219,62 +217,64 @@ async function connectSnifferWs() {
     return;
   }
 
-  console.log(`🕵️ [Sniffer] Connecting WebSocket to Polymarket CLOB...`);
-  const ws = new WebSocket('wss://ws-subscriptions-clob.polymarket.com/ws/market');
-  snifferWs = ws; // Assign before open fires to prevent race
+  const SHARD_SIZE = 500;
+  const numShards = Math.ceil(cachedClobIds.length / SHARD_SIZE);
+  console.log(`🕵️ [Sniffer] Connecting ${numShards} WebSockets (Shards) to Polymarket CLOB...`);
+  
+  // Close any existing WS in pool
+  for (const ws of snifferWsPool) {
+    if (ws) {
+      ws.onclose = null; // Prevent reconnect loop during cleanup
+      ws.close(1000);
+    }
+  }
+  snifferWsPool = [];
+  clearSnifferIntervals();
+  
+  // Setup heartbeat for all WS in pool
+  snifferPingInterval = setInterval(() => {
+    for (const ws of snifferWsPool) {
+      if (ws && ws.readyState === 1) ws.ping();
+    }
+  }, 20000);
+
+  // Refresh market subscriptions periodically by reconnecting cleanly
+  const updateShortMarketSubs = async () => {
+    console.log("[Sniffer] Refreshing connections to fetch latest markets...");
+    connectSnifferWs();
+  };
+  snifferSubInterval = setInterval(updateShortMarketSubs, 15 * 60 * 1000);
+
+  for (let i = 0; i < cachedClobIds.length; i += SHARD_SIZE) {
+    const chunk = cachedClobIds.slice(i, i + SHARD_SIZE);
+    createSnifferShard(chunk, Math.floor(i / SHARD_SIZE) + 1);
+    await new Promise(r => setTimeout(r, 1000)); // Stagger connections
+  }
+  
   snifferIsConnecting = false;
+}
+
+function createSnifferShard(ids, shardId) {
+  const ws = new WebSocket('wss://ws-subscriptions-clob.polymarket.com/ws/market');
+  snifferWsPool.push(ws);
 
   ws.on('open', async () => {
-    console.log('✅ [Sniffer] Terhubung ke Polymarket Live Feed!');
-    snifferReconnectDelay = 5000; // Reset backoff on success
+    console.log(`✅ [Sniffer Shard ${shardId}] Terhubung! Subscribing to ${ids.length} tokens...`);
+    snifferReconnectDelay = 5000;
 
-    // FIX: Clear any leftover intervals before creating new ones
-    clearSnifferIntervals();
-
-    // Ping heartbeat — keeps connection alive on idle periods
-    snifferPingInterval = setInterval(() => {
-      if (snifferWs && snifferWs.readyState === WebSocket.OPEN) {
-        snifferWs.ping();
-      }
-    }, 20000);
-
-    // Helper for safe subscriptions (Polymarket limits: max 50 tokens per message, max 2 messages per second, max ~1000 subscriptions per connection)
-    const subscribeSafely = async (ws, ids) => {
-      // Limit to 500 max active subscriptions to prevent 1006 connection drops (Polymarket limits)
-      const safeIds = ids.slice(0, 500); 
-      const CHUNK_SIZE = 50;
-      let sentCount = 0;
-      for (let i = 0; i < safeIds.length; i += CHUNK_SIZE) {
-        if (!ws || ws.readyState !== WebSocket.OPEN) break;
-        const chunk = safeIds.slice(i, i + CHUNK_SIZE);
-        ws.send(JSON.stringify({ assets_ids: chunk, type: "market" }));
-        sentCount += chunk.length;
-        await new Promise(r => setTimeout(r, 500)); // 500ms delay to avoid rate limit
-      }
-      return sentCount;
-    };
-
-    // Subscribe to short markets immediately
-    if (ws.readyState === WebSocket.OPEN && cachedClobIds.length > 0) {
-      subscribeSafely(ws, cachedClobIds).then((count) => {
-        console.log(`[Sniffer] Subscribed to ${count} short market tokens.`);
-      });
+    const CHUNK_SIZE = 50;
+    let sentCount = 0;
+    for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+      if (ws.readyState !== 1) break;
+      const chunk = ids.slice(i, i + CHUNK_SIZE);
+      ws.send(JSON.stringify({ assets_ids: chunk, type: "market" }));
+      sentCount += chunk.length;
+      await new Promise(r => setTimeout(r, 500));
     }
-
-    // Refresh market subscriptions periodically by reconnecting cleanly
-    const updateShortMarketSubs = async () => {
-      if (!snifferWs || snifferWs.readyState !== WebSocket.OPEN) return;
-      console.log("[Sniffer] Refreshing connection to fetch latest markets...");
-      // Menutup WS dengan normal (1000). Event 'close' akan otomatis melakukan reconnect dan fetch ulang.
-      snifferWs.close(1000, "Refreshing markets");
-    };
-    // FIX: Refresh setiap 15 menit agar subscription tidak bertumpuk
-    snifferSubInterval = setInterval(updateShortMarketSubs, 15 * 60 * 1000);
+    console.log(`[Sniffer Shard ${shardId}] Subscribed to ${sentCount} tokens.`);
   });
 
-  ws.on('pong', () => {
-    // Heartbeat acknowledged — connection alive
-  });
+  ws.on('pong', () => { /* Heartbeat ACK */ });
 
   ws.on('message', (data) => {
     try {
@@ -327,23 +327,17 @@ async function connectSnifferWs() {
               wallet_nickname: trackedNickname || ""
             };
 
-            // Calculate Accumulated Volume
             if (sizeUsdc >= snifferMinUsd || isTracked) {
               if (marketInfo.duration_type && outcome !== "UNKNOWN") {
                 const asset = marketInfo.asset;
                 const dur = marketInfo.duration_type;
-                
-                // Add to 'all'
                 if (globalAccumulatedWhaleVolume.all[dur]) {
                   globalAccumulatedWhaleVolume.all[dur][outcome] += sizeUsdc;
                 }
-                
-                // Add to specific asset
                 if (globalAccumulatedWhaleVolume[asset] && globalAccumulatedWhaleVolume[asset][dur]) {
                   globalAccumulatedWhaleVolume[asset][dur][outcome] += sizeUsdc;
                 }
               }
-              
               recentWhales.unshift(whaleObj);
               if (recentWhales.length > MAX_WHALES_STORED) {
                 recentWhales = recentWhales.slice(0, MAX_WHALES_STORED);
@@ -370,7 +364,7 @@ async function connectSnifferWs() {
               const sizeStr = "$" + whaleObj.sizeUsdc.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
               const walletShort = whaleObj.maker === "Hidden" ? "Anonymous" : `${whaleObj.maker.slice(0, 6)}...${whaleObj.maker.slice(-4)}`;
               let text = isTracked ? `🎯 *TRACKED WALLET ALERT* 🎯\n\n` : `🚨 *LIVE WHALE ALERT* 🚨\n\n`;
-              text += `${icon} *${sizeStr}* (${whaleObj.side} @ $${whaleObj.price.toFixed(3)})\n`;
+              text += `${icon} *${sizeStr}* (${whaleObj.side} @ ${whaleObj.price.toFixed(3)})\n`;
               text += `📊 Market: ${whaleObj.market_question}\n`;
               const walletLink = whaleObj.maker === "Hidden" ? "`Anonymous`" : `[${walletShort}](https://polymarket.com/profile/${whaleObj.maker})`;
               text += `👤 Wallet: ${walletLink}\n`;
@@ -385,29 +379,22 @@ async function connectSnifferWs() {
   });
 
   ws.on('error', (err) => {
-    console.error("❌ [Sniffer] WebSocket error:", err.message);
-    // FIX: Don't manually close — let 'close' event fire naturally and handle cleanup
+    console.error(`❌ [Sniffer Shard ${shardId}] WebSocket error:`, err.message);
   });
 
   ws.on('close', (code, reason) => {
-    // FIX: Clear ALL intervals BEFORE nulling reference
-    clearSnifferIntervals();
-    snifferWs = null;
-
     const reasonStr = reason ? reason.toString() : 'unknown';
-    console.log(`⚠️ [Sniffer] Koneksi terputus (Code: ${code}, Reason: ${reasonStr}).`);
-
-    // Normal close (1000/1001) = reconnect cepet, error code = pakai backoff
-    const isClean = code === 1000 || code === 1001 || code === undefined;
-    if (isClean) {
-      snifferReconnectDelay = 2000; // Reset ke 2s kalau clean disconnect
+    console.log(`⚠️ [Sniffer Shard ${shardId}] Terputus (Code: ${code}, Reason: ${reasonStr}).`);
+    
+    // Only schedule a pool reconnect if we aren't already doing one
+    if (!snifferIsConnecting) {
+      const isClean = code === 1000 || code === 1001 || code === undefined;
+      if (isClean) snifferReconnectDelay = 2000;
+      
+      console.log(`⚠️ [Sniffer] Reconnect seluruh pool dalam ${snifferReconnectDelay / 1000}s...`);
+      setTimeout(connectSnifferWs, snifferReconnectDelay);
+      snifferReconnectDelay = Math.min(snifferReconnectDelay * 2, SNIFFER_MAX_RECONNECT_DELAY);
     }
-
-    console.log(`⚠️ [Sniffer] Reconnect dalam ${snifferReconnectDelay / 1000}s...`);
-    setTimeout(connectSnifferWs, snifferReconnectDelay);
-
-    // Exponential backoff, max 10s
-    snifferReconnectDelay = Math.min(snifferReconnectDelay * 2, SNIFFER_MAX_RECONNECT_DELAY);
   });
 }
 

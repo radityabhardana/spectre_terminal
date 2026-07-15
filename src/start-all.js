@@ -2,6 +2,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 import { startWebServer } from "./web.js";
 import { startSniffer } from "./sniffer.js";
+import { initBlockchainTracker } from "./blockchain-tracker.js";
 import { startBinanceLiquidationStream, stopBinanceLiquidationStream, startBinanceDepthStream, stopBinanceDepthStream } from "./binance_ws.js";
 
 const webServer = startWebServer();
@@ -10,6 +11,7 @@ const webServer = startWebServer();
 if (!global.livePrices) global.livePrices = {};
 
 startSniffer(); // Start the live whale sniffer
+initBlockchainTracker(); // Start the Polygon on-chain wallet tracker
 startBinanceLiquidationStream(); // Start binance websocket liquidations
 startBinanceDepthStream(); // Start binance websocket depth
 

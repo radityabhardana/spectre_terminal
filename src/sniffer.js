@@ -13,7 +13,7 @@ const MAX_WHALES_STORED = 200;
 
 // Tracker for trending markets
 const marketTrades = new Map(); // market_id -> [timestamp1, timestamp2, ...]
-let marketMap = {}; // Hoisted to module level
+export let marketMap = {}; // Hoisted to module level
 const notifiedHotNiches = new Set();
 
 // State untuk ON/OFF Sniffer
@@ -110,6 +110,16 @@ export function getAggressiveMode() {
 
 export function setNotificationCallback(fn) {
   notifyCallback = fn;
+}
+
+export function pushWhaleEvent(whaleObj) {
+  recentWhales.unshift(whaleObj);
+  if (recentWhales.length > MAX_WHALES_STORED) {
+    recentWhales.pop();
+  }
+  if (notifyCallback) {
+    notifyCallback(whaleObj);
+  }
 }
 
 let currentTimeframeFilter = "all";
@@ -246,11 +256,13 @@ async function connectSnifferWs() {
   snifferSubInterval = setInterval(updateShortMarketSubs, 15 * 60 * 1000);
 
   for (let i = 0; i < cachedClobIds.length; i += SHARD_SIZE) {
+    if (i > 0) {
+      // Stagger connections sufficiently so their subscription phases do not overlap
+      // (500 tokens / 50 per chunk = 10 messages * 1100ms = 11 seconds)
+      await new Promise(r => setTimeout(r, 12000)); 
+    }
     const chunk = cachedClobIds.slice(i, i + SHARD_SIZE);
     createSnifferShard(chunk, Math.floor(i / SHARD_SIZE) + 1);
-    // Stagger connections sufficiently so their subscription phases do not overlap
-    // (500 tokens / 50 per chunk = 10 messages * 700ms = 7 seconds)
-    await new Promise(r => setTimeout(r, 8000)); 
   }
   
   snifferIsConnecting = false;
@@ -271,7 +283,7 @@ function createSnifferShard(ids, shardId) {
       const chunk = ids.slice(i, i + CHUNK_SIZE);
       ws.send(JSON.stringify({ assets_ids: chunk, type: "market" }));
       sentCount += chunk.length;
-      await new Promise(r => setTimeout(r, 700)); // 700ms delay to safely stay under 2 msgs/sec
+      await new Promise(r => setTimeout(r, 1100)); // 1100ms delay to safely stay under 1 msg/sec
     }
     console.log(`[Sniffer Shard ${shardId}] Subscribed to ${sentCount} tokens.`);
   });
@@ -301,10 +313,8 @@ function createSnifferShard(ids, shardId) {
         if (m.event_type === "last_trade_price" && m.asset_id && m.price && m.size && m.market) {
           const sizeUsdc = parseFloat(m.size) * parseFloat(m.price);
           const makerRaw = m.maker || m.makerAddress || "Hidden";
-          const trackedNickname = trackedWallets.get(makerRaw.toLowerCase());
-          const isTracked = trackedNickname !== undefined;
 
-          if (sizeUsdc >= snifferMinUsd || isTracked) {
+          if (sizeUsdc >= snifferMinUsd) {
             const marketInfo = marketMap[m.market] || { id: "Unknown", question: "Unknown Market", slug: "", duration_type: "", asset: "unknown", clobTokenIds: [] };
             
             let outcome = "UNKNOWN";
@@ -325,11 +335,11 @@ function createSnifferShard(ids, shardId) {
               side: m.side || "UNKNOWN",
               maker: makerRaw,
               timestamp: Date.now(),
-              isTracked,
-              wallet_nickname: trackedNickname || ""
+              isTracked: false,
+              wallet_nickname: ""
             };
 
-            if (sizeUsdc >= snifferMinUsd || isTracked) {
+            if (sizeUsdc >= snifferMinUsd) {
               if (marketInfo.duration_type && outcome !== "UNKNOWN") {
                 const asset = marketInfo.asset;
                 const dur = marketInfo.duration_type;
@@ -469,8 +479,14 @@ export function formatSnifferWhales(whales, minSizeUsdc) {
 export function getSnifferWsStatus() {
   if (!isSnifferActive) return "OFFLINE";
   if (snifferIsConnecting) return "CONNECTING";
-  if (!snifferWs) return "RECONNECTING";
-  if (snifferWs.readyState === 0) return "CONNECTING";
-  if (snifferWs.readyState === 1) return "CONNECTED";
+  if (!snifferWsPool || snifferWsPool.length === 0) return "RECONNECTING";
+  
+  let allConnecting = true;
+  for (const ws of snifferWsPool) {
+    if (ws.readyState === 1) return "CONNECTED";
+    if (ws.readyState !== 0) allConnecting = false;
+  }
+  
+  if (allConnecting || !snifferIsConnecting) return "RECONNECTING";
   return "DISCONNECTED";
 }

@@ -4,6 +4,27 @@ import { config } from "./config.js";
 import { getRecentReflections } from "./storage.js";
 
 let tokenUsageByModel = {};
+const DATA_DIR = path.join(process.cwd(), 'data');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+const TOKEN_FILE = path.join(DATA_DIR, 'token_usage.json');
+
+try {
+  if (fs.existsSync(TOKEN_FILE)) {
+    tokenUsageByModel = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
+  }
+} catch (e) {
+  console.error("Error reading token usage:", e);
+}
+
+function saveTokenUsage() {
+  try {
+    fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokenUsageByModel, null, 2));
+  } catch (e) {
+    console.error("Error saving token usage:", e);
+  }
+}
 
 export function getTotalAITokensUsed() {
   return tokenUsageByModel;
@@ -11,6 +32,7 @@ export function getTotalAITokensUsed() {
 
 export function resetTotalAITokensUsed() {
   tokenUsageByModel = {};
+  saveTokenUsage();
 }
 
 const BINANCE_BASE_URLS = [
@@ -309,6 +331,7 @@ async function callQwen(payload, baseUrl, apiKey, signal = null, retries = 3) {
       if (json.usage && json.usage.total_tokens) {
         const mName = json.model || requestPayload.model || "unknown";
         tokenUsageByModel[mName] = (tokenUsageByModel[mName] || 0) + json.usage.total_tokens;
+        saveTokenUsage();
       }
       return json;
     } catch (error) {

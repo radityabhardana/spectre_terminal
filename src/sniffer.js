@@ -153,7 +153,8 @@ let snifferPingInterval = null;  // Ping heartbeat interval
 let snifferSubInterval = null;   // Short market re-subscription interval
 let snifferIsConnecting = false; // Anti double-start guard
 let snifferReconnectDelay = 2000;
-const SNIFFER_MAX_RECONNECT_DELAY = 10000; // Max 10s — data gak boleh kosong kelamaan
+const SNIFFER_MAX_RECONNECT_DELAY = 30000; // Max 30s exponential backoff
+let snifferReconnectTimer = null;  // Track pending reconnect to avoid stacking
 
 // Market data fetched once, reused across reconnects
 let cachedClobIds = [];
@@ -266,6 +267,7 @@ async function connectSnifferWs() {
   }
   
   snifferIsConnecting = false;
+  console.log(`✅ [Sniffer] Semua shard siap.`);
 }
 
 function createSnifferShard(ids, shardId) {
@@ -274,18 +276,21 @@ function createSnifferShard(ids, shardId) {
 
   ws.on('open', async () => {
     console.log(`✅ [Sniffer Shard ${shardId}] Terhubung! Subscribing to ${ids.length} tokens...`);
-    snifferReconnectDelay = 5000;
-
-    const CHUNK_SIZE = 50;
+    // Reset delay hanya saat koneksi berhasil dan selesai subscribe
+    
+    const CHUNK_SIZE = 25; // Kecilkan chunk — lebih sedikit token per pesan, lebih aman
     let sentCount = 0;
     for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
       if (ws.readyState !== 1) break;
       const chunk = ids.slice(i, i + CHUNK_SIZE);
       ws.send(JSON.stringify({ assets_ids: chunk, type: "market" }));
       sentCount += chunk.length;
-      await new Promise(r => setTimeout(r, 1100)); // 1100ms delay to safely stay under 1 msg/sec
+      await new Promise(r => setTimeout(r, 1200)); // 1200ms delay — aman di bawah 1 msg/sec
     }
-    console.log(`[Sniffer Shard ${shardId}] Subscribed to ${sentCount} tokens.`);
+    if (ws.readyState === 1) {
+      console.log(`[Sniffer Shard ${shardId}] Subscribed to ${sentCount} tokens. ✅`);
+      snifferReconnectDelay = 2000; // Reset backoff hanya setelah subscribe SELESAI
+    }
   });
 
   ws.on('pong', () => { /* Heartbeat ACK */ });
@@ -323,6 +328,9 @@ function createSnifferShard(ids, shardId) {
               else if (m.asset_id === marketInfo.clobTokenIds[1]) outcome = "DOWN";
             }
 
+            const isTracked = trackedWallets.has(makerRaw.toLowerCase());
+            const walletNickname = isTracked ? (trackedWallets.get(makerRaw.toLowerCase()) || makerRaw) : "";
+
             const whaleObj = {
               market_id: marketInfo.id,
               market_question: marketInfo.question,
@@ -335,8 +343,8 @@ function createSnifferShard(ids, shardId) {
               side: m.side || "UNKNOWN",
               maker: makerRaw,
               timestamp: Date.now(),
-              isTracked: false,
-              wallet_nickname: ""
+              isTracked,
+              wallet_nickname: walletNickname
             };
 
             if (sizeUsdc >= snifferMinUsd) {
@@ -395,17 +403,32 @@ function createSnifferShard(ids, shardId) {
   });
 
   ws.on('close', (code, reason) => {
-    const reasonStr = reason ? reason.toString() : 'unknown';
-    console.log(`⚠️ [Sniffer Shard ${shardId}] Terputus (Code: ${code}, Reason: ${reasonStr}).`);
+    const reasonStr = reason && reason.length > 0 ? reason.toString() : '';
+    console.log(`⚠️ [Sniffer Shard ${shardId}] Terputus (Code: ${code}${reasonStr ? ', Reason: ' + reasonStr : ''}).`);
     
-    // Only schedule a pool reconnect if we aren't already doing one
-    if (!snifferIsConnecting) {
-      const isClean = code === 1000 || code === 1001 || code === undefined;
+    // Hapus ws ini dari pool
+    const idx = snifferWsPool.indexOf(ws);
+    if (idx !== -1) snifferWsPool.splice(idx, 1);
+
+    // Jika masih ada shard lain yang hidup, jangan reconnect dulu
+    const anyAlive = snifferWsPool.some(s => s.readyState === 0 || s.readyState === 1);
+    if (anyAlive) return;
+
+    // Semua shard mati — jadwalkan reconnect jika belum ada
+    if (!snifferIsConnecting && !snifferReconnectTimer) {
+      const isClean = code === 1000 || code === 1001;
       if (isClean) snifferReconnectDelay = 2000;
       
-      console.log(`⚠️ [Sniffer] Reconnect seluruh pool dalam ${snifferReconnectDelay / 1000}s...`);
-      setTimeout(connectSnifferWs, snifferReconnectDelay);
+      console.log(`⚠️ [Sniffer] Semua shard mati. Reconnect dalam ${snifferReconnectDelay / 1000}s...`);
+      snifferReconnectTimer = setTimeout(() => {
+        snifferReconnectTimer = null;
+        connectSnifferWs();
+      }, snifferReconnectDelay);
       snifferReconnectDelay = Math.min(snifferReconnectDelay * 2, SNIFFER_MAX_RECONNECT_DELAY);
+    } else if (snifferIsConnecting) {
+      // connectSnifferWs sedang berjalan — reset flagnya agar bisa reconnect lagi nanti
+      console.log(`⚠️ [Sniffer Shard ${shardId}] Drop saat connecting — reset flag.`);
+      snifferIsConnecting = false;
     }
   });
 }

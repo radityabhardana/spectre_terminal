@@ -189,7 +189,6 @@ h1, h2, h3 {
   grid-template-rows: 52px 1fr 29px;
   overflow: hidden;
   position: relative;
-  z-index: 1;
 }
 
 /* ================================================================

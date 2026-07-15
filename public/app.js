@@ -151,6 +151,10 @@ setInterval(updateClock, 1000);
           if (asset === "BTC" && priceBTC) priceBTC.textContent = formatPrice(priceVal, 'BTC');
           if (asset === "ETH" && priceETH) priceETH.textContent = formatPrice(priceVal, 'ETH');
           if (asset === "DOGE" && priceDOGE) priceDOGE.textContent = formatPrice(priceVal, 'DOGE');
+          
+          if (window.updateChartRealtimePrice) {
+            window.updateChartRealtimePrice(asset, priceVal);
+          }
         }
       }
     };
@@ -543,6 +547,10 @@ function setBusy(nextBusy) {
   if (runIcon) runIcon.textContent = busy ? "■" : "▶";
   runButton.setAttribute("aria-label", busy ? "Cancel" : "Run analysis");
 
+  if (busy) {
+    localStorage.removeItem("market_summary_closed");
+  }
+
   // Disable action chips while busy
   document.querySelectorAll(".action-chip").forEach(btn => {
     btn.disabled = busy;
@@ -932,6 +940,10 @@ function appendMessageElement(message) {
     if (staticPanel && staticBody) {
       if (html.includes('class="dash-agent-analysis"')) {
         // Real Qwen analysis result - show in static panel
+        if (localStorage.getItem("market_summary_closed") === "true") {
+          return wrapper; // Skip rendering if user closed it
+        }
+        
         if (message.text && message.text.includes("MARKET SUMMARY")) {
           const bentoHtml = typeof buildBentoGrid === "function" ? buildBentoGrid(message.text) : html;
           staticBody.innerHTML = bentoHtml;
@@ -955,7 +967,7 @@ function appendMessageElement(message) {
         wrapper.style.display = "none";
       } else {
         // Raw text / errors: also show them in the static panel if the console feed is hidden
-        staticBody.innerHTML = `<div style="display:flex; flex-direction:column; justify-content:center; padding: 24px; background:var(--bg-elevated); border-radius:12px; border:1px solid rgba(255,255,255,0.05);">${html}</div>`;
+        staticBody.innerHTML = `<div style="display:flex; flex-direction:column; justify-content:center; padding: 24px; background:var(--bg-elevated); border-radius:12px; border:1px solid rgba(255,255,255,0.05); position:relative;">\n          <button onclick="closeStaticPanel()" style="position:absolute; top:12px; right:12px; background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:16px;height:16px;"></i></button>\n          ${html}\n        </div>`;
         staticPanel.classList.remove("hidden");
         if (window.lucide) window.lucide.createIcons({ root: staticBody });
         wrapper.style.display = "none";
@@ -4673,9 +4685,9 @@ let isFirstLoad = true;
       for (const [model, tokens] of Object.entries(tokenUsageObj)) {
         totalUsed += tokens;
         html += `
-          <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; font-size:10px;">
-            <span style="color:var(--text-primary); font-family:var(--font-mono);">${model}</span>
-            <span style="color:var(--neon-green); font-weight:bold;">${tokens.toLocaleString()}</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; font-size:10px; gap:8px;">
+            <span style="color:var(--text-primary); font-family:var(--font-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;" title="${model}">${model}</span>
+            <span style="color:var(--neon-green); font-weight:bold; white-space:nowrap;">${tokens.toLocaleString()}</span>
           </div>
         `;
       }
@@ -5381,7 +5393,235 @@ window.addEventListener('load', () => {
   } catch(e) {}
 });
 
-function closeStaticPanel() { document.getElementById('staticResultPanel').classList.add('hidden'); } window.closeStaticPanel = closeStaticPanel;
+function closeStaticPanel() {
+  const staticBody = document.getElementById('staticResultBody');
+  if (staticBody) {
+    localStorage.setItem("market_summary_closed", "true");
+    staticBody.innerHTML = `
+      <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:var(--text-tertiary); font-family:'Plus Jakarta Sans', sans-serif; font-size:11px;">
+        <i data-lucide="bar-chart-2" style="width:24px; height:24px; margin-bottom:12px; opacity:0.5;"></i>
+        <span>Pilih event atau jalankan analisis untuk melihat Market Summary</span>
+      </div>
+    `;
+    if (window.lucide) window.lucide.createIcons({ root: staticBody });
+  }
+}
+window.closeStaticPanel = closeStaticPanel;
+
+window.toggleChartFullscreen = function(ticker) {
+  const container = document.getElementById(`icc-chart-${ticker}`);
+  const modal = document.getElementById('chartModal');
+  const modalBody = document.getElementById('chartModalBody');
+  const modalTitle = document.getElementById('chartModalTitle');
+  
+  if (!container || !modal || !modalBody) return;
+  
+  // Save original parent
+  container.dataset.originalParent = container.parentElement.id;
+  
+  // Update UI
+  modalTitle.textContent = `${ticker.toUpperCase()}/USDT`;
+  modalTitle.style.color = ticker === 'btc' ? '#f59e0b' : ticker === 'eth' ? '#818cf8' : '#34d399';
+  
+  // Remove absolute top constraint so it fills modal body
+  container.style.top = '0';
+  
+  // Move to modal
+  modalBody.appendChild(container);
+  modal.style.display = 'flex';
+  
+  // Force resize on the chart
+  if (iccCharts[ticker] && iccCharts[ticker].chart) {
+    setTimeout(() => {
+      iccCharts[ticker].chart.timeScale().fitContent();
+    }, 50);
+  }
+};
+
+window.closeChartModal = function() {
+  const modal = document.getElementById('chartModal');
+  const modalBody = document.getElementById('chartModalBody');
+  if (!modal || !modalBody) return;
+  
+  const container = modalBody.firstElementChild;
+  if (container && container.dataset.originalParent) {
+    const origParent = document.getElementById(container.dataset.originalParent);
+    if (origParent) {
+      container.style.top = '30px'; // Restore constraint for grid
+      origParent.appendChild(container);
+      
+      const ticker = container.id.split('-').pop();
+      if (iccCharts[ticker] && iccCharts[ticker].chart) {
+        setTimeout(() => {
+          iccCharts[ticker].chart.timeScale().fitContent();
+        }, 50);
+      }
+    }
+  }
+  
+  modal.style.display = 'none';
+};
+
+window.updateChartRealtimePrice = function(asset, priceVal) {
+  const symbol = asset + "USDT";
+  const state = iccCharts[symbol];
+  if (!state || !state.series || !state.lastCandle) return;
+
+  const nowMs = Date.now();
+  const currentIntervalSec = Math.floor(nowMs / (15 * 60 * 1000)) * (15 * 60);
+
+  let lc = state.lastCandle;
+  
+  if (currentIntervalSec > lc.time) {
+    // Start a new 15m candle
+    lc = {
+      time: currentIntervalSec,
+      open: lc.close, // Open at previous close
+      high: priceVal,
+      low: priceVal,
+      close: priceVal
+    };
+    state.lastCandle = lc;
+    state.openPrice = lc.open; // Update the reference open price for the % change calculation
+  } else {
+    // Update existing candle
+    lc.close = priceVal;
+    if (priceVal > lc.high) lc.high = priceVal;
+    if (priceVal < lc.low) lc.low = priceVal;
+  }
+
+  state.series.update(lc);
+  
+  // Update header UI
+  updatePriceDisplay(state.cfg, priceVal, state.openPrice);
+};
+
+// === Live Chart Command Center (Lightweight Charts + Binance REST + Pyth Realtime) ===
+const iccCharts = {}; // symbol -> { chart, series, cfg, lastCandle, openPrice }
+
+function initTradingViewCharts() {
+  if (typeof LightweightCharts === 'undefined') {
+    // LW Charts not loaded yet — retry in 500ms
+    setTimeout(initTradingViewCharts, 500);
+    return;
+  }
+
+  const chartDefs = [
+    { symbol: 'BTCUSDT',  containerId: 'icc-chart-btc',  priceId: 'icc-btc-price',  chgId: 'icc-btc-chg',  color: '#f59e0b', precision: 2 },
+    { symbol: 'ETHUSDT',  containerId: 'icc-chart-eth',  priceId: 'icc-eth-price',  chgId: 'icc-eth-chg',  color: '#818cf8', precision: 2 },
+    { symbol: 'DOGEUSDT', containerId: 'icc-chart-doge', priceId: 'icc-doge-price', chgId: 'icc-doge-chg', color: '#34d399', precision: 5 },
+  ];
+
+  chartDefs.forEach(cfg => {
+    const container = document.getElementById(cfg.containerId);
+    if (!container || iccCharts[cfg.symbol]) return;
+
+    const chart = LightweightCharts.createChart(container, {
+      width: container.offsetWidth || 400,
+      height: container.offsetHeight || 300,
+      layout: { background: { color: '#0a0a0e' }, textColor: '#555' },
+      grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+      rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)', textColor: '#555' },
+      timeScale: { borderColor: 'rgba(255,255,255,0.06)', timeVisible: true, secondsVisible: false },
+      handleScroll: true,
+      handleScale: true,
+    });
+
+    // Auto-resize — use resize() not applyOptions() for LW Charts v4
+    const ro = new ResizeObserver(() => {
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w > 0 && h > 0) chart.resize(w, h);
+    });
+    ro.observe(container);
+
+    const series = chart.addCandlestickSeries({
+      upColor: cfg.color,
+      downColor: '#ef4444',
+      borderUpColor: cfg.color,
+      borderDownColor: '#ef4444',
+      wickUpColor: cfg.color,
+      wickDownColor: '#ef4444',
+      priceFormat: { type: 'price', precision: cfg.precision, minMove: Math.pow(10, -cfg.precision) },
+    });
+
+    iccCharts[cfg.symbol] = { chart, series, cfg };
+
+    // Fetch historical 15m candles from Binance REST
+    fetch(`https://api.binance.com/api/v3/klines?symbol=${cfg.symbol}&interval=15m&limit=500`)
+      .then(r => r.json())
+      .then(data => {
+        const candles = data.map(k => ({
+          time: Math.floor(k[0] / 1000),
+          open: parseFloat(k[1]),
+          high: parseFloat(k[2]),
+          low: parseFloat(k[3]),
+          close: parseFloat(k[4]),
+        }));
+        series.setData(candles);
+        chart.timeScale().fitContent();
+
+        // Initialize state for Pyth WS updates
+        const lastCandle = candles[candles.length - 1];
+        const firstClose = candles[0].open;
+        iccCharts[cfg.symbol].lastCandle = Object.assign({}, lastCandle);
+        iccCharts[cfg.symbol].openPrice = firstClose;
+        
+        updatePriceDisplay(cfg, lastCandle.close, firstClose);
+
+        // We no longer use Binance WS for live updates. Pyth WS from initPriceTickers() will handle it.
+      })
+      .catch(() => {
+        // ponytail: silently fail — charts are bonus UI, not critical
+        container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#333;font-size:11px;font-family:monospace;">Connection error</div>';
+      });
+  });
+}
+
+function updatePriceDisplay(cfg, currentPrice, openPrice) {
+  const priceEl = document.getElementById(cfg.priceId);
+  const chgEl = document.getElementById(cfg.chgId);
+  if (!priceEl || !chgEl) return;
+
+  priceEl.textContent = currentPrice.toFixed(cfg.precision);
+  const chgPct = ((currentPrice - openPrice) / openPrice) * 100;
+  const chgSign = chgPct >= 0 ? '+' : '';
+  chgEl.textContent = `${chgSign}${chgPct.toFixed(2)}%`;
+  chgEl.style.color = chgPct >= 0 ? '#34d399' : '#ef4444';
+}
+
+function startIccKlineWs(cfg, series) {
+  const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${cfg.symbol.toLowerCase()}@kline_15m`);
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    const k = msg.k;
+    if (!k) return;
+    const candle = {
+      time: Math.floor(k.t / 1000),
+      open: parseFloat(k.o),
+      high: parseFloat(k.h),
+      low: parseFloat(k.l),
+      close: parseFloat(k.c),
+    };
+    series.update(candle);
+    // Update price display with open of first historical candle is tricky — just use prev close
+    const priceEl = document.getElementById(cfg.priceId);
+    if (priceEl) {
+      const prev = parseFloat(priceEl.textContent) || candle.open;
+      updatePriceDisplay(cfg, candle.close, candle.open);
+    }
+  };
+  ws.onerror = () => {};
+  if (iccCharts[cfg.symbol]) iccCharts[cfg.symbol].ws = ws;
+}
+
+// Call after page is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => setTimeout(initTradingViewCharts, 800));
+} else {
+  setTimeout(initTradingViewCharts, 800);
+}
 
 function togglePmPanel() {
   const panel = document.getElementById('pmRightPanel');
@@ -5454,6 +5694,7 @@ function buildBentoGrid(text) {
           <div style="display:flex; gap:12px; align-items:center;">
              ${data.deadline !== "-" ? `<span style="font-family:'Plus Jakarta Sans', sans-serif; font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="clock" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.deadline}</span>` : ""}
              <span class="msp-link" id="bentoKesimpulanBox" style="cursor:pointer;">View full report →</span>
+             <span class="msp-link" onclick="closeStaticPanel()" style="cursor:pointer; color:var(--neon-red); margin-left:8px; display:flex; align-items:center; gap:2px;" title="Tutup analisis dan kembali ke Live Charts"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
           </div>
         </div>
         <div class="msp-hero-row">

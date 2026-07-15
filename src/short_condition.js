@@ -201,7 +201,11 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
     const pid = pythIds[asset];
     if (pid) {
       try {
-        const pRes = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${pid}`);
+        const pythCtrl = new AbortController();
+        const pythTimeout = setTimeout(() => pythCtrl.abort(), 5000);
+        
+        const pRes = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${pid}`, { signal: pythCtrl.signal });
+        clearTimeout(pythTimeout);
         if (pRes.ok) {
           const pData = await pRes.json();
           const pInfo = pData.parsed?.[0]?.price;
@@ -217,8 +221,16 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
                msInterval = 15 * 60 * 1000;
            }
            const startTs = Math.floor((Math.floor(Date.now() / msInterval) * msInterval) / 1000);
-           let kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs}?ids[]=${pid}`);
-           if (!kRes.ok) kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs - 5}?ids[]=${pid}`);
+           const kCtrl = new AbortController();
+           const kTimeout = setTimeout(() => kCtrl.abort(), 5000);
+           let kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs}?ids[]=${pid}`, { signal: kCtrl.signal });
+           clearTimeout(kTimeout);
+           if (!kRes.ok) {
+             const kCtrl2 = new AbortController();
+             const kTimeout2 = setTimeout(() => kCtrl2.abort(), 5000);
+             kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs - 5}?ids[]=${pid}`, { signal: kCtrl2.signal });
+             clearTimeout(kTimeout2);
+           }
            if (kRes.ok) {
               const kData = await kRes.json();
               const kInfo = kData.parsed?.[0]?.price;
@@ -228,7 +240,11 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
            }
         }
       } catch(err) {
-        console.warn("[Short Condition] Failed to fetch Pyth Oracle:", err.message);
+        if (err.name === 'AbortError') {
+          console.warn("[Short Condition] Pyth Oracle timeout (>5s), skipping.");
+        } else {
+          console.warn("[Short Condition] Failed to fetch Pyth Oracle:", err.message);
+        }
       }
     }
 

@@ -1485,7 +1485,7 @@ textarea::-webkit-scrollbar-thumb,
   background: var(--bg-base) !important;
   border-top: 1px solid var(--border-strong) !important;
   height: 29px !important;
-  font-family: "Outfit", sans-serif !important;
+  font-family: var(--font-primary) !important;
   z-index: 99999 !important;
   position: relative !important;
   overflow: visible !important;
@@ -1662,7 +1662,7 @@ textarea::-webkit-scrollbar-thumb,
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family: "Outfit", sans-serif;
+  font-family: var(--font-primary);
   color: var(--text-primary);
 }
 
@@ -1882,7 +1882,7 @@ textarea::-webkit-scrollbar-thumb,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-secondary);
   font-weight: 400;
 }
 
@@ -1953,6 +1953,7 @@ textarea::-webkit-scrollbar-thumb,
 /* The 3 bottom cards — all identical in height & structure */
 .dash-bottom-card {
   flex: 1;
+  font-family: var(--font-secondary);
   height: 350px;
   min-width: 0;
   background: rgba(255, 255, 255, 0.02);
@@ -2030,6 +2031,7 @@ textarea::-webkit-scrollbar-thumb,
 
 /* Card header row */
 .dash-col-header {
+  font-family: var(--font-primary);
   font-size: 11px;
   font-weight: 600;
   color: var(--text-primary);
@@ -2468,7 +2470,7 @@ textarea::-webkit-scrollbar-thumb,
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-secondary);
   
   /* Entry Animation */
   opacity: 0;
@@ -2503,7 +2505,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .static-result-header .kicker {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-secondary);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.2em;
@@ -2529,7 +2531,7 @@ textarea::-webkit-scrollbar-thumb,
 
 /* Haptic Buttons inside Qwen Panel */
 .static-result-body button, #staticResultBody button {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-secondary);
   border-radius: 9999px;
   padding: 12px 24px;
   background: rgba(255,255,255,0.05);
@@ -2636,7 +2638,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .prh-title {
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--font-primary);
   font-size: 14px;
   font-weight: 700;
   color: var(--text-primary);
@@ -2692,7 +2694,7 @@ textarea::-webkit-scrollbar-thumb,
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 12px;
   padding: 6px;
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-secondary);
   box-shadow: 0 4px 20px rgba(0,0,0,0.2);
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   display: flex;
@@ -2717,7 +2719,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .premium-result-body .analysis-card-title {
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--font-primary);
   font-size: 13px;
   font-weight: 700;
   color: var(--neon-cyan);
@@ -2750,21 +2752,21 @@ textarea::-webkit-scrollbar-thumb,
   letter-spacing: 0.05em;
 }
 .premium-result-body .text-row .val {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-secondary);
   font-size: 13px;
   color: var(--text-primary);
   font-weight: 500;
 }
 
 .premium-result-body .msg-text {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-secondary);
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-secondary);
   padding: 4px 0;
 }
 .premium-result-body .msg-li {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-secondary);
   font-size: 13px;
   line-height: 1.6;
   color: var(--text-secondary);
@@ -2850,7 +2852,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .premium-result-body .verdict-title {
-  font-family: "Outfit", sans-serif;
+  font-family: var(--font-primary);
   font-size: 14px;
   font-weight: 800;
   color: var(--text-primary);
@@ -2903,7 +2905,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .bento-title-header {
-  font-family: "Outfit", sans-serif;
+  font-family: var(--font-primary);
   font-size: 20px;
   font-weight: 700;
   color: #fff;
@@ -2944,7 +2946,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .bento-box-label {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 10px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -2957,7 +2959,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .bento-box-value {
-  font-family: "Outfit", sans-serif;
+  font-family: var(--font-primary);
   font-size: 24px;
   font-weight: 700;
   line-height: 1.1;
@@ -2971,7 +2973,7 @@ textarea::-webkit-scrollbar-thumb,
   font-weight: 500;
   color: var(--text-secondary);
   margin-top: 6px;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   line-height: 1.4;
 }
 
@@ -3081,7 +3083,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .ms-title {
-  font-family: "Outfit", "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-primary);
   font-size: 11px;
   font-weight: 700;
   color: var(--text-tertiary);
@@ -3135,7 +3137,7 @@ textarea::-webkit-scrollbar-thumb,
   padding: 6px 16px;
   border: 1px solid;
   border-radius: 6px;
-  font-family: "Outfit", monospace;
+  font-family: var(--font-primary);
   font-size: 22px;
   font-weight: 800;
   letter-spacing: 0.03em;
@@ -3159,7 +3161,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .ms-entry-value {
-  font-family: "Outfit", sans-serif;
+  font-family: var(--font-primary);
   font-size: 18px;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -3167,7 +3169,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .ms-hero-sub {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 9px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -3202,7 +3204,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .ms-metric-label {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 8.5px;
   font-weight: 700;
   color: var(--text-tertiary);
@@ -3212,7 +3214,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .ms-metric-value {
-  font-family: "Outfit", monospace;
+  font-family: var(--font-primary);
   font-size: 13px;
   font-weight: 700;
   line-height: 1.2;
@@ -3233,7 +3235,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .ms-depth-label-bid {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 9px;
   font-weight: 700;
   color: var(--neon-green);
@@ -3242,7 +3244,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .ms-depth-label-center {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 8px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -3251,7 +3253,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .ms-depth-label-ask {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 9px;
   font-weight: 700;
   color: var(--neon-red);
@@ -3327,7 +3329,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .msp-eyebrow {
-  font-family: "Plus Jakarta Sans", monospace, sans-serif;
+  font-family: var(--font-secondary);
   font-size: 9px;
   font-weight: 700;
   color: rgba(255,255,255,0.35);
@@ -3336,7 +3338,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .msp-link {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 10px;
   font-weight: 500;
   color: rgba(16,185,129,0.55);
@@ -3378,7 +3380,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .msp-signal-text {
-  font-family: "Outfit", sans-serif;
+  font-family: var(--font-primary);
   font-size: 22px;
   font-weight: 800;
   letter-spacing: 0.05em;
@@ -3401,7 +3403,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .msp-entry-val {
-  font-family: "Outfit", sans-serif;
+  font-family: var(--font-primary);
   font-size: 18px;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -3409,7 +3411,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .msp-field-label {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 9px;
   font-weight: 600;
   color: rgba(255,255,255,0.32);
@@ -3455,7 +3457,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .msp-strip-label {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 8px;
   font-weight: 700;
   color: rgba(255,255,255,0.32);
@@ -3464,7 +3466,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .msp-strip-val {
-  font-family: "Outfit", monospace;
+  font-family: var(--font-primary);
   font-size: 13px;
   font-weight: 700;
   line-height: 1.2;
@@ -3480,7 +3482,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .msp-depth-bid-txt {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 9px;
   font-weight: 700;
   color: var(--neon-green);
@@ -3489,7 +3491,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .msp-depth-center-txt {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 8px;
   font-weight: 600;
   color: rgba(255,255,255,0.28);
@@ -3498,7 +3500,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .msp-depth-ask-txt {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 9px;
   font-weight: 700;
   color: #ef4444;
@@ -3564,7 +3566,7 @@ textarea::-webkit-scrollbar-thumb,
 }
 
 .pm-panel-title {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 11px;
   font-weight: 700;
   color: var(--text-primary);
@@ -3605,7 +3607,7 @@ textarea::-webkit-scrollbar-thumb,
   color: var(--neon-green);
   padding: 10px 20px;
   border-radius: 8px;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
@@ -3631,7 +3633,7 @@ textarea::-webkit-scrollbar-thumb,
   margin-bottom: 12px;
 }
 .pm-mock-label {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 9px;
   color: var(--text-tertiary);
   text-transform: uppercase;
@@ -3639,13 +3641,13 @@ textarea::-webkit-scrollbar-thumb,
   margin-bottom: 4px;
 }
 .pm-mock-value {
-  font-family: "Outfit", monospace;
+  font-family: var(--font-primary);
   font-size: 24px;
   font-weight: 700;
   color: var(--text-primary);
 }
 .pm-mock-sub {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 10px;
   color: var(--neon-cyan);
   margin-top: 4px;
@@ -3696,21 +3698,21 @@ textarea::-webkit-scrollbar-thumb,
   background: rgba(25, 25, 30, 0.9);
 }
 .premium-label {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-secondary);
   font-size: 9px;
   color: rgba(255, 255, 255, 0.4);
   text-transform: uppercase;
   letter-spacing: 0.15em;
 }
 .premium-value {
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--font-primary);
   font-size: 18px;
   font-weight: 700;
   color: #fff;
   letter-spacing: -0.01em;
 }
 .premium-title {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-secondary);
   font-size: 11px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.7);
@@ -3736,21 +3738,21 @@ textarea::-webkit-scrollbar-thumb,
   background: rgba(25, 25, 30, 0.9);
 }
 .premium-label {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-secondary);
   font-size: 9px;
   color: rgba(255, 255, 255, 0.4);
   text-transform: uppercase;
   letter-spacing: 0.15em;
 }
 .premium-value {
-  font-family: 'Outfit', sans-serif;
+  font-family: var(--font-primary);
   font-size: 18px;
   font-weight: 700;
   color: #fff;
   letter-spacing: -0.01em;
 }
 .premium-title {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: var(--font-secondary);
   font-size: 11px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.7);

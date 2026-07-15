@@ -10,13 +10,29 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Geist:wght@400;500;600;700;800&display=swap"
     rel="stylesheet"
   />
   <script src="/Sortable.min.js"></script>
   <script src="/lucide.min.js"></script>
   <link rel="stylesheet" href="/styles-v2.css?v=131" />
   <style>
+/* ================================================================
+   FONT VARIABLES (DATA-FONT ATTR)
+   ================================================================ */
+html[data-font="padre"] {
+  --font-primary: "Outfit", sans-serif;
+  --font-secondary: "Plus Jakarta Sans", sans-serif;
+}
+html[data-font="geist"] {
+  --font-primary: "Geist", sans-serif;
+  --font-secondary: "Geist", sans-serif;
+}
+html[data-font="inter"] {
+  --font-primary: "Inter", sans-serif;
+  --font-secondary: "Inter", sans-serif;
+}
+
 /* ================================================================
    BENTO GRID DESIGN
    ================================================================ */
@@ -38,7 +54,7 @@
   overflow: hidden;
 }
 .bento-title-header {
-  font-family: "Outfit", sans-serif;
+  font-family: var(--font-primary);
   font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
@@ -74,7 +90,7 @@
   box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
 }
 .bento-box-label {
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   font-size: 11px;
   font-weight: 700;
   color: var(--text-tertiary);
@@ -86,7 +102,7 @@
   align-items: center;
 }
 .bento-box-value {
-  font-family: "Outfit", sans-serif;
+  font-family: var(--font-primary);
   font-size: 24px;
   font-weight: 800;
   line-height: 1.1;
@@ -100,7 +116,7 @@
   font-weight: 500;
   color: var(--text-secondary);
   margin-top: 8px;
-  font-family: "Plus Jakarta Sans", sans-serif;
+  font-family: var(--font-secondary);
   line-height: 1.4;
 }
 .bento-glow-up {
@@ -154,7 +170,7 @@
     <!-- Left Sidebar - Houses Short Market and Queue Panel -->
     <aside id="leftSidebar" style="position:fixed; top:70px; bottom:40px; left:12px; width:420px; z-index:9000; display:flex; flex-direction:column; gap:12px; pointer-events:none;">
       <!-- Short Market Card - Koyfin-style compact widget -->
-      <div id="shortMarketPanel" class="premium-card" style="display:flex; flex-direction:column; flex:1; min-height:0; width:calc(100% - 14px) !important; box-sizing:border-box; pointer-events:auto; overflow:hidden; font-family:'Plus Jakarta Sans', system-ui, sans-serif;">
+      <div id="shortMarketPanel" class="premium-card" style="display:flex; flex-direction:column; flex:1; min-height:0; width:calc(100% - 14px) !important; box-sizing:border-box; pointer-events:auto; overflow:hidden; font-family:var(--font-secondary);">
       <!-- Header row -->
       <div style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center; position:relative;">
         <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em;">Short Market Events</span>
@@ -226,7 +242,7 @@
     </div>
 
       <!-- Queue Panel - Permanent top-left Koyfin-style widget (under Short Market) -->
-      <div id="queuePanel" class="premium-card" style="display:flex; flex-direction:column; flex:1; min-height:0; width:calc(100% - 14px) !important; box-sizing:border-box; pointer-events:auto; overflow:hidden; font-family:'Plus Jakarta Sans', system-ui, sans-serif;">
+      <div id="queuePanel" class="premium-card" style="display:flex; flex-direction:column; flex:1; min-height:0; width:calc(100% - 14px) !important; box-sizing:border-box; pointer-events:auto; overflow:hidden; font-family:var(--font-secondary);">
       <!-- Header row -->
       <div id="queuePanelHeader" style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em; display:flex; align-items:center; gap:6px;">
@@ -294,7 +310,7 @@
             <span id="clockTime">--:--:--</span>
           </div>
           
-          <button id="btnConnectPolymarket" style="background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); border-radius:6px; padding:6px 14px; display:flex; align-items:center; gap:8px; color:var(--neon-cyan); font-family:'Plus Jakarta Sans',sans-serif; font-size:10px; font-weight:700; cursor:pointer; text-transform:uppercase; letter-spacing:0.05em; transition:all 0.2s;" onmouseover="this.style.background='rgba(6,182,212,0.2)'; this.style.boxShadow='0 0 12px rgba(6,182,212,0.3)';" onmouseout="this.style.background='rgba(6,182,212,0.1)'; this.style.boxShadow='none';" onclick="togglePmPanel()">
+          <button id="btnConnectPolymarket" style="background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); border-radius:6px; padding:6px 14px; display:flex; align-items:center; gap:8px; color:var(--neon-cyan); font-family:var(--font-secondary); font-size:10px; font-weight:700; cursor:pointer; text-transform:uppercase; letter-spacing:0.05em; transition:all 0.2s;" onmouseover="this.style.background='rgba(6,182,212,0.2)'; this.style.boxShadow='0 0 12px rgba(6,182,212,0.3)';" onmouseout="this.style.background='rgba(6,182,212,0.1)'; this.style.boxShadow='none';" onclick="togglePmPanel()">
             <i data-lucide="wallet" style="width:13px; height:13px;"></i> Connect Polymarket
           </button>
         </div>
@@ -479,7 +495,13 @@
                   <span style="font-size:11px;font-weight:700;color:#f59e0b;letter-spacing:0.08em;font-family:'JetBrains Mono',monospace;">BTC/USDT</span>
                   <span id="icc-btc-price" style="font-size:10px;color:#e8e8e8;font-family:'JetBrains Mono',monospace;margin-left:4px;">--</span>
                   <span id="icc-btc-chg" style="font-size:9px;font-family:'JetBrains Mono',monospace;margin-left:2px;">--</span>
-                  <span style="font-size:9px;color:#444;margin-left:auto;">15m · BINANCE</span>
+                  <div class="tf-selector" style="margin-left:auto; display:flex; gap:2px; align-items:center; background:rgba(255,255,255,0.02); padding:2px; border-radius:4px; border:1px solid rgba(255,255,255,0.05);">
+                    <span class="tf-btn-btc" data-tf="5m" onclick="changeChartTimeframe('btc', '5m')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#555; padding:2px 5px; border-radius:3px;">5m</span>
+                    <span class="tf-btn-btc" data-tf="15m" onclick="changeChartTimeframe('btc', '15m')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#e8e8e8; background:rgba(255,255,255,0.1); padding:2px 5px; border-radius:3px;">15m</span>
+                    <span class="tf-btn-btc" data-tf="1h" onclick="changeChartTimeframe('btc', '1h')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#555; padding:2px 5px; border-radius:3px;">1h</span>
+                    <span class="tf-btn-btc" data-tf="4h" onclick="changeChartTimeframe('btc', '4h')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#555; padding:2px 5px; border-radius:3px;">4h</span>
+                  </div>
+                  <span style="font-size:9px;color:#444;margin-left:4px;">· BINANCE</span>
                   <button onclick="toggleChartFullscreen('btc')" class="action-chip" style="margin-left:8px; padding:0 6px; height:20px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:4px; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center; gap:4px;" title="View Lebih Lebar"><i data-lucide="maximize" style="width:10px; height:10px;"></i></button>
                 </div>
                 <div id="icc-chart-btc" style="position:absolute; top:30px; left:0; right:0; bottom:0;"></div>
@@ -491,7 +513,13 @@
                   <span style="font-size:11px;font-weight:700;color:#818cf8;letter-spacing:0.08em;font-family:'JetBrains Mono',monospace;">ETH/USDT</span>
                   <span id="icc-eth-price" style="font-size:10px;color:#e8e8e8;font-family:'JetBrains Mono',monospace;margin-left:4px;">--</span>
                   <span id="icc-eth-chg" style="font-size:9px;font-family:'JetBrains Mono',monospace;margin-left:2px;">--</span>
-                  <span style="font-size:9px;color:#444;margin-left:auto;">15m · BINANCE</span>
+                  <div class="tf-selector" style="margin-left:auto; display:flex; gap:2px; align-items:center; background:rgba(255,255,255,0.02); padding:2px; border-radius:4px; border:1px solid rgba(255,255,255,0.05);">
+                    <span class="tf-btn-eth" data-tf="5m" onclick="changeChartTimeframe('eth', '5m')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#555; padding:2px 5px; border-radius:3px;">5m</span>
+                    <span class="tf-btn-eth" data-tf="15m" onclick="changeChartTimeframe('eth', '15m')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#e8e8e8; background:rgba(255,255,255,0.1); padding:2px 5px; border-radius:3px;">15m</span>
+                    <span class="tf-btn-eth" data-tf="1h" onclick="changeChartTimeframe('eth', '1h')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#555; padding:2px 5px; border-radius:3px;">1h</span>
+                    <span class="tf-btn-eth" data-tf="4h" onclick="changeChartTimeframe('eth', '4h')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#555; padding:2px 5px; border-radius:3px;">4h</span>
+                  </div>
+                  <span style="font-size:9px;color:#444;margin-left:4px;">· BINANCE</span>
                   <button onclick="toggleChartFullscreen('eth')" class="action-chip" style="margin-left:8px; padding:0 6px; height:20px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:4px; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center; gap:4px;" title="View Lebih Lebar"><i data-lucide="maximize" style="width:10px; height:10px;"></i></button>
                 </div>
                 <div id="icc-chart-eth" style="position:absolute; top:30px; left:0; right:0; bottom:0;"></div>
@@ -503,7 +531,13 @@
                   <span style="font-size:11px;font-weight:700;color:#34d399;letter-spacing:0.08em;font-family:'JetBrains Mono',monospace;">DOGE/USDT</span>
                   <span id="icc-doge-price" style="font-size:10px;color:#e8e8e8;font-family:'JetBrains Mono',monospace;margin-left:4px;">--</span>
                   <span id="icc-doge-chg" style="font-size:9px;font-family:'JetBrains Mono',monospace;margin-left:2px;">--</span>
-                  <span style="font-size:9px;color:#444;margin-left:auto;">15m · BINANCE</span>
+                  <div class="tf-selector" style="margin-left:auto; display:flex; gap:2px; align-items:center; background:rgba(255,255,255,0.02); padding:2px; border-radius:4px; border:1px solid rgba(255,255,255,0.05);">
+                    <span class="tf-btn-doge" data-tf="5m" onclick="changeChartTimeframe('doge', '5m')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#555; padding:2px 5px; border-radius:3px;">5m</span>
+                    <span class="tf-btn-doge" data-tf="15m" onclick="changeChartTimeframe('doge', '15m')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#e8e8e8; background:rgba(255,255,255,0.1); padding:2px 5px; border-radius:3px;">15m</span>
+                    <span class="tf-btn-doge" data-tf="1h" onclick="changeChartTimeframe('doge', '1h')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#555; padding:2px 5px; border-radius:3px;">1h</span>
+                    <span class="tf-btn-doge" data-tf="4h" onclick="changeChartTimeframe('doge', '4h')" style="font-size:9px; font-weight:bold; font-family:'JetBrains Mono',monospace; cursor:pointer; color:#555; padding:2px 5px; border-radius:3px;">4h</span>
+                  </div>
+                  <span style="font-size:9px;color:#444;margin-left:4px;">· BINANCE</span>
                   <button onclick="toggleChartFullscreen('doge')" class="action-chip" style="margin-left:8px; padding:0 6px; height:20px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:4px; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center; gap:4px;" title="View Lebih Lebar"><i data-lucide="maximize" style="width:10px; height:10px;"></i></button>
                 </div>
                 <div id="icc-chart-doge" style="position:absolute; top:30px; left:0; right:0; bottom:0;"></div>
@@ -518,7 +552,7 @@
             <!-- Bento Grid Result Panel (shows when analysis runs) -->
             <div id="staticResultPanel" style="position:fixed; top:72px; left:440px; width:820px; height:360px; z-index:90; overflow-y:auto; padding:16px 20px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:28px; box-shadow:0 24px 64px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.05);">
               <div id="staticResultBody" class="ms-container" style="max-width:800px; margin:0; height:100%;">
-                <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:var(--text-tertiary); font-family:'Plus Jakarta Sans', sans-serif; font-size:11px;">
+                <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:var(--text-tertiary); font-family:var(--font-secondary); font-size:11px;">
                   <i data-lucide="bar-chart-2" style="width:24px; height:24px; margin-bottom:12px; opacity:0.5;"></i>
                   <span>Pilih event atau jalankan analisis untuk melihat Market Summary</span>
                 </div>
@@ -1019,7 +1053,7 @@
           
           <!-- Header -->
           <div style="padding:0 20px; height:52px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--bg-surface); flex-shrink:0;">
-            <h3 style="margin:0; font-size:14px; font-weight:600; color:var(--text-primary); font-family:'Outfit',sans-serif; letter-spacing:-0.01em;">System Settings</h3>
+            <h3 style="margin:0; font-size:14px; font-weight:600; color:var(--text-primary); font-family:var(--font-primary); letter-spacing:-0.01em;">System Settings</h3>
             <button id="closeSettingsModal" style="background:transparent; border:1px solid var(--border-strong); border-radius:var(--radius-md); color:var(--text-tertiary); cursor:pointer; width:28px; height:28px; display:flex; align-items:center; justify-content:center; transition:all 0.15s ease;">
               <i data-lucide="x" style="width:14px; height:14px;"></i>
             </button>
@@ -1030,11 +1064,11 @@
             
             <!-- Left Sidebar -->
             <div style="width:190px; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:12px 10px; gap:2px; background:var(--bg-surface); flex-shrink:0;">
-              <button class="settings-tab active" data-target="pane-language" style="text-align:left; padding:9px 14px; background:rgba(255,255,255,0.06); border:none; border-radius:var(--radius-md); color:var(--text-primary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Language</button>
-              <button class="settings-tab" data-target="pane-alerts" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Alerts &amp; Audio</button>
-              <button class="settings-tab" data-target="pane-sniper" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Sniper Trigger</button>
-              <button class="settings-tab" data-target="pane-analytics" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Analytics</button>
-              <button class="settings-tab" data-target="pane-learning" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:'Outfit',sans-serif; transition:all 0.15s;">Proses Belajar</button>
+              <button class="settings-tab active" data-target="pane-language" style="text-align:left; padding:9px 14px; background:rgba(255,255,255,0.06); border:none; border-radius:var(--radius-md); color:var(--text-primary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Language</button>
+              <button class="settings-tab" data-target="pane-alerts" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Alerts &amp; Audio</button>
+              <button class="settings-tab" data-target="pane-sniper" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Sniper Trigger</button>
+              <button class="settings-tab" data-target="pane-analytics" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Analytics</button>
+              <button class="settings-tab" data-target="pane-learning" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Proses Belajar</button>
               
               <div style="margin-top:auto; padding-top:12px; border-top:1px solid var(--border);">
                 <button id="btnSaveSettings" class="btn-primary" style="width:100%; justify-content:center;">
@@ -1050,7 +1084,7 @@
 
               <!-- Language Pane -->
               <div id="pane-language" class="settings-pane" style="display:block;">
-                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Language</h2>
+                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Language</h2>
                 <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Pilih bahasa yang akan digunakan Qwen untuk merespons hasil analisis.</p>
                 
                 <div style="display:flex; flex-direction:column; gap:12px;">
@@ -1071,20 +1105,20 @@
 
               <!-- Alerts Pane -->
               <div id="pane-alerts" class="settings-pane" style="display:none;">
-                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Alerts &amp; Audio</h2>
+                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Alerts &amp; Audio</h2>
                 <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Configure system notifications and sound alerts.</p>
                 
                 <div style="display:flex; flex-direction:column; gap:12px;">
                   <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:16px 18px; border-radius:10px; border:1px solid var(--border);">
                     <div style="display:flex; flex-direction:column; gap:3px;">
-                      <span style="color:var(--text-primary); font-size:13px; font-weight:500; font-family:'Outfit',sans-serif;">Master Audio</span>
+                      <span style="color:var(--text-primary); font-size:13px; font-weight:500; font-family:var(--font-primary);">Master Audio</span>
                       <span style="color:var(--text-tertiary); font-size:11px;">Enable or disable all sound effects.</span>
                     </div>
-                    <button id="toggleAudioBtn" style="background:rgba(45,184,112,0.1); border:1px solid var(--green); color:var(--green); padding:5px 14px; border-radius:var(--radius-md); font-size:11px; font-weight:700; cursor:pointer; transition:all 0.15s; font-family:'Outfit',sans-serif; width:50px;">ON</button>
+                    <button id="toggleAudioBtn" style="background:rgba(45,184,112,0.1); border:1px solid var(--green); color:var(--green); padding:5px 14px; border-radius:var(--radius-md); font-size:11px; font-weight:700; cursor:pointer; transition:all 0.15s; font-family:var(--font-primary); width:50px;">ON</button>
                   </div>
 
                   <div style="display:flex; flex-direction:column; background:var(--bg-elevated); padding:16px 18px; border-radius:10px; border:1px solid var(--border); gap:12px;">
-                    <div style="color:var(--text-primary); font-size:13px; font-weight:500; font-family:'Outfit',sans-serif;">Notification Sounds:</div>
+                    <div style="color:var(--text-primary); font-size:13px; font-weight:500; font-family:var(--font-primary);">Notification Sounds:</div>
                     
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                       <div style="display:flex; align-items:center; gap:8px;">
@@ -1136,26 +1170,26 @@
 
               <!-- Sniper Pane -->
               <div id="pane-sniper" class="settings-pane" style="display:none;">
-                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Sniper Trigger Timing</h2>
+                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Sniper Trigger Timing</h2>
                 <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Berapa menit/detik sebelum tutup market Qwen harus menembak?</p>
                 
                 <div style="display:flex; flex-direction:column; gap:8px;">
                   <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
-                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:'Outfit',sans-serif;">5-Min Market</span>
+                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">5-Min Market</span>
                     <div style="display:flex; gap:8px; align-items:center;">
                       <input type="number" id="set5mMin" value="4" min="0" max="4" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
                       <input type="number" id="set5mSec" value="30" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
                     </div>
                   </div>
                   <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
-                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:'Outfit',sans-serif;">15-Min Market</span>
+                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">15-Min Market</span>
                     <div style="display:flex; gap:8px; align-items:center;">
                       <input type="number" id="set15mMin" value="13" min="0" max="14" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
                       <input type="number" id="set15mSec" value="30" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
                     </div>
                   </div>
                   <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
-                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:'Outfit',sans-serif;">1-Hour Market</span>
+                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">1-Hour Market</span>
                     <div style="display:flex; gap:8px; align-items:center;">
                       <input type="number" id="set1hMin" value="55" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
                       <input type="number" id="set1hSec" value="0" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
@@ -1166,16 +1200,16 @@
 
               <!-- Analytics Pane -->
               <div id="pane-analytics" class="settings-pane" style="display:none;">
-                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Analytics Stats</h2>
+                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Analytics Stats</h2>
                 <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Ringkasan performa dan prediksi dari Qwen.</p>
                 
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                   <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:20px; border-radius:10px; text-align:center;">
-                    <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-tertiary); margin-bottom:8px; font-family:'Outfit',sans-serif;">Total Analyzed</div>
+                    <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-tertiary); margin-bottom:8px; font-family:var(--font-primary);">Total Analyzed</div>
                     <div id="statTotal" style="font-size:26px; font-weight:700; color:var(--text-primary); font-family:'JetBrains Mono',monospace;">0</div>
                   </div>
                   <div style="background:rgba(45,184,112,0.05); border:1px solid rgba(45,184,112,0.18); padding:20px; border-radius:10px; text-align:center;">
-                    <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-tertiary); margin-bottom:8px; font-family:'Outfit',sans-serif;">Win Rate</div>
+                    <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-tertiary); margin-bottom:8px; font-family:var(--font-primary);">Win Rate</div>
                     <div id="statWinRate" style="font-size:26px; font-weight:700; color:var(--green); font-family:'JetBrains Mono',monospace;">0%</div>
                   </div>
                 </div>
@@ -1183,12 +1217,12 @@
 
               <!-- Learning Pane -->
               <div id="pane-learning" class="settings-pane" style="display:none; flex-direction:column;">
-                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:'Outfit',sans-serif;">Proses Belajar</h2>
+                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Proses Belajar</h2>
                 <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:16px; line-height:1.5;">Apa saja yang sudah Qwen improve dari evaluasi kekalahan sebelumnya.</p>
                 
                 <div style="background:var(--bg-elevated); padding:16px; border-radius:10px; border:1px solid var(--border); margin-bottom:14px;">
                   <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                    <span style="font-size:12px; color:var(--text-secondary); font-weight:500; font-family:'Outfit',sans-serif;">Perkiraan Peningkatan (Improvement)</span>
+                    <span style="font-size:12px; color:var(--text-secondary); font-weight:500; font-family:var(--font-primary);">Perkiraan Peningkatan (Improvement)</span>
                     <span id="improvementPercentage" style="font-size:12px; color:var(--green); font-weight:700; font-family:'JetBrains Mono',monospace;">0%</span>
                   </div>
                   <div style="height:5px; background:var(--border); border-radius:3px; overflow:hidden;">
@@ -1198,7 +1232,7 @@
 
                 <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border); margin-bottom:14px;">
                   <div style="display:flex; flex-direction:column; gap:3px;">
-                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:'Outfit',sans-serif;">Short Market Memory (15 Traps)</span>
+                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">Short Market Memory (15 Traps)</span>
                     <span style="color:var(--text-tertiary); font-size:11px;">Membaca intisari 15 evaluasi terakhir untuk menghindari jebakan market lintas-topik.</span>
                   </div>
                   <style>
@@ -1430,14 +1464,14 @@
   <div id="summaryModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.8); backdrop-filter:blur(4px); align-items:center; justify-content:center;">
     <div style="background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:12px; width:800px; max-width:95%; max-height:85vh; box-shadow:0 10px 40px rgba(0,0,0,0.6); display:flex; flex-direction:column;">
       <div style="padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); border-radius:12px 12px 0 0;">
-        <h3 style="margin:0; font-size:16px; color:var(--text-primary); font-family:'Plus Jakarta Sans', sans-serif;"><i data-lucide="file-text" style="width:18px; height:18px; margin-right:8px; vertical-align:middle; color:var(--neon-cyan);"></i>Full Analysis Report</h3>
+        <h3 style="margin:0; font-size:16px; color:var(--text-primary); font-family:var(--font-secondary);"><i data-lucide="file-text" style="width:18px; height:18px; margin-right:8px; vertical-align:middle; color:var(--neon-cyan);"></i>Full Analysis Report</h3>
         <button id="closeSummaryModal" onclick="document.getElementById('summaryModal').style.display='none'" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:20px; height:20px;"></i></button>
       </div>
-      <div id="summaryModalContent" style="padding:24px; overflow-y:auto; font-family:'Plus Jakarta Sans', sans-serif; font-size:13px; color:var(--text-secondary); line-height:1.6; display:flex; flex-direction:column; gap:16px;">
+      <div id="summaryModalContent" style="padding:24px; overflow-y:auto; font-family:var(--font-secondary); font-size:13px; color:var(--text-secondary); line-height:1.6; display:flex; flex-direction:column; gap:16px;">
         <!-- Injected raw text -->
       </div>
       <div style="padding:16px 24px; border-top:1px solid var(--border); text-align:right; background:rgba(255,255,255,0.01); border-radius:0 0 12px 12px;">
-        <button onclick="document.getElementById('summaryModal').style.display='none'" style="background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:600; font-family:'Plus Jakarta Sans', sans-serif;">Tutup</button>
+        <button onclick="document.getElementById('summaryModal').style.display='none'" style="background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:600; font-family:var(--font-secondary);">Tutup</button>
       </div>
     </div>
   </div>
@@ -1446,13 +1480,13 @@
   <div id="sniperSummaryModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.8); backdrop-filter:blur(4px); align-items:center; justify-content:center;">
     <div style="background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:12px; width:900px; max-width:95%; max-height:85vh; box-shadow:0 10px 40px rgba(0,0,0,0.6); display:flex; flex-direction:column;">
       <div style="padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); border-radius:12px 12px 0 0;">
-        <h3 style="margin:0; font-size:16px; color:var(--text-primary); font-family:'Plus Jakarta Sans', sans-serif; display:flex; align-items:center; gap:8px;">
+        <h3 style="margin:0; font-size:16px; color:var(--text-primary); font-family:var(--font-secondary); display:flex; align-items:center; gap:8px;">
           <i data-lucide="target" style="width:18px; height:18px; color:var(--neon-amber);"></i>
           Sniper Session Summary
         </h3>
         <button onclick="document.getElementById('sniperSummaryModal').style.display='none'" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:20px; height:20px;"></i></button>
       </div>
-      <div style="padding:16px 24px; overflow-y:auto; font-family:'Inter', sans-serif; display:flex; flex-direction:column; gap:16px;">
+      <div style="padding:16px 24px; overflow-y:auto; font-family: var(--font-secondary); display:flex; flex-direction:column; gap:16px;">
         <div id="sniperSummaryMetrics" style="display:flex; gap:16px; margin-bottom:8px;">
           <!-- metrics injected here -->
         </div>
@@ -1506,9 +1540,9 @@
       <div style="padding:16px 20px; border-bottom:1px solid rgba(255,255,255,0.03); display:flex; align-items:center; justify-content:space-between;">
         <div style="display:flex; align-items:center; gap:8px;">
           <div style="width:6px; height:6px; border-radius:50%; background:#06b6d4; box-shadow:0 0 12px rgba(6,182,212,0.8);"></div>
-          <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:9px; font-weight:700; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.2em;">Polymarket</span>
+          <span style="font-family:var(--font-secondary); font-size:9px; font-weight:700; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.2em;">Polymarket</span>
         </div>
-        <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:9px; color:rgba(255,255,255,0.3); padding:4px 10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:100px; font-weight:600; letter-spacing:0.1em;">NOT CONNECTED</span>
+        <span style="font-family:var(--font-secondary); font-size:9px; color:rgba(255,255,255,0.3); padding:4px 10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:100px; font-weight:600; letter-spacing:0.1em;">NOT CONNECTED</span>
       </div>
 
       <!-- Data Section (Fully visible, no blur) -->
@@ -1516,14 +1550,14 @@
         
         <!-- Portfolio -->
         <div style="margin-bottom:28px;">
-          <div style="font-family:'Plus Jakarta Sans',sans-serif; font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
+          <div style="font-family:var(--font-secondary); font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
             <span>Portfolio Value</span>
             <button type="button" id="btnToggleWallet" style="background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.4); padding:0; display:flex;" title="Hide/Show Balances">
               <i data-lucide="eye" id="walletEyeIcon" style="width:12px; height:12px;"></i>
             </button>
           </div>
-          <div id="walletPortfolioValue" style="font-family:'Outfit',sans-serif; font-size:42px; font-weight:800; color:#fff; line-height:1; letter-spacing:-0.03em;">$14,250.00</div>
-          <div id="walletPortfolioChange" style="font-family:'Plus Jakarta Sans',sans-serif; font-size:11px; color:#10b981; margin-top:8px; font-weight:600; letter-spacing:0.02em;">+ $450.00 (3.2%)</div>
+          <div id="walletPortfolioValue" style="font-family:var(--font-primary); font-size:42px; font-weight:800; color:#fff; line-height:1; letter-spacing:-0.03em;">$14,250.00</div>
+          <div id="walletPortfolioChange" style="font-family:var(--font-secondary); font-size:11px; color:#10b981; margin-top:8px; font-weight:600; letter-spacing:0.02em;">+ $450.00 (3.2%)</div>
         </div>
 
         <!-- Metrics Grid (Gapless Bento Architecture) -->
@@ -1532,29 +1566,29 @@
           <!-- Top Full: USDC Balance -->
           <div style="grid-column: span 2; background:rgba(18,18,22,0.9); padding:16px 20px; display:flex; justify-content:space-between; align-items:center; transition:background 0.3s ease;" onmouseover="this.style.background='rgba(25,25,30,0.9)'" onmouseout="this.style.background='rgba(18,18,22,0.9)'">
             <div style="display:flex; flex-direction:column; gap:4px;">
-              <div style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">USDC Balance (Liquid)</div>
-              <div id="walletUsdcBalance" style="font-family:'Outfit',sans-serif; font-size:20px; font-weight:700; color:#fff; letter-spacing:-0.01em;">$2,100.00</div>
+              <div style="font-family:var(--font-secondary); font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">USDC Balance (Liquid)</div>
+              <div id="walletUsdcBalance" style="font-family:var(--font-primary); font-size:20px; font-weight:700; color:#fff; letter-spacing:-0.01em;">$2,100.00</div>
             </div>
             <i data-lucide="wallet" style="width:20px; height:20px; color:rgba(16,185,129,0.7);"></i>
           </div>
 
           <!-- Bottom Left: Active Positions -->
           <div style="background:rgba(18,18,22,0.9); padding:16px 20px; display:flex; flex-direction:column; gap:4px; transition:background 0.3s ease;" onmouseover="this.style.background='rgba(25,25,30,0.9)'" onmouseout="this.style.background='rgba(18,18,22,0.9)'">
-            <div style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">Positions</div>
-            <div id="walletPositions" style="font-family:'Outfit',sans-serif; font-size:16px; font-weight:700; color:#fff;">3 Active</div>
+            <div style="font-family:var(--font-secondary); font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">Positions</div>
+            <div id="walletPositions" style="font-family:var(--font-primary); font-size:16px; font-weight:700; color:#fff;">3 Active</div>
           </div>
 
           <!-- Bottom Right: Active Volume -->
           <div style="background:rgba(18,18,22,0.9); padding:16px 20px; display:flex; flex-direction:column; gap:4px; transition:background 0.3s ease;" onmouseover="this.style.background='rgba(25,25,30,0.9)'" onmouseout="this.style.background='rgba(18,18,22,0.9)'">
-            <div style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">Active Volume</div>
-            <div id="walletActiveVolume" style="font-family:'Outfit',sans-serif; font-size:16px; font-weight:700; color:#fff;">$5,450.00</div>
+            <div style="font-family:var(--font-secondary); font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">Active Volume</div>
+            <div id="walletActiveVolume" style="font-family:var(--font-primary); font-size:16px; font-weight:700; color:#fff;">$5,450.00</div>
           </div>
         </div>
 
         <!-- CTA Button (Island Architecture) -->
         <div style="margin-top:auto;">
           <button onclick="alert('Proceed to Web3 Setup')" class="btn-premium-connect">
-            <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:11px; font-weight:800; color:#000; text-transform:uppercase; letter-spacing:0.1em;">Connect MetaMask</span>
+            <span style="font-family:var(--font-secondary); font-size:11px; font-weight:800; color:#000; text-transform:uppercase; letter-spacing:0.1em;">Connect MetaMask</span>
             <!-- Button-in-Button Trailing Icon -->
             <div class="btn-icon-circle">
               <i data-lucide="arrow-right" style="width:16px; height:16px; color:#000; stroke-width:2.5;"></i>

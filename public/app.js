@@ -5398,7 +5398,7 @@ function closeStaticPanel() {
   if (staticBody) {
     localStorage.setItem("market_summary_closed", "true");
     staticBody.innerHTML = `
-      <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:var(--text-tertiary); font-family:'Plus Jakarta Sans', sans-serif; font-size:11px;">
+      <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:var(--text-tertiary); font-family:var(--font-secondary); font-size:11px;">
         <i data-lucide="bar-chart-2" style="width:24px; height:24px; margin-bottom:12px; opacity:0.5;"></i>
         <span>Pilih event atau jalankan analisis untuk melihat Market Summary</span>
       </div>
@@ -5546,37 +5546,61 @@ function initTradingViewCharts() {
       priceFormat: { type: 'price', precision: cfg.precision, minMove: Math.pow(10, -cfg.precision) },
     });
 
-    iccCharts[cfg.symbol] = { chart, series, cfg };
+    iccCharts[cfg.symbol] = { chart, series, cfg, currentTf: '15m' };
 
-    // Fetch historical 15m candles from Binance REST
-    fetch(`https://api.binance.com/api/v3/klines?symbol=${cfg.symbol}&interval=15m&limit=500`)
-      .then(r => r.json())
-      .then(data => {
-        const candles = data.map(k => ({
-          time: Math.floor(k[0] / 1000),
-          open: parseFloat(k[1]),
-          high: parseFloat(k[2]),
-          low: parseFloat(k[3]),
-          close: parseFloat(k[4]),
-        }));
-        series.setData(candles);
-        chart.timeScale().fitContent();
-
-        // Initialize state for Pyth WS updates
-        const lastCandle = candles[candles.length - 1];
-        const firstClose = candles[0].open;
-        iccCharts[cfg.symbol].lastCandle = Object.assign({}, lastCandle);
-        iccCharts[cfg.symbol].openPrice = firstClose;
-        
-        updatePriceDisplay(cfg, lastCandle.close, firstClose);
-
-        // We no longer use Binance WS for live updates. Pyth WS from initPriceTickers() will handle it.
-      })
-      .catch(() => {
-        // ponytail: silently fail — charts are bonus UI, not critical
-        container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#333;font-size:11px;font-family:monospace;">Connection error</div>';
-      });
+    fetchChartData(cfg.symbol, '15m');
   });
+}
+
+window.changeChartTimeframe = function(coin, tf) {
+  const symbol = coin.toUpperCase() + 'USDT';
+  if (iccCharts[symbol] && iccCharts[symbol].currentTf !== tf) {
+    iccCharts[symbol].currentTf = tf;
+    fetchChartData(symbol, tf);
+    
+    // Update button styles
+    const btns = document.querySelectorAll(`.tf-btn-${coin.toLowerCase()}`);
+    btns.forEach(btn => {
+      if (btn.getAttribute('data-tf') === tf) {
+        btn.style.color = '#e8e8e8';
+        btn.style.background = 'rgba(255,255,255,0.1)';
+      } else {
+        btn.style.color = '#555';
+        btn.style.background = 'transparent';
+      }
+    });
+  }
+};
+
+function fetchChartData(symbol, tf) {
+  const cfg = iccCharts[symbol].cfg;
+  const series = iccCharts[symbol].series;
+  const chart = iccCharts[symbol].chart;
+  
+  fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${tf}&limit=500`)
+    .then(r => r.json())
+    .then(data => {
+      const candles = data.map(k => ({
+        time: Math.floor(k[0] / 1000),
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4]),
+      }));
+      series.setData(candles);
+      chart.timeScale().fitContent();
+
+      const lastCandle = candles[candles.length - 1];
+      const firstClose = candles[0].open;
+      iccCharts[symbol].lastCandle = Object.assign({}, lastCandle);
+      iccCharts[symbol].openPrice = firstClose;
+      
+      updatePriceDisplay(cfg, lastCandle.close, firstClose);
+    })
+    .catch(() => {
+      const container = document.getElementById(cfg.containerId);
+      if(container) container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#333;font-size:11px;font-family:monospace;">Connection error</div>';
+    });
 }
 
 function updatePriceDisplay(cfg, currentPrice, openPrice) {
@@ -5692,7 +5716,7 @@ function buildBentoGrid(text) {
         <div class="msp-top-row">
           <span class="msp-eyebrow">MARKET SUMMARY</span>
           <div style="display:flex; gap:12px; align-items:center;">
-             ${data.deadline !== "-" ? `<span style="font-family:'Plus Jakarta Sans', sans-serif; font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="clock" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.deadline}</span>` : ""}
+             ${data.deadline !== "-" ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="clock" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.deadline}</span>` : ""}
              <span class="msp-link" id="bentoKesimpulanBox" style="cursor:pointer;">View full report →</span>
              <span class="msp-link" onclick="closeStaticPanel()" style="cursor:pointer; color:var(--neon-red); margin-left:8px; display:flex; align-items:center; gap:2px;" title="Tutup analisis dan kembali ke Live Charts"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
           </div>
@@ -5712,21 +5736,21 @@ function buildBentoGrid(text) {
              <!-- Premium Price Ticker -->
              <div style="display:flex; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 14px; margin-bottom:12px; align-items:center; justify-content:space-between; box-shadow:inset 0 2px 10px rgba(0,0,0,0.4);">
                 <div style="display:flex; flex-direction:column; gap:4px;">
-                   <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.1em;">Realtime (Pyth)</span>
-                   <div style="font-family:'Outfit', monospace; font-size:18px; font-weight:800; color:var(--text-primary); text-shadow:0 0 12px rgba(255,255,255,0.15); line-height:1;">
+                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.1em;">Realtime (Pyth)</span>
+                   <div style="font-family:var(--font-primary); font-size:18px; font-weight:800; color:var(--text-primary); text-shadow:0 0 12px rgba(255,255,255,0.15); line-height:1;">
                       ${data.realtimePrice !== "-" ? `$${data.realtimePrice.replace(/^\$/, '')}` : '<span style="font-size:11px;color:rgba(255,255,255,0.2);">WAITING DATA</span>'}
                    </div>
                 </div>
                 
                 <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 12px;">
                    <div style="width:1px; height:8px; background:rgba(255,255,255,0.1); margin-bottom:4px;"></div>
-                   <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; font-weight:800; color:rgba(255,255,255,0.2); font-style:italic;">VS</span>
+                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:800; color:rgba(255,255,255,0.2); font-style:italic;">VS</span>
                    <div style="width:1px; height:8px; background:rgba(255,255,255,0.1); margin-top:4px;"></div>
                 </div>
                 
                 <div style="display:flex; flex-direction:column; gap:4px; text-align:right;">
-                   <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; font-weight:700; color:var(--neon-cyan); text-transform:uppercase; letter-spacing:0.1em; opacity:0.8;">Price to Beat</span>
-                   <div style="font-family:'Outfit', monospace; font-size:18px; font-weight:800; color:var(--neon-cyan); text-shadow:0 0 12px rgba(6,182,212,0.4); line-height:1;">
+                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:var(--neon-cyan); text-transform:uppercase; letter-spacing:0.1em; opacity:0.8;">Price to Beat</span>
+                   <div style="font-family:var(--font-primary); font-size:18px; font-weight:800; color:var(--neon-cyan); text-shadow:0 0 12px rgba(6,182,212,0.4); line-height:1;">
                       ${data.targetPrice !== "-" ? `$${data.targetPrice.replace(/^\$/, '')}` : '<span style="font-size:11px;color:rgba(255,255,255,0.2);">WAITING DATA</span>'}
                    </div>
                 </div>
@@ -5734,8 +5758,8 @@ function buildBentoGrid(text) {
 
              <!-- AI Rationale -->
              <div style="border-left:2px solid rgba(16,185,129,0.3); padding-left:12px; margin-left:2px;">
-                <span style="font-family:'Plus Jakarta Sans',sans-serif; font-size:8px; font-weight:700; color:rgba(255,255,255,0.3); text-transform:uppercase; margin-bottom:4px; letter-spacing:0.1em; display:block;">AI Rationale Snippet</span>
-                <p style="margin:0; font-family:'Plus Jakarta Sans',sans-serif; font-size:10.5px; line-height:1.45; color:var(--text-secondary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${data.summary}</p>
+                <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:rgba(255,255,255,0.3); text-transform:uppercase; margin-bottom:4px; letter-spacing:0.1em; display:block;">AI Rationale Snippet</span>
+                <p style="margin:0; font-family:var(--font-secondary); font-size:10.5px; line-height:1.45; color:var(--text-secondary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${data.summary}</p>
              </div>
              
           </div>
@@ -5799,30 +5823,30 @@ function injectMspStyles() {
 .msp-shell { height: 340px; box-sizing: border-box; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; padding: 2px; box-shadow: 0 12px 40px rgba(0,0,0,0.6), 0 0 0 0.5px rgba(255,255,255,0.04) inset; }
 .msp-core { height: 100%; box-sizing: border-box; background: rgba(22,22,26,0.98); border-radius: 12px; border: 1px solid rgba(255,255,255,0.07); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); padding: 18px 20px 16px; display: flex; flex-direction: column; justify-content: space-between; gap: 0; }
 .msp-top-row { display: flex; justify-content: space-between; align-items: center; }
-.msp-eyebrow { font-family: "Plus Jakarta Sans", monospace, sans-serif; font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.18em; }
-.msp-link { font-family: "Plus Jakarta Sans", sans-serif; font-size: 10px; font-weight: 500; color: rgba(16,185,129,0.55); letter-spacing: 0.02em; cursor: pointer; transition: color 0.2s ease; }
+.msp-eyebrow { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.18em; }
+.msp-link { font-family: var(--font-secondary); font-size: 10px; font-weight: 500; color: rgba(16,185,129,0.55); letter-spacing: 0.02em; cursor: pointer; transition: color 0.2s ease; }
 .msp-link:hover { color: var(--neon-green); }
 .msp-hero-row { display: flex; align-items: center; flex: 1; margin: 10px 0; }
 .msp-signal-block { flex: 1; display: flex; flex-direction: column; gap: 6px; }
 .msp-signal-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px 6px 12px; border-radius: 8px; width: fit-content; }
 .msp-signal-arrow { font-size: 18px; font-weight: 900; line-height: 1; }
-.msp-signal-text { font-family: "Outfit", sans-serif; font-size: 22px; font-weight: 800; letter-spacing: 0.05em; line-height: 1; }
+.msp-signal-text { font-family: var(--font-primary); font-size: 22px; font-weight: 800; letter-spacing: 0.05em; line-height: 1; }
 .msp-vline { width: 1px; height: 48px; background: rgba(255,255,255,0.1); margin: 0 20px; flex-shrink: 0; }
 .msp-entry-block { display: flex; flex-direction: column; gap: 6px; text-align: right; }
-.msp-entry-val { font-family: "Outfit", sans-serif; font-size: 18px; font-weight: 800; letter-spacing: 0.04em; line-height: 1; }
-.msp-field-label { font-family: "Plus Jakarta Sans", sans-serif; font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
+.msp-entry-val { font-family: var(--font-primary); font-size: 18px; font-weight: 800; letter-spacing: 0.04em; line-height: 1; }
+.msp-field-label { font-family: var(--font-secondary); font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
 .msp-hline { height: 1px; background: rgba(255,255,255,0.08); margin: 0 -20px; }
 .msp-strip { display: flex; align-items: stretch; padding: 12px 0; }
 .msp-strip-item { flex: 1; display: flex; flex-direction: column; gap: 5px; padding: 2px 0; }
 .msp-strip-item--wide { flex: 1.6; }
 .msp-strip-sep { width: 1px; background: rgba(255,255,255,0.08); margin: 0 14px; flex-shrink: 0; }
-.msp-strip-label { font-family: "Plus Jakarta Sans", sans-serif; font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
-.msp-strip-val { font-family: "Outfit", monospace; font-size: 13px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+.msp-strip-label { font-family: var(--font-secondary); font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
+.msp-strip-val { font-family: var(--font-primary); font-size: 13px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
 .msp-depth { padding-top: 14px; }
 .msp-depth-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.msp-depth-bid-txt { font-family: "Plus Jakarta Sans", sans-serif; font-size: 9px; font-weight: 700; color: var(--neon-green); text-transform: uppercase; letter-spacing: 0.07em; }
-.msp-depth-center-txt { font-family: "Plus Jakarta Sans", sans-serif; font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.28); text-transform: uppercase; letter-spacing: 0.12em; }
-.msp-depth-ask-txt { font-family: "Plus Jakarta Sans", sans-serif; font-size: 9px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 0.07em; }
+.msp-depth-bid-txt { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: var(--neon-green); text-transform: uppercase; letter-spacing: 0.07em; }
+.msp-depth-center-txt { font-family: var(--font-secondary); font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.28); text-transform: uppercase; letter-spacing: 0.12em; }
+.msp-depth-ask-txt { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 0.07em; }
 .msp-depth-bar { display: flex; width: 100%; height: 6px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); gap: 1px; }
 .msp-depth-bid-fill { height: 100%; background: linear-gradient(90deg, rgba(16,185,129,0.4), rgba(16,185,129,0.85)); border-radius: 4px 0 0 4px; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(16,185,129,0.5); }
 .msp-depth-ask-fill { height: 100%; background: linear-gradient(90deg, rgba(239,68,68,0.85), rgba(239,68,68,0.4)); border-radius: 0 4px 4px 0; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(239,68,68,0.5); }

@@ -1954,7 +1954,7 @@ textarea::-webkit-scrollbar-thumb,
 .dash-bottom-card {
   flex: 1;
   font-family: var(--font-secondary);
-  height: 350px;
+  height: 280px;
   min-width: 0;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.07);

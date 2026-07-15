@@ -1807,6 +1807,36 @@ async function detectDns() {
   }
 }
 
+/* --- Wallet Stream --- */
+const walletStream = new EventSource('/api/wallet-stream');
+walletStream.addEventListener('message', (e) => {
+  try {
+    const data = JSON.parse(e.data);
+    const pmHeader = document.querySelector('#pmRightPanel > div > div > span');
+    if (data.connected && pmHeader) {
+      // Truncate address to 0x...1234
+      const addr = data.address;
+      const shortAddr = `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+      pmHeader.textContent = shortAddr;
+      pmHeader.style.color = 'var(--neon-green)';
+      pmHeader.style.borderColor = 'rgba(16,185,129,0.3)';
+      pmHeader.style.background = 'rgba(16,185,129,0.05)';
+      
+      // Update balances if they are not hidden
+      if (!isWalletHidden) {
+        if (walletUsdcBalance) walletUsdcBalance.textContent = `$${data.usdc.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        if (walletPortfolioValue) walletPortfolioValue.textContent = `$${data.usdc.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`; // Basic mock for portfolio
+        // Native balance could be shown somewhere, but standard Polymarket UI uses USDC primarily.
+      }
+      
+      // Save full data to a global or data attribute if needed
+      window.walletData = data;
+    }
+  } catch (err) {
+    console.error('Error parsing wallet stream:', err);
+  }
+});
+
 /* --- Event Listeners --- */
 
 if (qwenStatus) {
@@ -4359,7 +4389,7 @@ if (aggressiveModeBtn) {
 // Expose to be used by analysis result handler
 window.isAggressiveMode = () => isAggressiveMode;
 
-/* --- Polymarket Wallet Toggle Logic --- */
+/* --- Polymarket Wallet Logic --- */
 const btnToggleWallet = document.getElementById('btnToggleWallet');
 const walletEyeIcon = document.getElementById('walletEyeIcon');
 const walletPortfolioValue = document.getElementById('walletPortfolioValue');
@@ -4367,7 +4397,8 @@ const walletPortfolioChange = document.getElementById('walletPortfolioChange');
 const walletUsdcBalance = document.getElementById('walletUsdcBalance');
 const walletPositions = document.getElementById('walletPositions');
 const walletActiveVolume = document.getElementById('walletActiveVolume');
-let isWalletHidden = localStorage.getItem('walletHidden') === 'true';
+// Default to true (hidden) if not explicitly set to false
+let isWalletHidden = localStorage.getItem('walletHidden') !== 'false';
 
 function updateWalletVisibility() {
   if (isWalletHidden) {
@@ -4385,11 +4416,21 @@ function updateWalletVisibility() {
       walletEyeIcon.setAttribute('data-lucide', 'eye');
       if (typeof lucide !== 'undefined') lucide.createIcons({root: btnToggleWallet});
     }
-    if (walletPortfolioValue) walletPortfolioValue.textContent = '$14,250.00';
-    if (walletPortfolioChange) walletPortfolioChange.textContent = '+ $450.00 (3.2%)';
-    if (walletUsdcBalance) walletUsdcBalance.textContent = '$2,100.00';
-    if (walletPositions) walletPositions.textContent = '3 Active';
-    if (walletActiveVolume) walletActiveVolume.textContent = '$5,450.00';
+    const wData = window.walletData;
+    if (wData && wData.connected) {
+      const formattedUsdc = `$${wData.usdc.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+      if (walletPortfolioValue) walletPortfolioValue.textContent = formattedUsdc;
+      if (walletPortfolioChange) walletPortfolioChange.textContent = 'Active (Polygon)';
+      if (walletUsdcBalance) walletUsdcBalance.textContent = formattedUsdc;
+      if (walletPositions) walletPositions.textContent = 'Ready';
+      if (walletActiveVolume) walletActiveVolume.textContent = '-';
+    } else {
+      if (walletPortfolioValue) walletPortfolioValue.textContent = '$0.00';
+      if (walletPortfolioChange) walletPortfolioChange.textContent = '-';
+      if (walletUsdcBalance) walletUsdcBalance.textContent = '$0.00';
+      if (walletPositions) walletPositions.textContent = '-';
+      if (walletActiveVolume) walletActiveVolume.textContent = '-';
+    }
   }
 }
 
@@ -5647,13 +5688,24 @@ if (document.readyState === 'loading') {
   setTimeout(initTradingViewCharts, 800);
 }
 
-function togglePmPanel() {
-  const panel = document.getElementById('pmRightPanel');
-  if (!panel) return;
-  const isHidden = panel.style.transform === 'translateX(300px)';
-  panel.style.transform = isHidden ? 'translateX(0)' : 'translateX(300px)';
+
+
+function toggleWhaleVolume() {
+  const wrapper = document.getElementById('dashAccumulatedVolumeGridWrapper');
+  const icon = document.getElementById('whaleVolumeToggleIcon');
+  if (!wrapper || !icon) return;
+  
+  if (wrapper.style.maxHeight === '0px' || wrapper.style.maxHeight === '0') {
+    wrapper.style.maxHeight = '200px';
+    wrapper.style.opacity = '1';
+    icon.style.transform = 'rotate(0deg)';
+  } else {
+    wrapper.style.maxHeight = '0px';
+    wrapper.style.opacity = '0';
+    icon.style.transform = 'rotate(180deg)';
+  }
 }
-window.togglePmPanel = togglePmPanel;
+window.toggleWhaleVolume = toggleWhaleVolume;
 
 function buildBentoGrid(text) {
   const data = {

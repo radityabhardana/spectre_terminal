@@ -10,6 +10,10 @@ import { getAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, get
 import { evaluateSingleEvent, evaluateAllResolutions } from "./evaluate.js";
 import { getBinanceWsStatus } from "./binance_ws.js";
 import { getSnifferWsStatus, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig, setAggressiveMode, getAggressiveMode } from "./sniffer.js";
+import { initWallet, getWalletBalances } from "./wallet.js";
+
+// Initialize wallet
+initWallet();
 
 const sseClients = new Set();
 
@@ -307,6 +311,34 @@ export function startWebServer(options = {}) {
         
         req.on('close', () => {
           sseClients.delete(res);
+        });
+        return;
+      }
+      
+      if (req.method === "GET" && req.url === "/api/wallet-stream") {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive'
+        });
+        
+        let isClosed = false;
+        req.on('close', () => { isClosed = true; });
+
+        const sendBalances = async () => {
+          if (isClosed) return;
+          const balances = await getWalletBalances();
+          if (!isClosed) res.write(`data: ${JSON.stringify(balances)}\n\n`);
+        };
+        
+        // Send initial balance
+        sendBalances();
+        
+        // Poll every 10 seconds (standard block time is ~2-12s, 10s is reasonable for polling RPC)
+        const intervalId = setInterval(sendBalances, 10000);
+        
+        req.on('close', () => {
+          clearInterval(intervalId);
         });
         return;
       }

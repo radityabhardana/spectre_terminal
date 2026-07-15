@@ -88,6 +88,7 @@ export const config = {
   duplicateCommandCooldownMs: nonNegativeInt(process.env.DUPLICATE_COMMAND_COOLDOWN_MS, 3000),
   webPassword: process.env.WEB_PASSWORD || "",
   minQwenConfidence: positiveInt(process.env.MIN_QWEN_CONFIDENCE, 80),
+  walletPrivateKey: process.env.WALLET_PRIVATE_KEY || "",
 };
 
 export function assertConfig() {

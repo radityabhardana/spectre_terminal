@@ -309,10 +309,7 @@ html[data-font="inter"] {
             <span class="clock-label">Local</span>
             <span id="clockTime">--:--:--</span>
           </div>
-          
-          <button id="btnConnectPolymarket" style="background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); border-radius:6px; padding:6px 14px; display:flex; align-items:center; gap:8px; color:var(--neon-cyan); font-family:var(--font-secondary); font-size:10px; font-weight:700; cursor:pointer; text-transform:uppercase; letter-spacing:0.05em; transition:all 0.2s;" onmouseover="this.style.background='rgba(6,182,212,0.2)'; this.style.boxShadow='0 0 12px rgba(6,182,212,0.3)';" onmouseout="this.style.background='rgba(6,182,212,0.1)'; this.style.boxShadow='none';" onclick="togglePmPanel()">
-            <i data-lucide="wallet" style="width:13px; height:13px;"></i> Connect Polymarket
-          </button>
+
         </div>
       </header>
 
@@ -487,7 +484,7 @@ html[data-font="inter"] {
             </div>
 
             <!-- === IDLE COMMAND CENTER - Live Charts (Lightweight Charts + Binance) === -->
-            <div id="idleCommandCenter" style="position:fixed; top:452px; left:440px; right:20px; bottom:400px; z-index:80; display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; background:#0a0a0e; border:1px solid rgba(255,255,255,0.05); border-radius:12px; overflow:hidden;">
+            <div id="idleCommandCenter" style="position:fixed; top:442px; left:440px; right:20px; bottom:330px; z-index:80; display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; background:#0a0a0e; border:1px solid rgba(255,255,255,0.05); border-radius:12px; overflow:hidden;">
               <!-- BTC Chart -->
               <div id="chart-col-btc" style="position:relative; border-right:1px solid rgba(255,255,255,0.07); display:flex; flex-direction:column; height:100%; overflow:hidden; background:#0a0a0e;">
                 <div id="icc-header-btc" style="display:flex; align-items:center; gap:8px; padding:7px 14px 6px; background:rgba(0,0,0,0.5); border-bottom:1px solid rgba(255,255,255,0.05); flex-shrink:0; height:30px;">
@@ -560,7 +557,7 @@ html[data-font="inter"] {
             </div>
 
             <!-- === CENTER DASHBOARD (Live Readiness & Agent) === -->
-            <div id="centerDashboard" class="center-dashboard" style="position:fixed; bottom:40px; left:440px; right:20px; height:350px; display:flex; gap:16px; padding:0; z-index:90;">
+            <div id="centerDashboard" class="center-dashboard" style="position:fixed; bottom:40px; left:440px; right:20px; height:280px; display:flex; gap:16px; padding:0; z-index:90;">
 
 
 
@@ -694,10 +691,15 @@ html[data-font="inter"] {
                     </div>
                     
                     <div style="padding: 0 12px 8px; font-size: 10px; font-family: 'JetBrains Mono', monospace; display: flex; flex-direction:column; gap:4px;">
-                      <span style="color:#aaa; font-size:9px; text-transform:uppercase; letter-spacing:0.1em;">Whale Volume Accumulation</span>
-                      <div id="dashAccumulatedVolumeGrid" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:4px;">
-                        <!-- JS will populate this with 5m, 15m, 1h, 4h, 1d stats -->
-                        <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:4px; text-align:center; color:#555;">No Data</div>
+                      <div style="display:flex; align-items:center; justify-content:space-between; cursor:pointer; padding:2px 0;" onclick="toggleWhaleVolume()" title="Sembunyikan / Tampilkan Whale Volume">
+                        <span style="color:#aaa; font-size:9px; text-transform:uppercase; letter-spacing:0.1em;">Whale Volume Accumulation</span>
+                        <i data-lucide="chevron-up" id="whaleVolumeToggleIcon" style="width:12px; height:12px; color:#aaa; transition:transform 0.3s;"></i>
+                      </div>
+                      <div id="dashAccumulatedVolumeGridWrapper" style="max-height:200px; overflow:hidden; transition:max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1); opacity:1;">
+                        <div id="dashAccumulatedVolumeGrid" style="display:grid; grid-template-columns:repeat(5, 1fr); gap:4px; padding-top:2px;">
+                          <!-- JS will populate this with 5m, 15m, 1h, 4h, 1d stats -->
+                          <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:4px; text-align:center; color:#555;">No Data</div>
+                        </div>
                       </div>
                     </div>
                     <div class="tracker-feed" id="dashTrackerFeed">
@@ -1531,7 +1533,7 @@ html[data-font="inter"] {
 
   <!-- === POLYMARKET ACCOUNT CARD (Premium UI) === -->
   <!-- Outer Shell (Double-Bezel Architecture) -->
-  <div id="pmRightPanel" style="position:fixed; top:72px; left:1280px; right:20px; height:360px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:28px; padding:6px; z-index:90; box-shadow:0 24px 64px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.05); transition:transform 0.5s cubic-bezier(0.32,0.72,0,1);">
+  <div id="pmRightPanel" style="position:fixed; top:72px; left:1280px; right:20px; height:360px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:28px; padding:6px; z-index:90; box-shadow:0 24px 64px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.05);">
     
     <!-- Inner Core -->
     <div style="background:#09090b; border:1px solid rgba(255,255,255,0.04); border-radius:22px; height:100%; box-shadow:inset 0 1px 1px rgba(255,255,255,0.08); display:flex; flex-direction:column; overflow:hidden;">
@@ -1584,18 +1586,6 @@ html[data-font="inter"] {
             <div id="walletActiveVolume" style="font-family:var(--font-primary); font-size:16px; font-weight:700; color:#fff;">$5,450.00</div>
           </div>
         </div>
-
-        <!-- CTA Button (Island Architecture) -->
-        <div style="margin-top:auto;">
-          <button onclick="alert('Proceed to Web3 Setup')" class="btn-premium-connect">
-            <span style="font-family:var(--font-secondary); font-size:11px; font-weight:800; color:#000; text-transform:uppercase; letter-spacing:0.1em;">Connect MetaMask</span>
-            <!-- Button-in-Button Trailing Icon -->
-            <div class="btn-icon-circle">
-              <i data-lucide="arrow-right" style="width:16px; height:16px; color:#000; stroke-width:2.5;"></i>
-            </div>
-          </button>
-        </div>
-
       </div>
     </div>
   </div>

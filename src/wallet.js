@@ -11,9 +11,9 @@ const ERC20_ABI = [
   "function decimals() view returns (uint8)"
 ];
 
-let provider = null;
-let wallet = null;
-let usdcContract = null;
+export let provider = null;
+export let wallet = null;
+export let usdcContract = null;
 
 /**
  * Initializes the wallet and provider using the private key from config.

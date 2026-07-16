@@ -1772,6 +1772,26 @@ async function loadHealth() {
     }
     if (sbQwenDot) sbQwenDot.className = qwenConfigured ? "status-bar-dot ai" : "status-bar-dot warn";
     if (sbQwenLabel) sbQwenLabel.textContent = qwenConfigured ? "Qwen: • loaded" : "Qwen: ? missing";
+
+    // Update AI Token display from health (lightweight, token-only)
+    if (data.totalAITokensUsed) {
+      const tokenUsageObj = data.totalAITokensUsed;
+      let totalUsed = 0;
+      let tokenHtml = '';
+      for (const [model, tokens] of Object.entries(tokenUsageObj)) {
+        totalUsed += tokens;
+        tokenHtml += `
+          <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; font-size:10px; gap:8px;">
+            <span style="color:var(--text-primary); font-family:var(--font-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;" title="${model}">${model}</span>
+            <span style="color:var(--neon-green); font-weight:bold; white-space:nowrap;">${tokens.toLocaleString()}</span>
+          </div>
+        `;
+      }
+      const aiPercentLabel = document.getElementById('aiTokenPercent');
+      if (aiPercentLabel) aiPercentLabel.innerText = totalUsed.toLocaleString();
+      const modelList = document.getElementById('aiTokenModelList');
+      if (modelList) modelList.innerHTML = tokenHtml || '<div style="font-size:10px; color:var(--text-tertiary); text-align:center;">No tokens used yet</div>';
+    }
   } catch {
     versionText.textContent = "Engine offline";
     if (qwenStatus) {
@@ -3461,7 +3481,7 @@ function renderHistoryListPanel() {
   }
 
   let html = "";
-  for (const event of allHistoryEvents) {
+  for (const event of allHistoryEvents.slice(0, 50)) {
     const d = new Date(event.created_at);
     const timeStr = d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
     const dateStr = d.toLocaleDateString("id-ID", { month: "short", day: "numeric" });
@@ -3500,7 +3520,7 @@ function renderHistoryListPanel() {
     `;
   }
   container.innerHTML = html;
-  if (typeof lucide !== 'undefined') lucide.createIcons();
+  if (typeof lucide !== 'undefined') lucide.createIcons({ root: container });
 }
 
 window.showHistoryChat = function(eventId) {
@@ -3565,7 +3585,10 @@ function renderHistoryEvents(events) {
     else if (event.result === 'kalah') losses++;
     else if (event.result === 'netral') neutrals++;
     else pending++;
+  }
 
+  const displayEvents = events.slice(0, 100);
+  for (const event of displayEvents) {
     const statusColor = event.status === 'selesai' 
       ? (event.result === 'menang' ? 'var(--neon-green)' : (event.result === 'kalah' ? 'var(--neon-red)' : 'var(--neon-amber)')) 
       : 'var(--text-tertiary)';
@@ -3610,6 +3633,7 @@ function renderHistoryEvents(events) {
   }
 
   historyTableBody.innerHTML = html || '<tr><td colspan="5" style="text-align:center; padding:20px; color:var(--text-tertiary);">Belum ada riwayat analisis.</td></tr>';
+  if (typeof lucide !== 'undefined') lucide.createIcons({ root: historyTableBody });
   
   document.querySelector("#historyTotal").textContent = total;
   
@@ -4323,6 +4347,7 @@ function applyLanguageUI(lang) {
 // Queue polling handled by the sniper interval above
 setTimeout(loadHealth, 100);
 setTimeout(detectDns, 100);
+setInterval(loadHealth, 5000); // Keep ms latency live in status bar
 
 
 /* --- Aggressive Mode (No NETRAL) --- */
@@ -4383,13 +4408,31 @@ function updateTrackerConfig(minUsd, wallets) {
     });
   });
 
-  // AI Token Popup Logic
+  // AI Token Popup Logic — use fixed positioning to escape footer overflow clipping
   const aiTokenBtn = document.getElementById('aiTokenBtn');
   const aiTokenPopup = document.getElementById('aiTokenPopup');
   if (aiTokenBtn && aiTokenPopup) {
+    // Move popup to body so it's never clipped by any parent overflow
+    document.body.appendChild(aiTokenPopup);
+    aiTokenPopup.style.position = 'fixed';
+    aiTokenPopup.style.zIndex = '9999';
+    aiTokenPopup.style.display = 'none';
+
+    const positionPopup = () => {
+      const rect = aiTokenBtn.getBoundingClientRect();
+      aiTokenPopup.style.left = rect.left + 'px';
+      aiTokenPopup.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+      aiTokenPopup.style.top = 'auto';
+    };
+
     aiTokenBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      aiTokenPopup.style.display = aiTokenPopup.style.display === 'none' ? 'block' : 'none';
+      if (aiTokenPopup.style.display === 'none') {
+        positionPopup();
+        aiTokenPopup.style.display = 'block';
+      } else {
+        aiTokenPopup.style.display = 'none';
+      }
     });
     document.addEventListener('click', (e) => {
       if (!aiTokenPopup.contains(e.target) && !aiTokenBtn.contains(e.target)) {
@@ -4750,30 +4793,7 @@ let isFirstLoad = true;
         grid.innerHTML = gridHtml;
       }
 
-      // Update AI Tokens (by model)
-      const tokenUsageObj = data.totalAITokensUsed || {};
-      let totalUsed = 0;
-      let html = '';
-      
-      for (const [model, tokens] of Object.entries(tokenUsageObj)) {
-        totalUsed += tokens;
-        html += `
-          <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; font-size:10px; gap:8px;">
-            <span style="color:var(--text-primary); font-family:var(--font-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;" title="${model}">${model}</span>
-            <span style="color:var(--neon-green); font-weight:bold; white-space:nowrap;">${tokens.toLocaleString()}</span>
-          </div>
-        `;
-      }
-      
-      if (totalUsed === 0) {
-        html = '<div style="font-size:10px; color:var(--text-tertiary); text-align:center;">No tokens used yet</div>';
-      }
-      
-      const aiPercentLabel = document.getElementById('aiTokenPercent');
-      if (aiPercentLabel) aiPercentLabel.innerText = `${totalUsed.toLocaleString()}`;
-      
-      const modelList = document.getElementById('aiTokenModelList');
-      if (modelList) modelList.innerHTML = html;
+      // AI Token display is now updated by loadHealth() via /api/health — no longer fetched here
 
       // Update Whale List & Check for New Whales
       if (data.isSnifferActive && data.whales) {
@@ -5627,22 +5647,19 @@ function initTradingViewCharts() {
 
 window.changeChartTimeframe = function(coin, tf) {
   const symbol = coin.toUpperCase() + 'USDT';
-  if (iccCharts[symbol] && iccCharts[symbol].currentTf !== tf) {
-    iccCharts[symbol].currentTf = tf;
-    fetchChartData(symbol, tf);
-    
-    // Update button styles
-    const btns = document.querySelectorAll(`.tf-btn-${coin.toLowerCase()}`);
-    btns.forEach(btn => {
-      if (btn.getAttribute('data-tf') === tf) {
-        btn.style.color = '#e8e8e8';
-        btn.style.background = 'rgba(255,255,255,0.1)';
-      } else {
-        btn.style.color = '#555';
-        btn.style.background = 'transparent';
-      }
-    });
+  if (!iccCharts[symbol]) {
+    // Chart not init yet — init on demand then fetch
+    initTradingViewCharts();
+    setTimeout(() => window.changeChartTimeframe(coin, tf), 600);
+    return;
   }
+  iccCharts[symbol].currentTf = tf;
+  fetchChartData(symbol, tf);
+  // Update button styles
+  document.querySelectorAll(`.tf-btn-${coin.toLowerCase()}`).forEach(btn => {
+    btn.style.color = btn.getAttribute('data-tf') === tf ? '#e8e8e8' : '#555';
+    btn.style.background = btn.getAttribute('data-tf') === tf ? 'rgba(255,255,255,0.1)' : 'transparent';
+  });
 };
 
 function fetchChartData(symbol, tf) {
@@ -5944,3 +5961,179 @@ function injectMspStyles() {
 `;
   document.head.appendChild(style);
 }
+
+
+// ==========================================
+// BULK TRADE PANEL LOGIC
+// ==========================================
+
+window.openTradePanel = async function() {
+  document.getElementById('tradePanelModal').style.display = 'flex';
+  await populateTradePanel();
+};
+
+window.closeTradePanel = function() {
+  document.getElementById('tradePanelModal').style.display = 'none';
+};
+
+window.selectAllTradeItems = function() {
+  const items = document.querySelectorAll('.trade-item');
+  if (items.length === 0) return;
+  const allSelected = Array.from(items).every(item => item.classList.contains('selected'));
+  
+  items.forEach(item => {
+    if (allSelected) {
+      item.classList.remove('selected');
+    } else {
+      item.classList.add('selected');
+    }
+  });
+};
+
+window.toggleTradeItem = function(element) {
+  element.classList.toggle('selected');
+};
+
+async function populateTradePanel() {
+  const listEl = document.getElementById('tradePanelList');
+  listEl.innerHTML = '<div style="text-align:center; padding:30px; color:#aaa;">Loading queue & predictions...</div>';
+  document.getElementById('tradePanelStatus').innerText = '';
+  
+  try {
+    const queueRes = await fetch("/api/queue");
+    if (!queueRes.ok) throw new Error("Failed to fetch queue");
+    const queueData = await queueRes.json();
+    
+    if (!queueData.queue || queueData.queue.length === 0) {
+      listEl.innerHTML = '<div style="text-align:center; padding:30px; color:#666; font-size:12px;">Queue is empty. Analyze some events first.</div>';
+      return;
+    }
+    
+    if (!window.historyEventsData || window.historyEventsData.length === 0) {
+      if (typeof fetchHistoryEvents === 'function') await fetchHistoryEvents(); 
+    }
+    
+    let html = '';
+    let hasValid = false;
+    
+    queueData.queue.forEach(item => {
+      const historyMatch = (window.historyEventsData || []).find(h => h.market_id === item.id);
+      
+      let predictionText = "UNKNOWN";
+      let predictionColor = "#aaa";
+      let canTrade = false;
+      
+      if (historyMatch && historyMatch.prediction) {
+        const pred = historyMatch.prediction.toUpperCase();
+        if (pred === "YES" || pred === "UP") {
+          predictionText = pred;
+          predictionColor = "var(--neon-green)";
+          canTrade = true;
+        } else if (pred === "NO" || pred === "DOWN") {
+          predictionText = pred;
+          predictionColor = "var(--neon-red)";
+          canTrade = true;
+        } else {
+          predictionText = "NETRAL / SKIP";
+        }
+      } else {
+        predictionText = item.status === "DONE" ? "WAITING FOR SYNC" : item.status;
+      }
+      
+      if (!canTrade) {
+        html += `
+          <div class="trade-item" style="opacity:0.5; cursor:not-allowed;">
+            <div class="trade-checkbox"></div>
+            <div style="flex:1; overflow:hidden;">
+              <div style="font-size:12px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.question || item.id}</div>
+              <div style="font-size:10px; color:#aaa;">Signal: ${predictionText} (Cannot Trade)</div>
+            </div>
+          </div>
+        `;
+      } else {
+        hasValid = true;
+        html += `
+          <div class="trade-item selected" onclick="toggleTradeItem(this)" data-marketid="${item.id}" data-prediction="${predictionText}">
+            <div class="trade-checkbox"></div>
+            <div style="flex:1; overflow:hidden;">
+              <div style="font-size:12px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.question || item.id}</div>
+              <div style="font-size:10px; color:#ccc;">AI Signal: <span style="color:${predictionColor}; font-weight:bold;">${predictionText}</span></div>
+            </div>
+          </div>
+        `;
+      }
+    });
+    
+    if (!hasValid) {
+      html += '<div style="text-align:center; padding:10px; color:#666; font-size:12px;">No clear UP/DOWN signals in the queue to trade.</div>';
+    }
+    
+    listEl.innerHTML = html;
+  } catch (err) {
+    listEl.innerHTML = `<div style="text-align:center; padding:30px; color:var(--neon-red);">${err.message}</div>`;
+  }
+}
+
+window.executeBulkTrade = async function() {
+  const selectedItems = document.querySelectorAll('.trade-item.selected');
+  if (selectedItems.length === 0) {
+    alert("Please select at least one market to trade.");
+    return;
+  }
+  
+  const sizeInput = document.getElementById('tradePanelSizeInput').value;
+  const sizeUsdc = parseFloat(sizeInput);
+  if (isNaN(sizeUsdc) || sizeUsdc <= 0) {
+    alert("Please enter a valid Trade Size (USDC).");
+    return;
+  }
+  
+  const trades = [];
+  selectedItems.forEach(el => {
+    trades.push({
+      marketId: el.getAttribute('data-marketid'),
+      prediction: el.getAttribute('data-prediction'),
+      sizeUsdc: sizeUsdc
+    });
+  });
+  
+  const statusEl = document.getElementById('tradePanelStatus');
+  const btn = document.getElementById('btnExecuteTrade');
+  
+  btn.disabled = true;
+  btn.innerText = "EXECUTING...";
+  btn.style.opacity = "0.5";
+  statusEl.style.color = "var(--neon-green)";
+  statusEl.innerText = `Sending ${trades.length} market orders to Polygon...`;
+  
+  try {
+    const res = await fetch("/api/execute-trade", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trades })
+    });
+    
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || "Execution failed");
+    
+    let successCount = 0;
+    let failCount = 0;
+    data.results.forEach(r => {
+      if (r.success) successCount++;
+      else failCount++;
+    });
+    
+    statusEl.innerText = `Done! ${successCount} successful, ${failCount} failed.`;
+    if (failCount > 0) statusEl.style.color = "var(--neon-red)";
+    
+    setTimeout(() => { if (typeof fetchWsStatus === 'function') fetchWsStatus(); }, 2000); 
+    
+  } catch (err) {
+    statusEl.style.color = "var(--neon-red)";
+    statusEl.innerText = `Error: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.innerText = "EXECUTE TRADES";
+    btn.style.opacity = "1";
+  }
+};

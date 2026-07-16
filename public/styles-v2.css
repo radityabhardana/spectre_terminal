@@ -1121,7 +1121,7 @@ textarea:focus {
   color: var(--text-tertiary);
   padding: 0 16px;
   z-index: 10;
-  overflow: hidden;
+  overflow: visible;
 }
 .status-bar-item {
   display: flex;

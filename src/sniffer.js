@@ -219,6 +219,7 @@ async function connectSnifferWs() {
   }
   snifferIsConnecting = true;
 
+  // Non-blocking: fetch markets then proceed. If cache is fresh this is instant.
   await fetchAndCacheMarkets();
 
   if (cachedClobIds.length === 0) {
@@ -260,22 +261,20 @@ async function connectSnifferWs() {
   }, 20000);
 
   // Refresh market subscriptions periodically by reconnecting cleanly
-  const updateShortMarketSubs = async () => {
+  snifferSubInterval = setInterval(() => {
     console.log("[Sniffer] Refreshing connections to fetch latest markets...");
     connectSnifferWs();
-  };
-  snifferSubInterval = setInterval(updateShortMarketSubs, 15 * 60 * 1000);
+  }, 15 * 60 * 1000);
 
+  // Create shards — do NOT await between them, stagger via setTimeout to avoid blocking
   for (let i = 0; i < cachedClobIds.length; i += SHARD_SIZE) {
-    if (i > 0) {
-      // Stagger connections sufficiently so their subscription phases do not overlap
-      // (500 tokens / 50 per chunk = 10 messages * 1100ms = 11 seconds)
-      await new Promise(r => setTimeout(r, 12000)); 
-    }
     const chunk = cachedClobIds.slice(i, i + SHARD_SIZE);
-    createSnifferShard(chunk, Math.floor(i / SHARD_SIZE) + 1);
+    const shardId = Math.floor(i / SHARD_SIZE) + 1;
+    const delay = i === 0 ? 0 : 12000; // stagger subsequent shards by 12s each
+    setTimeout(() => createSnifferShard(chunk, shardId), delay);
   }
   
+  // Mark done immediately — shard creation itself is non-blocking
   snifferIsConnecting = false;
   console.log(`✅ [Sniffer] Semua shard siap.`);
 }
@@ -288,19 +287,27 @@ function createSnifferShard(ids, shardId) {
     console.log(`✅ [Sniffer Shard ${shardId}] Terhubung! Subscribing to ${ids.length} tokens...`);
     // Reset delay hanya saat koneksi berhasil dan selesai subscribe
     
-    const CHUNK_SIZE = 25; // Kecilkan chunk — lebih sedikit token per pesan, lebih aman
+    // Subscribe tokens in background (non-blocking) — doesn't stall HTTP server
+    const CHUNK_SIZE = 25;
     let sentCount = 0;
-    for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
-      if (ws.readyState !== 1) break;
-      const chunk = ids.slice(i, i + CHUNK_SIZE);
+    const sendNextChunk = (idx) => {
+      if (ws.readyState !== 1) {
+        if (ws.readyState === 3) return; // closed, give up
+        // Still connecting, retry shortly
+        setTimeout(() => sendNextChunk(idx), 200);
+        return;
+      }
+      if (idx >= ids.length) {
+        console.log(`[Sniffer Shard ${shardId}] Subscribed to ${sentCount} tokens. ✅`);
+        snifferReconnectDelay = 2000; // Reset backoff only after subscribe complete
+        return;
+      }
+      const chunk = ids.slice(idx, idx + CHUNK_SIZE);
       ws.send(JSON.stringify({ assets_ids: chunk, type: "market" }));
       sentCount += chunk.length;
-      await new Promise(r => setTimeout(r, 1200)); // 1200ms delay — aman di bawah 1 msg/sec
-    }
-    if (ws.readyState === 1) {
-      console.log(`[Sniffer Shard ${shardId}] Subscribed to ${sentCount} tokens. ✅`);
-      snifferReconnectDelay = 2000; // Reset backoff hanya setelah subscribe SELESAI
-    }
+      setTimeout(() => sendNextChunk(idx + CHUNK_SIZE), 800); // 800ms between chunks, non-blocking
+    };
+    sendNextChunk(0);
   });
 
   ws.on('pong', () => { /* Heartbeat ACK */ });
@@ -443,11 +450,10 @@ function createSnifferShard(ids, shardId) {
   });
 }
 
-export async function startSniffer() {
+export function startSniffer() {
   console.log("🕵️ [Sniffer] Memulai inisialisasi...");
-  // Pre-fetch market list once before connecting
-  await fetchAndCacheMarkets();
-  await connectSnifferWs();
+  // Fire-and-forget: do not block server startup
+  connectSnifferWs().catch(err => console.error("[Sniffer] Init error:", err.message));
 }
 
 export function getRecentWhales(minSizeUsdc = 0) {

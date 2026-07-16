@@ -11,9 +11,11 @@ import { evaluateSingleEvent, evaluateAllResolutions } from "./evaluate.js";
 import { getBinanceWsStatus } from "./binance_ws.js";
 import { getSnifferWsStatus, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig, setAggressiveMode, getAggressiveMode } from "./sniffer.js";
 import { initWallet, getWalletBalances } from "./wallet.js";
+import { initTradeModule } from "./trade.js";
 
-// Initialize wallet
+// Initialize wallet and trade module
 initWallet();
+initTradeModule();
 
 const sseClients = new Set();
 
@@ -280,11 +282,13 @@ export function startWebServer(options = {}) {
       if (!checkAuth(req, res)) return;
 
       if (req.method === "GET" && req.url === "/api/health") {
+        const { getTotalAITokensUsed } = await import('./qwen.js');
         sendJson(res, 200, {
           ok: true,
           qwen: qwenHealth(),
           engine: SEARCH_ENGINE_VERSION,
           cooldown: getCooldownState(),
+          totalAITokensUsed: getTotalAITokensUsed()
         });
         return;
       }
@@ -580,6 +584,47 @@ export function startWebServer(options = {}) {
         return;
       }
 
+      if (req.method === "POST" && req.url === "/api/execute-trade") {
+        let body = "";
+        req.on("data", (chunk) => { body += chunk; });
+        req.on("end", async () => {
+          try {
+            const data = JSON.parse(body);
+            if (!Array.isArray(data.trades)) throw new Error("Invalid trades array");
+            
+            const { executeMarketOrder } = await import('./trade.js');
+            const { getMarketById, pickYesNoTokens } = await import('./polymarket.js');
+            
+            const results = [];
+            for (const t of data.trades) {
+              try {
+                // Fetch market to get token IDs
+                const market = await getMarketById(t.marketId);
+                if (!market) throw new Error("Market not found");
+                
+                const { yesToken, noToken } = pickYesNoTokens(market);
+                let targetTokenId = t.prediction.toUpperCase() === "YES" || t.prediction.toUpperCase() === "UP" ? yesToken : noToken;
+                
+                if (!targetTokenId) {
+                   targetTokenId = market.tokens?.[0]?.token_id; // Fallback if 2-outcome assumed
+                }
+
+                if (!targetTokenId) throw new Error("Token ID could not be determined");
+
+                const res = await executeMarketOrder(targetTokenId, "BUY", t.sizeUsdc);
+                results.push({ marketId: t.marketId, success: true, res });
+              } catch (e) {
+                results.push({ marketId: t.marketId, success: false, error: e.message });
+              }
+            }
+            sendJson(res, 200, { ok: true, results });
+          } catch (e) {
+            sendJson(res, 400, { ok: false, error: e.message });
+          }
+        });
+        return;
+      }
+
       if (req.url === "/api/sniffer-status" && req.method === "GET") {
         return sendJson(res, 200, { isSnifferActive: getSnifferState(), startTime: getSnifferStartTime() });
       }
@@ -598,8 +643,7 @@ export function startWebServer(options = {}) {
           whales: whales,
           trending: trending,
           accumulatedWhaleVolume: getAccumulatedWhaleVolume(),
-          timeframeFilter: getTimeframeFilter(),
-          totalAITokensUsed: getTotalAITokensUsed()
+          timeframeFilter: getTimeframeFilter()
         });
       }
 

@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import { config } from "./config.js";
 
 // Polygon Mainnet configuration
-const POLYGON_RPC_URL = "https://polygon-rpc.com";
+const POLYGON_RPC_URL = process.env.POLYGON_RPC_URL || "https://polygon-rpc.com";
 const USDC_CONTRACT_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359";
 
 // Minimal ERC-20 ABI for balanceOf and decimals
@@ -25,7 +25,11 @@ export function initWallet() {
   
   try {
     provider = new ethers.JsonRpcProvider(POLYGON_RPC_URL);
-    wallet = new ethers.Wallet(config.walletPrivateKey, provider);
+    let pKey = config.walletPrivateKey;
+    if (!pKey.startsWith('0x')) {
+      pKey = '0x' + pKey;
+    }
+    wallet = new ethers.Wallet(pKey, provider);
     usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, provider);
     console.log(`[Wallet] Initialized for address: ${wallet.address}`);
     return true;

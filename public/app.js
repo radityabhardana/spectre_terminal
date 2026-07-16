@@ -576,14 +576,17 @@ function setBusy(nextBusy) {
       if (staticPanel && staticBody) {
         staticPanel.classList.remove("hidden");
         staticBody.innerHTML = `
-          <div class="empty-dashboard-state" style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; gap: 16px;">
-            <div class="spinner" style="width:48px; height:48px; border-width:4px; border-color:var(--neon-green) transparent transparent transparent;"></div>
-            <p id="staticLoadingText" style="font-family: 'JetBrains Mono', monospace; font-size: 14px; letter-spacing: 0.1em; color: var(--neon-green); text-transform: uppercase;">${initialText}</p>
+          <div class="empty-dashboard-state" style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 240px; gap: 20px;">
+            <div class="spinner" style="width:40px; height:40px; border-width:2px; border-radius:50%; border-color:rgba(16,185,129,0.15); border-top-color:var(--neon-green);"></div>
+            <div id="staticLoadingText" style="font-family:var(--font-secondary); font-size:12px; color:var(--neon-green); letter-spacing:0.2em; text-transform:uppercase; font-weight:500;">
+              ${initialText}
+            </div>
           </div>
         `;
       }
 
       if (pipelineInterval) clearInterval(pipelineInterval);
+      
       pipelineInterval = setInterval(() => {
         stageIdx++;
         if (stageIdx < pipelineStages.length) {
@@ -1812,7 +1815,7 @@ const walletStream = new EventSource('/api/wallet-stream');
 walletStream.addEventListener('message', (e) => {
   try {
     const data = JSON.parse(e.data);
-    const pmHeader = document.querySelector('#pmRightPanel > div > div > span');
+    const pmHeader = document.getElementById('pmWalletAddress');
     if (data.connected && pmHeader) {
       // Truncate address to 0x...1234
       const addr = data.address;

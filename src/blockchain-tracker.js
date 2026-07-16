@@ -21,15 +21,39 @@ export function initBlockchainTracker() {
       topics: [TRANSFER_SINGLE_TOPIC]
     };
 
-    provider.on(filter, (log) => {
-      if (!getSnifferState()) return; // Pause tracking if sniffer is inactive
+    let lastBlockChecked = 0;
 
+    const pollLogs = async () => {
       try {
-        parseTransferSingleLog(log);
+        const currentBlock = await provider.getBlockNumber();
+        if (lastBlockChecked === 0) {
+          lastBlockChecked = currentBlock - 1; // Start from previous block
+        }
+
+        if (currentBlock > lastBlockChecked) {
+          const logs = await provider.getLogs({
+            ...filter,
+            fromBlock: lastBlockChecked + 1,
+            toBlock: currentBlock
+          });
+
+          for (const log of logs) {
+            if (!getSnifferState()) continue;
+            try {
+              parseTransferSingleLog(log);
+            } catch (err) {
+              console.error("❌ [Blockchain Tracker] Error parsing log:", err.message);
+            }
+          }
+          lastBlockChecked = currentBlock;
+        }
       } catch (err) {
-        console.error("❌ [Blockchain Tracker] Error parsing log:", err.message);
+        // Ignore simple timeout/network errors during polling to avoid spam
       }
-    });
+    };
+
+    // Poll every 3 seconds (Polygon block time is ~2-3s)
+    setInterval(pollLogs, 3000);
 
   } catch (err) {
     console.error("❌ [Blockchain Tracker] Failed to initialize:", err.message);

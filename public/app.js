@@ -3002,7 +3002,9 @@ function renderShortMarkets(markets) {
         : isLockedOut
           ? `onclick="showCustomAlert('Waktu tersisa kurang dari 1 menit! Market sudah dikunci (locked out) dan terlalu berisiko untuk dibeli.')"`
           : `onclick="analyzeShortMarket('${m.id}', '${m.url}')"`;
-    const onDragAttr = `draggable="true" ondragstart="handleDragStart(event, this)" ondragend="handleDragEnd(event)"`;
+    const onDragAttr = (isClosed || isLockedOut) 
+      ? `draggable="false"` 
+      : `draggable="true" ondragstart="handleDragStart(event, this)" ondragend="handleDragEnd(event)"`;
 
     let priceInfo = "";
 

@@ -2964,8 +2964,9 @@ function renderShortMarkets(markets) {
     else if (activeShortDuration === '1d') durationLimit = 24 * 60 * 60 * 1000;
     
     const isFuture = timeToClose > durationLimit;
-    const isClosingSoon = timeToClose > 0 && timeToClose < 2 * 60 * 1000 && !isFuture;
     const isClosed = timeToClose <= 0;
+    const isLockedOut = !isFuture && !isClosed && timeToClose <= 60 * 1000; // Under 1 min
+    const isClosingSoon = !isFuture && !isClosed && !isLockedOut && timeToClose < 2 * 60 * 1000;
     
     const pYes = m.outcomePrices[0] ? Math.round(m.outcomePrices[0] * 100) : 0;
     const pNo = m.outcomePrices[1] ? Math.round(m.outcomePrices[1] * 100) : 0;
@@ -2973,7 +2974,7 @@ function renderShortMarkets(markets) {
     const labelYes = m.outcomes[0] || "Up";
     const labelNo = m.outcomes[1] || "Down";
 
-    let timeColor = isClosed ? "var(--text-tertiary)" : (isFuture ? "var(--text-tertiary)" : (isClosingSoon ? "var(--neon-amber)" : "var(--neon-green)"));
+    let timeColor = isClosed ? "var(--text-tertiary)" : (isFuture ? "var(--text-tertiary)" : (isLockedOut ? "var(--neon-red)" : (isClosingSoon ? "var(--neon-amber)" : "var(--neon-green)")));
     let timeText = isClosed ? "Closed" : (isFuture ? "Wait " + Math.floor((timeToClose - durationLimit) / 60000) + "m" : Math.floor(timeToClose / 60000) + "m " + Math.floor((timeToClose % 60000) / 1000) + "s");
     
     if (isClosed) {
@@ -2989,16 +2990,18 @@ function renderShortMarkets(markets) {
       }
     }
     
-    const cardOpacity = isFuture ? "0.5" : "1";
-    const cardCursor = "grab";
-    const cardBg = isFuture ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.15)";
-    const cardBorder = isFuture ? "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.05)";
-    const cardHoverBorder = isFuture ? "rgba(255,255,255,0.1)" : "rgba(245,158,11,0.3)";
+    const cardOpacity = (isFuture || isLockedOut) ? "0.5" : "1";
+    const cardCursor = (isFuture || isLockedOut) ? "not-allowed" : "pointer";
+    const cardBg = isFuture ? "rgba(0,0,0,0.3)" : (isLockedOut ? "rgba(220,38,38,0.1)" : "rgba(0,0,0,0.15)");
+    const cardBorder = isFuture ? "rgba(255,255,255,0.02)" : (isLockedOut ? "rgba(220,38,38,0.2)" : "rgba(255,255,255,0.05)");
+    const cardHoverBorder = isFuture ? "rgba(255,255,255,0.1)" : (isLockedOut ? "rgba(220,38,38,0.4)" : "rgba(245,158,11,0.3)");
     const onClickAttr = isClosed 
       ? `onclick="showCustomAlert('Event sudah ditutup dan tidak dapat dianalisis lagi.')"` 
       : isFuture 
         ? `onclick="showCustomAlert('Market belum aktif. Drag ke antrean (Sniper) untuk dianalisis otomatis nanti.')"` 
-        : `onclick="analyzeShortMarket('${m.id}', '${m.url}')"`;
+        : isLockedOut
+          ? `onclick="showCustomAlert('Waktu tersisa kurang dari 1 menit! Market sudah dikunci (locked out) dan terlalu berisiko untuk dibeli.')"`
+          : `onclick="analyzeShortMarket('${m.id}', '${m.url}')"`;
     const onDragAttr = `draggable="true" ondragstart="handleDragStart(event, this)" ondragend="handleDragEnd(event)"`;
 
     let priceInfo = "";

@@ -6155,10 +6155,13 @@ window.triggerMarketPulse = async (asset) => {
   `;
 
   try {
+    const symbol = asset + "USDT";
+    const tf = (window.iccCharts && window.iccCharts[symbol] && window.iccCharts[symbol].currentTf) ? window.iccCharts[symbol].currentTf : "15m";
+
     const res = await fetch("/api/market-pulse", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ asset })
+      body: JSON.stringify({ asset, tf })
     });
     
     if (!res.ok) {
@@ -6193,11 +6196,11 @@ window.triggerMarketPulse = async (asset) => {
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
           <div style="background:rgba(255,255,255,0.03); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
             <div style="font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; margin-bottom:4px;">RSI (14)</div>
-            <div style="font-size:14px; font-weight:bold; color:#fff;">${ticker.rsi14 || 'N/A'} <span style="font-size:9px; color:var(--neon-amber); margin-left:4px;">${ticker.rsiSignal || ''}</span></div>
+            <div style="font-size:14px; font-weight:bold; color:#fff;">${ticker.rsi14 ?? 'N/A'} <span style="font-size:9px; color:var(--neon-amber); margin-left:4px;">${ticker.rsiSignal || ''}</span></div>
           </div>
           <div style="background:rgba(255,255,255,0.03); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
             <div style="font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; margin-bottom:4px;">Volume Momentum</div>
-            <div style="font-size:14px; font-weight:bold; color:#fff;">${ticker.volumeRatio || 'N/A'}x <span style="font-size:9px; color:var(--neon-cyan); margin-left:4px;">${ticker.volumeSignal || ''}</span></div>
+            <div style="font-size:14px; font-weight:bold; color:#fff;">${ticker.volumeRatio ?? 'N/A'}x <span style="font-size:9px; color:var(--neon-cyan); margin-left:4px;">${ticker.volumeSignal || ''}</span></div>
           </div>
         </div>
 

@@ -30,7 +30,7 @@ async function fetchWithFallback(endpoints, path, options) {
 // Fetch 24h ticker + klines + RSI/MACD dari Binance
 async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5) {
   try {
-    const interval = intervalMinutes <= 5 ? "5m" : intervalMinutes <= 15 ? "15m" : "1h";
+    const interval = intervalMinutes <= 5 ? "5m" : intervalMinutes <= 15 ? "15m" : intervalMinutes <= 60 ? "1h" : "4h";
     const klinePath = `/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=60`;
     const tickerPath = `/api/v3/ticker/24hr?symbol=${symbol}`;
 
@@ -179,7 +179,7 @@ async function fetchFearGreed() {
   }
 }
 
-export async function evaluateShortMarketCondition({ signal = null, currentPriceStr = "", asset = "BTC", marketQuestion = "", marketOutcomePrice = null }) {
+export async function evaluateShortMarketCondition({ signal = null, currentPriceStr = "", asset = "BTC", marketQuestion = "", marketOutcomePrice = null, isPulseCheck = false }) {
   const symbol = asset === "ETH" ? "ETHUSDT" : asset === "DOGE" ? "DOGEUSDT" : "BTCUSDT";
 
   // Extract target price from market question
@@ -217,7 +217,12 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
         // Dynamically fetch Target Price (Opening Price) for 5-minute Up/Down markets
         if (!targetPrice && marketQuestion.toLowerCase().includes("up or down")) {
            let msInterval = 5 * 60 * 1000;
-           if (marketQuestion.toLowerCase().includes("15m") || marketQuestion.toLowerCase().includes("15 min")) {
+           const mqLower = marketQuestion.toLowerCase();
+           if (mqLower.includes("4h")) {
+               msInterval = 4 * 60 * 60 * 1000;
+           } else if (mqLower.includes("1h") || mqLower.includes("1 hour")) {
+               msInterval = 60 * 60 * 1000;
+           } else if (mqLower.includes("15m") || mqLower.includes("15 min")) {
                msInterval = 15 * 60 * 1000;
            }
            const startTs = Math.floor((Math.floor(Date.now() / msInterval) * msInterval) / 1000);
@@ -248,8 +253,20 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
       }
     }
 
-  // We only need the current price and 24h stats. Klines (RSI/MACD) are removed for 5-minute short markets.
-  let tickerData = await fetchBinanceTickerOnly(symbol);
+  let intervalMinutes = 5;
+  const mqLower = marketQuestion.toLowerCase();
+  if (mqLower.includes("4h")) intervalMinutes = 240;
+  else if (mqLower.includes("1h") || mqLower.includes("1 hour")) intervalMinutes = 60;
+  else if (mqLower.includes("15m") || mqLower.includes("15 min")) intervalMinutes = 15;
+
+  let tickerData;
+  if (isPulseCheck) {
+    tickerData = await fetchBinanceTechData(symbol, intervalMinutes);
+  } else {
+    // We only need the current price and 24h stats. Klines (RSI/MACD) are removed for 5-minute short markets.
+    tickerData = await fetchBinanceTickerOnly(symbol);
+  }
+  
   if (!tickerData) {
     if (pythPrice) {
       tickerData = {

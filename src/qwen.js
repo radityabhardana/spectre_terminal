@@ -1354,6 +1354,9 @@ Current Price: $${td.currentPrice}
 24h Change: ${td.priceChange24h}%
 24h High: $${td.high24h} | 24h Low: $${td.low24h}
 24h Volume: ${td.volume24h} ${(td.symbol || 'BTCUSDT').replace('USDT','')}
+${td.rsi14 ? `RSI-14: ${td.rsi14} (${td.rsiSignal})` : ''}
+${td.macd ? `MACD: Line ${td.macd.line}, Signal ${td.macd.signal} (${td.macd.trend})` : ''}
+${td.volumeRatio ? `Volume Momentum: ${td.volumeRatio}x (${td.volumeSignal})` : ''}
 
 FUTURES POSITIONING (Binance):
 ${longShort ? `Long/Short Ratio: ${longShort.ratio} (Long: ${longShort.longPct}% | Short: ${longShort.shortPct}%) → ${longShort.bias}` : 'Long/Short data: unavailable'}

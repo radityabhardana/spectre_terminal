@@ -1,4 +1,4 @@
-import fs from "node:fs/promises";
+  import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -628,11 +628,12 @@ export function startWebServer(options = {}) {
       if (req.url === "/api/market-pulse" && req.method === "POST") {
         try {
           const body = await readBody(req);
-          const { asset = "BTC" } = body;
+          const { asset = "BTC", tf = "15m" } = body;
           const { evaluateShortMarketCondition } = await import('./short_condition.js');
           
+          const marketQuestion = `${asset} ${tf} up or down`;
           // Evaluate market condition (this runs Qwen)
-          const result = await evaluateShortMarketCondition({ asset });
+          const result = await evaluateShortMarketCondition({ asset, marketQuestion, isPulseCheck: true });
           return sendJson(res, 200, { ok: true, data: result });
         } catch (e) {
           console.error("Market pulse error:", e);

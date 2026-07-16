@@ -6160,8 +6160,14 @@ window.triggerMarketPulse = async (asset) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ asset })
     });
+    
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Server Error (${res.status}): ${errText}`);
+    }
+    
     const data = await res.json();
-    if (!res.ok || !data.ok) throw new Error(data.error || "Failed to fetch pulse");
+    if (!data.ok) throw new Error(data.error || "Failed to fetch pulse");
 
     const pulse = data.data;
     const ticker = pulse.tickerData || {};

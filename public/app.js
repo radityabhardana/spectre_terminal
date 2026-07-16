@@ -6147,7 +6147,7 @@ window.triggerMarketPulse = async (asset) => {
   
   // Custom Loading UI for Pulse
   body.innerHTML = `
-    <div style="padding:40px 20px; text-align:center; color:var(--neon-cyan);">
+    <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; width:100%; height:100%; min-height:300px; padding:40px 20px; text-align:center; color:var(--neon-cyan);">
       <div style="width:40px; height:40px; border:3px solid var(--neon-cyan); border-top-color:transparent; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 16px;"></div>
       <div style="font-family:var(--font-primary); font-size:16px; font-weight:800; letter-spacing:2px; text-transform:uppercase;">Scanning Market Pulse</div>
       <div style="font-size:11px; color:rgba(255,255,255,0.5); margin-top:8px;">Evaluating liquidity, sentiment, and momentum for ${asset}...</div>
@@ -6180,52 +6180,104 @@ window.triggerMarketPulse = async (asset) => {
 
     // Render Custom Pulse UI
     body.innerHTML = `
-      <div style="padding:16px; background:rgba(0,0,0,0.4); border:1px solid var(--neon-cyan); border-radius:12px; margin-bottom:12px; box-shadow:0 0 20px rgba(6,182,212,0.1) inset;">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px;">
-          <div>
-            <div style="font-family:var(--font-primary); font-size:10px; font-weight:800; color:var(--neon-cyan); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:4px;">NEURAL MARKET PULSE</div>
-            <div style="font-size:24px; font-weight:800; color:#fff;">${asset}/USDT</div>
+      <style>
+        .pulse-bento-card:hover {
+          background: rgba(255,255,255,0.04) !important;
+          border-color: rgba(255,255,255,0.15) !important;
+          transform: translateY(-2px);
+        }
+      </style>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <!-- Top Hero Section -->
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; padding:24px 20px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.05); border-radius:16px; position:relative; overflow:hidden;">
+          <span class="msp-link" onclick="closeStaticPanel()" style="position:absolute; top:16px; right:20px; cursor:pointer; color:var(--neon-red); display:flex; align-items:center; gap:4px; font-size:12px; font-weight:bold; z-index:10; background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:4px;"><i data-lucide="x" style="width:14px;height:14px;"></i> Tutup</span>
+          <div style="position:absolute; inset:0; background:radial-gradient(circle at top right, rgba(6,182,212,0.1) 0%, transparent 70%); pointer-events:none;"></div>
+          <div style="position:relative; z-index:1;">
+            <div style="font-size:10px; font-weight:800; color:var(--neon-cyan); letter-spacing:0.2em; text-transform:uppercase; margin-bottom:8px;">Neural Market Pulse</div>
+            <div style="font-size:36px; font-weight:900; color:#fff; letter-spacing:-1px; line-height:1;">$${ticker.currentPrice || '-'}</div>
+            <div style="font-size:13px; font-weight:700; color:${parseFloat(ticker.priceChange24h) >= 0 ? 'var(--neon-green)' : 'var(--neon-red)'}; margin-top:8px;">
+              ${parseFloat(ticker.priceChange24h) > 0 ? '+' : ''}${ticker.priceChange24h || 0}% <span style="color:var(--text-secondary); font-weight:500;">(24h)</span>
+            </div>
           </div>
-          <div style="text-align:right;">
-            <div style="font-size:10px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">Live Price</div>
-            <div style="font-size:18px; font-weight:800; color:var(--text-primary);">$${ticker.currentPrice || '-'}</div>
-            <div style="font-size:11px; font-weight:bold; color:${parseFloat(ticker.priceChange24h) >= 0 ? 'var(--neon-green)' : 'var(--neon-red)'}">${ticker.priceChange24h || 0}%</div>
+          <div style="text-align:right; position:relative; z-index:1;">
+            <div style="font-size:16px; font-weight:800; color:var(--text-secondary);">${asset}</div>
+            <div style="font-size:10px; color:rgba(255,255,255,0.3); font-family:var(--font-mono); margin-top:4px;">USDT-M</div>
           </div>
         </div>
         
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
-          <div style="background:rgba(255,255,255,0.03); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
-            <div style="font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; margin-bottom:4px;">RSI (14)</div>
-            <div style="font-size:14px; font-weight:bold; color:#fff;">${ticker.rsi14 ?? 'N/A'} <span style="font-size:9px; color:var(--neon-amber); margin-left:4px;">${ticker.rsiSignal || ''}</span></div>
+        <!-- Bento Grid for Stats -->
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
+          <!-- RSI -->
+          <div class="pulse-bento-card" style="background:rgba(255,255,255,0.015); border:1px solid rgba(255,255,255,0.05); padding:16px; border-radius:12px; transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+            <div style="font-size:10px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">RSI (14)</div>
+            <div style="font-size:20px; font-weight:800; color:#fff; font-family:var(--font-mono);">${ticker.rsi14 ?? '-'}</div>
+            <div style="font-size:10px; font-weight:600; color:var(--neon-amber); margin-top:4px;">${ticker.rsiSignal || 'NEUTRAL'}</div>
           </div>
-          <div style="background:rgba(255,255,255,0.03); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
-            <div style="font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; margin-bottom:4px;">Volume Momentum</div>
-            <div style="font-size:14px; font-weight:bold; color:#fff;">${ticker.volumeRatio ?? 'N/A'}x <span style="font-size:9px; color:var(--neon-cyan); margin-left:4px;">${ticker.volumeSignal || ''}</span></div>
+          
+          <!-- Volume Momentum -->
+          <div class="pulse-bento-card" style="background:rgba(255,255,255,0.015); border:1px solid rgba(255,255,255,0.05); padding:16px; border-radius:12px; transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+            <div style="font-size:10px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">Vol Momentum</div>
+            <div style="font-size:20px; font-weight:800; color:#fff; font-family:var(--font-mono);">${ticker.volumeRatio ?? '-'}x</div>
+            <div style="font-size:10px; font-weight:600; color:var(--neon-cyan); margin-top:4px;">${ticker.volumeSignal || 'NORMAL'}</div>
+          </div>
+
+          <!-- MACD Trend -->
+          <div class="pulse-bento-card" style="background:rgba(255,255,255,0.015); border:1px solid rgba(255,255,255,0.05); padding:16px; border-radius:12px; transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+            <div style="font-size:10px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">MACD Trend</div>
+            <div style="font-size:20px; font-weight:800; color:#fff; font-family:var(--font-mono);">${ticker.macd ? ticker.macd.histogram : '-'}</div>
+            <div style="font-size:10px; font-weight:600; color:${ticker.macd && ticker.macd.trend === 'BULLISH' ? 'var(--neon-green)' : (ticker.macd && ticker.macd.trend === 'BEARISH' ? 'var(--neon-red)' : 'var(--neon-amber)')}; margin-top:4px;">${ticker.macd ? ticker.macd.trend : 'NEUTRAL'}</div>
           </div>
         </div>
 
-        <div style="padding:12px; border-radius:8px; border:1px solid ${dirColor}; background:linear-gradient(135deg, rgba(0,0,0,0.8), rgba(0,0,0,0.4)); position:relative; overflow:hidden;">
-          <div style="position:absolute; top:0; left:0; bottom:0; width:4px; background:${dirColor};"></div>
-          <div style="font-size:10px; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; margin-left:8px;">AI VERDICT</div>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; margin-left:8px;">
-            <div style="font-size:20px; font-weight:800; color:${dirColor}; letter-spacing:1px;">${dir}</div>
-            <div style="padding:4px 8px; border-radius:4px; background:rgba(255,255,255,0.1); font-size:9px; font-weight:bold; color:#fff;">${ev.recommendation || 'N/A'}</div>
+        <!-- AI Verdict Section (Brutalist) -->
+        <div style="margin-top:4px; padding:24px; border-radius:16px; border:1px solid ${dirColor}40; background:linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.2) 100%); position:relative; overflow:hidden;">
+          <!-- Left Neon Bar -->
+          <div style="position:absolute; left:0; top:0; bottom:0; width:4px; background:${dirColor}; box-shadow:0 0 15px ${dirColor};"></div>
+          
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <div style="font-size:10px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:2px; margin-bottom:12px;">Qwen Engine Verdict</div>
+              <div style="font-size:32px; font-weight:900; color:${dirColor}; letter-spacing:2px; line-height:1; text-transform:uppercase;">
+                ${dir}
+              </div>
+            </div>
+            <div style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); padding:8px 16px; border-radius:8px; font-size:12px; font-weight:800; color:#fff; text-transform:uppercase; letter-spacing:1px;">
+              ${ev.recommendation || 'N/A'}
+            </div>
           </div>
-          <div style="font-size:11px; color:var(--text-secondary); line-height:1.5; margin-left:8px;">
-            ${(ev.reason || "Tidak ada alasan spesifik dari agent.").replace(/\n/g, '<br/>')}
+          
+          <div style="margin-top:20px; padding-top:20px; border-top:1px dashed rgba(255,255,255,0.1); display:flex; justify-content:center;">
+            <button class="pulse-bento-card" onclick="window.showPulseReason()" style="padding:12px 32px; border-radius:8px; background:transparent; border:1px solid var(--neon-cyan); color:var(--neon-cyan); font-size:11px; font-weight:800; letter-spacing:2px; cursor:pointer; text-transform:uppercase;">
+              View AI Reasoning
+            </button>
           </div>
         </div>
       </div>
     `;
+
+    // Bind function to global scope to be called by onclick
+    window.currentPulseReasonHTML = `
+      <div style="font-family:var(--font-primary);">
+        <h3 style="color:${dirColor}; font-size:18px; font-weight:800; text-transform:uppercase; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">Qwen Engine Reasoning (${asset} ${dir})</h3>
+        <div style="font-size:14px; color:var(--text-secondary); line-height:1.8;">
+          ${(ev.reason || "Menunggu hasil analisa...").replace(/\n/g, '<br/>')}
+        </div>
+      </div>
+    `;
+    window.showPulseReason = function() {
+      document.getElementById('summaryModalContent').innerHTML = window.currentPulseReasonHTML;
+      document.getElementById('summaryModal').style.display = 'flex';
+    };
     
   } catch(err) {
     body.innerHTML = `
-      <div style="padding:20px; text-align:center; color:var(--neon-red);">
-        <i data-lucide="alert-triangle" style="width:24px; height:24px; margin-bottom:8px;"></i>
-        <div style="font-size:12px; font-weight:bold;">Pulse Check Failed</div>
-        <div style="font-size:11px; color:rgba(255,255,255,0.5); margin-top:4px;">${err.message}</div>
+      <div style="padding:24px; text-align:center; color:var(--neon-red); background:var(--bg-elevated); border:1px solid rgba(255,255,255,0.05); border-radius:12px; position:relative;">
+        <span class="msp-link" onclick="closeStaticPanel()" style="position:absolute; top:12px; right:16px; cursor:pointer; color:var(--neon-red); display:flex; align-items:center; gap:4px; font-size:12px; font-weight:bold;"><i data-lucide="x" style="width:14px;height:14px;"></i> Tutup</span>
+        <i data-lucide="alert-triangle" style="width:32px; height:32px; margin-bottom:12px; margin-top:8px;"></i>
+        <div style="font-size:14px; font-weight:900; letter-spacing:1px; text-transform:uppercase; margin-bottom:16px;">Pulse Check Failed</div>
+        <div style="font-size:12px; color:rgba(255,255,255,0.7); line-height:1.7; text-align:left; background:rgba(0,0,0,0.3); padding:16px; border-radius:8px; display:inline-block; max-width:100%; white-space:pre-wrap;">${err.message}</div>
       </div>
     `;
-    if(window.lucide) lucide.createIcons();
+    if(window.lucide) window.lucide.createIcons({root: body});
   }
 };

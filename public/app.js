@@ -3511,20 +3511,44 @@ window.showHistoryChat = function(eventId) {
   const tab = outputTabs.get("history-archive");
   if (tab) {
     tab.messages = []; // Clear
-    // Tambahkan user prompt
     tab.messages.push({ role: "user", text: `Analyze Market: ${event.question}\nURL: ${event.url}` });
     
-    // Tambahkan AI response
     let aiText = event.analysis_conclusion || "No detailed conclusion available.";
-    
-    // Karena kita tidak menyimpan text mentah full dari data.messages yang dikirim Qwen saat itu,
-    // kita akan mem-formatting ulang conclusion agar terlihat proper seperti chat
     let formattedText = `## 🤖 ARCHIVED ANALYSIS\n\n**Market:** [${event.question}](${event.url})\n**Prediction:** ${event.prediction}\n**Result:** ${event.result}\n\n---\n\n${aiText}`;
     
     tab.messages.push({ role: "assistant", text: formattedText });
     
     renderMessages();
     saveState();
+  }
+
+  // Also populate the MARKET SUMMARY panel with the history content
+  const staticPanel = document.getElementById("staticResultPanel");
+  const staticBody = document.getElementById("staticResultBody");
+  if (staticPanel) {
+    staticPanel.classList.remove("hidden");
+    staticPanel.style.display = "block";
+    localStorage.setItem("market_summary_closed", "false"); // Ensure it stays open
+  }
+  
+  if (staticBody && typeof buildBentoGrid === "function") {
+    const aiText = event.analysis_conclusion || "";
+    staticBody.innerHTML = buildBentoGrid(aiText, true);
+    if (window.lucide) window.lucide.createIcons({ root: staticBody });
+    
+    // Wire up the summary modal click event for the history grid too
+    setTimeout(() => {
+      const btn = document.getElementById('bentoKesimpulanBox');
+      if (btn) {
+        btn.onclick = () => {
+          const formattedHtml = marked.parse(`## 🤖 ARCHIVED ANALYSIS\n\n**Market:** [${event.question}](${event.url})\n**Prediction:** ${event.prediction}\n**Result:** ${event.result}\n\n---\n\n${aiText}`);
+          const modalHtml = `<div style="padding:10px;">${formattedHtml}</div>`;
+          document.getElementById('summaryModalContent').innerHTML = modalHtml;
+          document.getElementById('summaryModal').style.display = 'flex';
+          if (window.lucide) window.lucide.createIcons({ root: document.getElementById('summaryModalContent') });
+        };
+      }
+    }, 100);
   }
 }
 
@@ -5715,7 +5739,7 @@ function toggleWhaleVolume() {
 }
 window.toggleWhaleVolume = toggleWhaleVolume;
 
-function buildBentoGrid(text) {
+function buildBentoGrid(text, isHistory = false) {
   const data = {
      arah: "-", entry: "-", liquidity: "-", gammaVol: "-", orderbook: "-", conf: "-", qwenScore: "-", risk: "-",
      deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-"
@@ -5770,16 +5794,23 @@ function buildBentoGrid(text) {
 
   if (typeof injectMspStyles === "function") injectMspStyles();
 
+  const headerText = isHistory ? "HISTORY ARCHIVE" : "MARKET SUMMARY";
+  const headerIcon = isHistory ? "archive" : "zap";
+  const headerColor = isHistory ? "var(--neon-purple)" : "var(--neon-amber)";
+
   return `
     <div class="msp-shell">
       <div class="msp-core">
         <div class="msp-top-row">
-          <span class="msp-eyebrow">MARKET SUMMARY</span>
-          <div style="display:flex; gap:12px; align-items:center;">
+           <div class="msp-eyebrow" style="display:flex; align-items:center; gap:6px;">
+             <i data-lucide="${headerIcon}" style="width:12px; height:12px; color:${headerColor};"></i>
+             <span style="color:${headerColor}; font-weight:800; letter-spacing:0.25em;">${headerText}</span>
+           </div>
+           <div style="display:flex; gap:12px; align-items:center;">
              ${data.deadline !== "-" ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="clock" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.deadline}</span>` : ""}
              <span class="msp-link" id="bentoKesimpulanBox" style="cursor:pointer;">View full report →</span>
              <span class="msp-link" onclick="closeStaticPanel()" style="cursor:pointer; color:var(--neon-red); margin-left:8px; display:flex; align-items:center; gap:2px;" title="Tutup analisis dan kembali ke Live Charts"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
-          </div>
+           </div>
         </div>
         <div class="msp-hero-row">
           <div class="msp-signal-block">

@@ -235,7 +235,17 @@ async function connectSnifferWs() {
   // Close any existing WS in pool
   for (const ws of snifferWsPool) {
     if (ws) {
-      ws.onclose = null; // Prevent reconnect loop during cleanup
+      if (typeof ws.removeAllListeners === 'function') {
+        ws.removeAllListeners('close');
+        ws.removeAllListeners('error');
+        ws.removeAllListeners('open');
+        ws.removeAllListeners('message');
+      } else {
+        ws.onclose = null;
+        ws.onerror = null;
+        ws.onopen = null;
+        ws.onmessage = null;
+      }
       ws.close(1000);
     }
   }
@@ -504,12 +514,18 @@ export function getSnifferWsStatus() {
   if (snifferIsConnecting) return "CONNECTING";
   if (!snifferWsPool || snifferWsPool.length === 0) return "RECONNECTING";
   
-  let allConnecting = true;
+  let connectedCount = 0;
   for (const ws of snifferWsPool) {
-    if (ws.readyState === 1) return "CONNECTED";
-    if (ws.readyState !== 0) allConnecting = false;
+    if (ws && ws.readyState === 1) connectedCount++;
   }
   
-  if (allConnecting || !snifferIsConnecting) return "RECONNECTING";
-  return "DISCONNECTED";
+  if (connectedCount > 0) return "CONNECTED";
+  
+  let connectingCount = 0;
+  for (const ws of snifferWsPool) {
+    if (ws && ws.readyState === 0) connectingCount++;
+  }
+  
+  if (connectingCount > 0) return "CONNECTING";
+  return "RECONNECTING";
 }

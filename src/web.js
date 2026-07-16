@@ -625,6 +625,21 @@ export function startWebServer(options = {}) {
         return;
       }
 
+      if (req.url === "/api/market-pulse" && req.method === "POST") {
+        try {
+          const body = await readBody(req);
+          const { asset = "BTC" } = body;
+          const { evaluateShortMarketCondition } = await import('./short_condition.js');
+          
+          // Evaluate market condition (this runs Qwen)
+          const result = await evaluateShortMarketCondition({ asset });
+          return sendJson(res, 200, { ok: true, data: result });
+        } catch (e) {
+          console.error("Market pulse error:", e);
+          return sendJson(res, 500, { ok: false, error: e.message });
+        }
+      }
+
       if (req.url === "/api/sniffer-status" && req.method === "GET") {
         return sendJson(res, 200, { isSnifferActive: getSnifferState(), startTime: getSnifferStartTime() });
       }

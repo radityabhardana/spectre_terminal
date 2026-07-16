@@ -6137,3 +6137,86 @@ window.executeBulkTrade = async function() {
     btn.style.opacity = "1";
   }
 };
+
+window.triggerMarketPulse = async (asset) => {
+  const panel = document.getElementById("staticResultPanel");
+  const body = document.getElementById("staticResultBody");
+  if (!panel || !body) return;
+  
+  panel.style.display = "flex"; // Show panel
+  
+  // Custom Loading UI for Pulse
+  body.innerHTML = `
+    <div style="padding:40px 20px; text-align:center; color:var(--neon-cyan);">
+      <div style="width:40px; height:40px; border:3px solid var(--neon-cyan); border-top-color:transparent; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 16px;"></div>
+      <div style="font-family:var(--font-primary); font-size:16px; font-weight:800; letter-spacing:2px; text-transform:uppercase;">Scanning Market Pulse</div>
+      <div style="font-size:11px; color:rgba(255,255,255,0.5); margin-top:8px;">Evaluating liquidity, sentiment, and momentum for ${asset}...</div>
+    </div>
+  `;
+
+  try {
+    const res = await fetch("/api/market-pulse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ asset })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || "Failed to fetch pulse");
+
+    const pulse = data.data;
+    const ticker = pulse.tickerData || {};
+    const ev = pulse.evaluation || {};
+    const dir = ev.direction || "UNKNOWN";
+    const dirColor = dir === "UP" ? "var(--neon-green)" : dir === "DOWN" ? "var(--neon-red)" : "var(--neon-amber)";
+
+    // Render Custom Pulse UI
+    body.innerHTML = `
+      <div style="padding:16px; background:rgba(0,0,0,0.4); border:1px solid var(--neon-cyan); border-radius:12px; margin-bottom:12px; box-shadow:0 0 20px rgba(6,182,212,0.1) inset;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px;">
+          <div>
+            <div style="font-family:var(--font-primary); font-size:10px; font-weight:800; color:var(--neon-cyan); letter-spacing:0.1em; text-transform:uppercase; margin-bottom:4px;">NEURAL MARKET PULSE</div>
+            <div style="font-size:24px; font-weight:800; color:#fff;">${asset}/USDT</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:10px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">Live Price</div>
+            <div style="font-size:18px; font-weight:800; color:var(--text-primary);">$${ticker.currentPrice || '-'}</div>
+            <div style="font-size:11px; font-weight:bold; color:${parseFloat(ticker.priceChange24h) >= 0 ? 'var(--neon-green)' : 'var(--neon-red)'}">${ticker.priceChange24h || 0}%</div>
+          </div>
+        </div>
+        
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px;">
+          <div style="background:rgba(255,255,255,0.03); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+            <div style="font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; margin-bottom:4px;">RSI (14)</div>
+            <div style="font-size:14px; font-weight:bold; color:#fff;">${ticker.rsi14 || 'N/A'} <span style="font-size:9px; color:var(--neon-amber); margin-left:4px;">${ticker.rsiSignal || ''}</span></div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+            <div style="font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; margin-bottom:4px;">Volume Momentum</div>
+            <div style="font-size:14px; font-weight:bold; color:#fff;">${ticker.volumeRatio || 'N/A'}x <span style="font-size:9px; color:var(--neon-cyan); margin-left:4px;">${ticker.volumeSignal || ''}</span></div>
+          </div>
+        </div>
+
+        <div style="padding:12px; border-radius:8px; border:1px solid ${dirColor}; background:linear-gradient(135deg, rgba(0,0,0,0.8), rgba(0,0,0,0.4)); position:relative; overflow:hidden;">
+          <div style="position:absolute; top:0; left:0; bottom:0; width:4px; background:${dirColor};"></div>
+          <div style="font-size:10px; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; margin-left:8px;">AI VERDICT</div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; margin-left:8px;">
+            <div style="font-size:20px; font-weight:800; color:${dirColor}; letter-spacing:1px;">${dir}</div>
+            <div style="padding:4px 8px; border-radius:4px; background:rgba(255,255,255,0.1); font-size:9px; font-weight:bold; color:#fff;">${ev.recommendation || 'N/A'}</div>
+          </div>
+          <div style="font-size:11px; color:var(--text-secondary); line-height:1.5; margin-left:8px;">
+            ${(ev.reason || "Tidak ada alasan spesifik dari agent.").replace(/\n/g, '<br/>')}
+          </div>
+        </div>
+      </div>
+    `;
+    
+  } catch(err) {
+    body.innerHTML = `
+      <div style="padding:20px; text-align:center; color:var(--neon-red);">
+        <i data-lucide="alert-triangle" style="width:24px; height:24px; margin-bottom:8px;"></i>
+        <div style="font-size:12px; font-weight:bold;">Pulse Check Failed</div>
+        <div style="font-size:11px; color:rgba(255,255,255,0.5); margin-top:4px;">${err.message}</div>
+      </div>
+    `;
+    if(window.lucide) lucide.createIcons();
+  }
+};

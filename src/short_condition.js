@@ -115,7 +115,8 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5) {
       recentCandles,
     };
   } catch (err) {
-    console.error("[Short Condition] fetchBinanceTechData error:", err.message);
+    // Silent catch due to frequent ISP blocking
+    // console.error("[Short Condition] fetchBinanceTechData error:", err.message);
     return null;
   }
 }
@@ -155,7 +156,8 @@ async function fetchLongShortRatio(symbol = "BTCUSDT") {
     
     return result;
   } catch (err) {
-    console.error("[Short Condition] fetchLongShortRatio error:", err.message);
+    // Silent catch due to frequent ISP blocking in Indonesia, fallback handles this gracefully
+    // console.error("[Short Condition] fetchLongShortRatio error:", err.message);
     return null;
   }
 }
@@ -410,22 +412,29 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
        }
     }
 
+    // marketOutcomePrice = harga token UP/YES di CLOB (0.0 - 1.0)
+    // Token DOWN/NO = 1 - upPrice (karena binary market)
+    const upTokenPrice = marketOutcomePrice;
+    const downTokenPrice = upTokenPrice !== null ? parseFloat((1 - upTokenPrice).toFixed(4)) : null;
+
     // Mechanical Scout Override (Optimize WR by trusting crowd/market over AI if strong)
     // Threshold 0.62/0.38 — captures cases where crowd is clearly >60% to one side
     // Celah 2: Kondisional Volume Momentum (Anti-Squeeze Blindness)
     const isExtremeSqueeze = tickerData?.volumeRatio > 2.0;
 
-    if (marketOutcomePrice !== null && !isExtremeSqueeze) {
-      if (marketOutcomePrice >= 0.62) {
+    if (upTokenPrice !== null && !isExtremeSqueeze) {
+      if (upTokenPrice >= 0.62) {
+        // Crowd sangat dominan percaya arah UP
         result.direction = "UP";
         result.recommendation = "PLAY";
-        result.reason = `[SCOUT OVERRIDE] Probabilitas arah UP sangat kuat (${(marketOutcomePrice * 100).toFixed(1)}%). Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
-      } else if (marketOutcomePrice <= 0.38) {
+        result.reason = `[SCOUT OVERRIDE] Crowd dominan arah UP — Token UP: ${(upTokenPrice * 100).toFixed(1)}% vs DOWN: ${(downTokenPrice * 100).toFixed(1)}%. Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
+      } else if (downTokenPrice !== null && downTokenPrice >= 0.62) {
+        // Crowd sangat dominan percaya arah DOWN
         result.direction = "DOWN";
         result.recommendation = "PLAY";
-        result.reason = `[SCOUT OVERRIDE] Probabilitas arah DOWN sangat kuat (${(marketOutcomePrice * 100).toFixed(1)}%). Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
+        result.reason = `[SCOUT OVERRIDE] Crowd dominan arah DOWN — Token DOWN: ${(downTokenPrice * 100).toFixed(1)}% vs UP: ${(upTokenPrice * 100).toFixed(1)}%. Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
       }
-    } else if (isExtremeSqueeze && (marketOutcomePrice >= 0.62 || marketOutcomePrice <= 0.38)) {
+    } else if (isExtremeSqueeze && upTokenPrice !== null && (upTokenPrice >= 0.62 || downTokenPrice >= 0.62)) {
       result.reason = `[SCOUT OVERRIDE CANCELLED] Terdeteksi anomali volume momentum ekstrem (Ratio: ${tickerData?.volumeRatio}x). Mengikuti murni hasil AI.\n` + (result.reason || "");
     }
   

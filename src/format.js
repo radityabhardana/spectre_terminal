@@ -496,6 +496,7 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
     `Market ID: ${market.id || "n/a"}`,
     `Waktu Analisis: ${formatDateWib(new Date())} WIB`,
     analysisTime != null ? `Durasi Analisis: ${analysisTime} detik` : null,
+    qwenResult?.usage ? `Tokens: ${qwenResult.usage.total_tokens || qwenResult.usage.total || ((qwenResult.usage.prompt_tokens || 0) + (qwenResult.usage.completion_tokens || 0)) || "0"}` : null,
     `Status: ${statusLabel(market)}`,
     market.groupItemTitle ? `Variant: ${market.groupItemTitle}` : null,
     `API close/resolution: ${formatDateWib(market.endDate)} WIB`,

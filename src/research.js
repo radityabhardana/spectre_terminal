@@ -843,7 +843,8 @@ async function fetchPremiumNews(queryStr) {
     setCache(key, results);
     return results;
   } catch (error) {
-    console.error(`Error scraping premium news for ${queryStr}:`, error.message);
+    // Silent catch due to frequent blocks
+    // console.error(`Error scraping premium news for ${queryStr}:`, error.message);
     return [];
   }
 }

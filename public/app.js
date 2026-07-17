@@ -950,17 +950,10 @@ function appendMessageElement(message) {
         if (message.text && message.text.includes("MARKET SUMMARY")) {
           const bentoHtml = typeof buildBentoGrid === "function" ? buildBentoGrid(message.text) : html;
           staticBody.innerHTML = bentoHtml;
-          setTimeout(() => {
-            const btn = document.getElementById('bentoKesimpulanBox');
-            if (btn) {
-              btn.onclick = () => {
-                const modalHtml = `<div style="padding:10px;">${html}</div>`;
-                document.getElementById('summaryModalContent').innerHTML = modalHtml;
-                document.getElementById('summaryModal').style.display = 'flex';
-                if (window.lucide) window.lucide.createIcons({ root: document.getElementById('summaryModalContent') });
-              };
-            }
-          }, 50);
+          // Store the report HTML globally so openFullReportModal() can access it
+          window._currentReportHtml = html;
+          // Handler is now inline onclick="openFullReportModal()" on the span itself
+
         } else {
           staticBody.innerHTML = html;
         }
@@ -3556,19 +3549,8 @@ window.showHistoryChat = function(eventId) {
     staticBody.innerHTML = buildBentoGrid(aiText, true);
     if (window.lucide) window.lucide.createIcons({ root: staticBody });
     
-    // Wire up the summary modal click event for the history grid too
-    setTimeout(() => {
-      const btn = document.getElementById('bentoKesimpulanBox');
-      if (btn) {
-        btn.onclick = () => {
-          const formattedHtml = marked.parse(`## 🤖 ARCHIVED ANALYSIS\n\n**Market:** [${event.question}](${event.url})\n**Prediction:** ${event.prediction}\n**Result:** ${event.result}\n\n---\n\n${aiText}`);
-          const modalHtml = `<div style="padding:10px;">${formattedHtml}</div>`;
-          document.getElementById('summaryModalContent').innerHTML = modalHtml;
-          document.getElementById('summaryModal').style.display = 'flex';
-          if (window.lucide) window.lucide.createIcons({ root: document.getElementById('summaryModalContent') });
-        };
-      }
-    }, 100);
+    // Store archive report HTML for the global modal opener
+    window._currentReportHtml = marked.parse(`## 🤖 ARCHIVED ANALYSIS\n\n**Market:** [${event.question}](${event.url})\n**Prediction:** ${event.prediction}\n**Result:** ${event.result}\n\n---\n\n${aiText}`);
   }
 }
 
@@ -5529,6 +5511,23 @@ function closeStaticPanel() {
 }
 window.closeStaticPanel = closeStaticPanel;
 
+function openFullReportModal() {
+  const content = window._currentReportHtml;
+  if (!content) return;
+  // Detect if it's already HTML (archive, pre-parsed) or raw text (live analysis)
+  const modalHtml = content.startsWith('<') 
+    ? `<div style="padding:10px;">${content}</div>`
+    : `<div style="padding:10px;">${content}</div>`;
+  const modalContent = document.getElementById('summaryModalContent');
+  const modal = document.getElementById('summaryModal');
+  if (modalContent && modal) {
+    modalContent.innerHTML = modalHtml;
+    modal.style.display = 'flex';
+    if (window.lucide) window.lucide.createIcons({ root: modalContent });
+  }
+}
+window.openFullReportModal = openFullReportModal;
+
 window.toggleChartFullscreen = function(ticker) {
   const container = document.getElementById(`icc-chart-${ticker}`);
   const modal = document.getElementById('chartModal');
@@ -5787,7 +5786,7 @@ window.toggleWhaleVolume = toggleWhaleVolume;
 function buildBentoGrid(text, isHistory = false) {
   const data = {
      arah: "-", entry: "-", liquidity: "-", gammaVol: "-", orderbook: "-", conf: "-", qwenScore: "-", risk: "-",
-     deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-", analysisTime: null, url: null
+     deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-", analysisTime: null, url: null, tokens: null
   };
   const lines = text.split("\n");
   for (let line of lines) {
@@ -5804,6 +5803,7 @@ function buildBentoGrid(text, isHistory = false) {
     if (line.includes("Realtime Price:")) data.realtimePrice = line.split("Realtime Price:")[1].trim();
     if (line.includes("Durasi Analisis:")) data.analysisTime = line.split("Durasi Analisis:")[1].trim().replace(" detik", "");
     if (line.startsWith("URL:")) data.url = line.split("URL:")[1].trim();
+    if (line.startsWith("Tokens:")) data.tokens = line.split("Tokens:")[1].trim();
   }
   
   // Fallback extraction from summary if backend explicit fields are missing
@@ -5828,14 +5828,15 @@ function buildBentoGrid(text, isHistory = false) {
      const matchBid = data.orderbook.match(/bid\s+([0-9.]+)/i);
      const matchAsk = data.orderbook.match(/ask\s+([0-9.]+)/i);
      if (matchBid && matchAsk) {
-         let b = parseFloat(matchBid[1]);
-         let a = parseFloat(matchAsk[1]);
-         if (b + a > 0) {
-            bidPct = (b / (b + a)) * 100;
-            askPct = (a / (b + a)) * 100;
-            bidStr = bidPct.toFixed(0) + "%";
-            askStr = askPct.toFixed(0) + "%";
-         }
+         const bidPrice = parseFloat(matchBid[1]);  // e.g. 0.47
+         const askPrice = parseFloat(matchAsk[1]);  // e.g. 0.48
+         // Midpoint = market implied prob for YES/UP
+         const midpoint = (bidPrice + askPrice) / 2;
+         // Bid side = prob UP (mid), Ask side = prob DOWN (1-mid)
+         bidPct = Math.round(midpoint * 100);
+         askPct = 100 - bidPct;
+         bidStr = bidPct + "%";
+         askStr = askPct + "%";
      }
   }
 
@@ -5855,9 +5856,10 @@ function buildBentoGrid(text, isHistory = false) {
            </div>
            <div style="display:flex; gap:12px; align-items:center;">
              ${data.analysisTime ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="timer" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.analysisTime}s</span>` : ""}
+             ${data.tokens ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;" title="Qwen Token Usage"><i data-lucide="cpu" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.tokens} tkns</span>` : ""}
              ${data.deadline !== "-" ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="clock" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.deadline}</span>` : ""}
              ${data.url ? `<a href="${data.url}" target="_blank" class="msp-link" style="color:var(--neon-cyan); text-decoration:none; display:flex; align-items:center; gap:2px;"><i data-lucide="external-link" style="width:12px;height:12px;"></i> Polymarket</a>` : ""}
-             <span class="msp-link" id="bentoKesimpulanBox" style="cursor:pointer;">View full report →</span>
+             <span class="msp-link" id="bentoKesimpulanBox" onclick="openFullReportModal()" style="cursor:pointer;">View full report →</span>
              <span class="msp-link" onclick="closeStaticPanel()" style="cursor:pointer; color:var(--neon-red); margin-left:8px; display:flex; align-items:center; gap:2px;" title="Tutup analisis dan kembali ke Live Charts"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
            </div>
         </div>

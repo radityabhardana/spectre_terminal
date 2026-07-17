@@ -402,12 +402,14 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
     });
 
     // Celah 1b: EV Math in Backend with Safety Buffer (+2 cents)
+    let evOverrideActive = false;
     if (result.estimated_fair_probability && marketOutcomePrice) {
        const ev = (result.estimated_fair_probability / 100) - marketOutcomePrice;
        result.expected_value_cents = Math.round(ev * 100);
        
        if (ev <= 0.02 && result.recommendation === "PLAY") {
           result.recommendation = "AVOID";
+          evOverrideActive = true; // Mark so Scout Override cannot re-enable PLAY
           result.reason = `[EV OVERRIDE] Margin EV terlalu tipis/negatif (${result.expected_value_cents} cents <= 2 cents). Rekomendasi Qwen dibatalkan demi keamanan matematis.\nAsli: ` + (result.reason || "");
        }
     }
@@ -420,9 +422,10 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
     // Mechanical Scout Override (Optimize WR by trusting crowd/market over AI if strong)
     // Threshold 0.62/0.38 — captures cases where crowd is clearly >60% to one side
     // Celah 2: Kondisional Volume Momentum (Anti-Squeeze Blindness)
+    // GUARDRAIL: Scout Override TIDAK BOLEH menimpa EV Override (sesuai AGENTS.md)
     const isExtremeSqueeze = tickerData?.volumeRatio > 2.0;
 
-    if (upTokenPrice !== null && !isExtremeSqueeze) {
+    if (upTokenPrice !== null && !isExtremeSqueeze && !evOverrideActive) {
       if (upTokenPrice >= 0.62) {
         // Crowd sangat dominan percaya arah UP
         result.direction = "UP";
@@ -434,7 +437,10 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
         result.recommendation = "PLAY";
         result.reason = `[SCOUT OVERRIDE] Crowd dominan arah DOWN — Token DOWN: ${(downTokenPrice * 100).toFixed(1)}% vs UP: ${(upTokenPrice * 100).toFixed(1)}%. Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
       }
-    } else if (isExtremeSqueeze && upTokenPrice !== null && (upTokenPrice >= 0.62 || downTokenPrice >= 0.62)) {
+    } else if (evOverrideActive && upTokenPrice !== null && (upTokenPrice >= 0.62 || (downTokenPrice !== null && downTokenPrice >= 0.62))) {
+      // Scout ingin override tapi EV guardrail sudah aktif — blokir
+      result.reason = `[SCOUT OVERRIDE BLOCKED] EV guardrail aktif (EV ≤ 2 cents). Scout tidak diizinkan override. Crowd signal diabaikan.\n` + (result.reason || "");
+    } else if (isExtremeSqueeze && upTokenPrice !== null && (upTokenPrice >= 0.62 || (downTokenPrice !== null && downTokenPrice >= 0.62))) {
       result.reason = `[SCOUT OVERRIDE CANCELLED] Terdeteksi anomali volume momentum ekstrem (Ratio: ${tickerData?.volumeRatio}x). Mengikuti murni hasil AI.\n` + (result.reason || "");
     }
   

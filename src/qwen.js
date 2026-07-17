@@ -1371,6 +1371,9 @@ ${liquidations ? `Longs Liq: $${liquidations.longsLiqValue.toFixed(2)} | Shorts 
 LIVE ORDERBOOK DEPTH (Binance 20-levels):
 ${orderbookDepth ? `Total Bid Volume (Nahan Turun): $${orderbookDepth.bidsValue.toFixed(2)} | Total Ask Volume (Nahan Naik): $${orderbookDepth.asksValue.toFixed(2)} | Ratio (Bid/Ask): ${orderbookDepth.imbalanceRatio.toFixed(2)}x` : 'Depth data: unavailable'}
 
+MARKET SENTIMENT:
+${fearGreed ? `Fear & Greed Index: ${fearGreed.value}/100 (${fearGreed.label}) — ${fearGreed.value >= 75 ? 'Extreme Greed: Pasar euforia, potensi reversal tinggi' : fearGreed.value >= 55 ? 'Greed: Momentum bullish kuat' : fearGreed.value >= 45 ? 'Neutral: Tidak ada sinyal kuat' : fearGreed.value >= 25 ? 'Fear: Pasar panik, sering ada bounce' : 'Extreme Fear: Peluang contrarian tinggi'}` : 'Fear & Greed: unavailable'}
+
 TWITTER/X SENTIMENT (recent):
 ${tweets && tweets.length > 0 ? JSON.stringify(tweets.slice(0, 5), null, 2) : 'No tweets available'}
 ${historyContext}`.trim();

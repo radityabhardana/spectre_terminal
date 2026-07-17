@@ -457,7 +457,7 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
   const scored = await scoreOneMarket(market);
 
   throwIfAborted(signal);
-  const isShortCryptoMarket = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below)/i.test(scored.market.question || "");
+  const isShortCryptoMarket = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below|reach|higher|lower|\$[0-9])/i.test(scored.market.question || "");
   let qwenResult;
   let researchContext = "";
 
@@ -629,7 +629,7 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
 
   throwIfAborted(signal);
   
-  const isShortCryptoMarketBest = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below)/i.test(best.market.question || "");
+  const isShortCryptoMarketBest = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below|reach|higher|lower|\$[0-9])/i.test(best.market.question || "");
   let bestQwen;
 
   if (isShortCryptoMarketBest) {

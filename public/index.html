@@ -729,6 +729,55 @@ html[data-font="inter"] {
                 </div>
               </aside>
 
+              <style>
+                .maximized-tracker {
+                  position: fixed !important;
+                  top: 50% !important;
+                  left: 50% !important;
+                  transform: translate(-50%, -50%) !important;
+                  z-index: 9999 !important;
+                  width: 1000px !important;
+                  max-width: 90vw !important;
+                  height: 750px !important;
+                  max-height: 85vh !important;
+                  margin: 0 !important;
+                  box-shadow: 0 0 100px rgba(0,0,0,0.8), 0 0 0 100vw rgba(0,0,0,0.6) !important;
+                  border-radius: 20px !important;
+                  display: flex !important;
+                  flex-direction: column !important;
+                  background: var(--bg-base) !important;
+                  border: 1px solid rgba(255,255,255,0.1) !important;
+                }
+                .maximized-tracker .tracker-inner {
+                  flex: 1 !important;
+                  display: flex !important;
+                  flex-direction: column !important;
+                  height: 100% !important;
+                }
+                .maximized-tracker .tracker-pane {
+                  flex: 1 !important;
+                  max-height: none !important;
+                  overflow-y: auto !important;
+                }
+                .maximized-tracker .tracker-feed {
+                  flex: 1 !important;
+                  max-height: none !important;
+                  height: 100% !important;
+                }
+                .maximized-tracker .card-drag-strip {
+                  display: none !important;
+                }
+                .maximized-tracker #trackerCardPaneWallet {
+                  flex-direction: row !important;
+                  gap: 16px !important;
+                }
+                .maximized-tracker #trackerCardPaneWallet .tracker-wallet-add {
+                  flex: 0 0 350px !important;
+                  border-right: 1px solid rgba(255,255,255,0.05);
+                  padding-right: 16px;
+                  overflow-y: auto;
+                }
+              </style>
               <!-- === CARD 3: Tracker (Live Sniffer + Wallet) === -->
               <div class="dash-bottom-card premium-card premium-card-hover" id="dashTrackerCard">
                 <div class="tracker-inner">
@@ -748,6 +797,9 @@ html[data-font="inter"] {
                       <span class="pill-dot"></span>
                       <span id="trackerCardStatusText">Live</span>
                     </div>
+                    <button class="tracker-tab-btn" id="trackerMaximizeBtn" title="Maximize Card" style="margin-left:auto; padding:4px 8px;">
+                      <i data-lucide="maximize-2" style="width:14px; height:14px; color:var(--text-secondary);"></i>
+                    </button>
                   </div>
                   <div class="tracker-pane active" id="trackerCardPaneSniffer">
                     <div class="tracker-controls">
@@ -793,9 +845,9 @@ html[data-font="inter"] {
                         <input type="text" class="tracker-wallet-input" id="dashWalletNick" placeholder="Nickname" style="flex:0 0 90px;">
                         <button class="tracker-btn-add" id="dashWalletAddBtn" type="button">Add</button>
                       </div>
-                      <div class="tracker-wallet-tags" id="dashWalletTags"></div>
+                      <div class="tracker-wallet-tags" id="dashWalletTags" style="display:flex; flex-direction:column; gap:8px;"></div>
                     </div>
-                    <div class="tracker-feed" id="dashTrackedFeed">
+                    <div class="tracker-feed" id="dashTrackedFeed" style="flex:1;">
                       <div class="tracker-empty" id="dashTrackedEmpty">
                         <i data-lucide="target" class="tracker-empty-icon"></i>
                         <p>No wallets tracked.<br>Add an address to intercept their trades.</p>

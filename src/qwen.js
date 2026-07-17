@@ -1310,7 +1310,8 @@ export async function askQwenShortCondition({
   targetPrice = null,
   pythPrice = null,
   marketQuestion = "",
-  marketOutcomePrice = null
+  marketOutcomePrice = null,
+  baseProbability = 50
 }) {
   throwIfAborted(signal);
 
@@ -1341,7 +1342,10 @@ MARKET TARGET (PRICE TO BEAT):
 - Pertanyaan Polymarket: "${marketQuestion}"
 - Target Price: $${targetPrice}
 - Current Pyth Price (Oracle): $${pythPrice || "N/A"}
-- Jarak ke Target: $${distance.toFixed(2)}
+- Jarak Absolut: $${distance.toFixed(2)}
+- Volatilitas/ATR-14 (Kekuatan Gerak Normal): $${td.atr14 || "N/A"}
+- Jarak Relatif (Distance/ATR): ${td.atr14 ? (Math.abs(distance) / td.atr14).toFixed(2) + "x ATR" : "N/A"}
+- Base Probability Kuantitatif (JS Mechanical): ${baseProbability}%
 - Harga Token Polymarket Saat Ini: ${marketOutcomePrice ? "$" + marketOutcomePrice : "N/A"}
 `;
   }
@@ -1379,18 +1383,19 @@ ${historyContext}`.trim();
   Tugasmu: Berikan keputusan entry murni berdasarkan FAKTA KUANTITATIF (Jarak Harga, Orderbook Flow, dan Nilai Ekspektasi/EV). JANGAN menebak reversal menggunakan pola atau tebakan kosong!
   
   Langkah Analisis (chain-of-thought WAJIB):
-  1. [Distance Check] Berapa jarak harga Oracle Pyth saat ini ke Target Price? Semakin dekat, semakin besar kemungkinan tertembus.
+  1. [Distance Check] Berapa jarak harga Oracle Pyth saat ini ke Target Price? Bandingkan dengan ATR-14.
   2. [Orderbook Flow] Apakah ada tembok duit raksasa (Bid/Ask Depth) di Binance yang menghalangi pergerakan harga menuju target?
   3. [Crowd Wisdom / Market Probability] Berapa harga token Polymarket saat ini? (Contoh $0.76 = Crowd yakin 76% UP).
   4. [Momentum Follow] Jangan melawan tren! Jika Crowd Probability tinggi (> 60%) dan tidak ada tembok yang memblokir, asumsikan Crowd BENAR. Jangan coba-coba menebak reversal.
-  5. [EV Math] EV = (estimated_fair_probability / 100) - Harga Token Polymarket. Jika Crowd salah harga (kemurahan), EV positif = PLAY. Jika kemahalan atau berisiko tinggi = AVOID.
+  5. [Base Probability Calibration] Perhatikan angka "Base Probability Kuantitatif (JS Mechanical)" sebesar ${baseProbability}% yang dihitung di backend. Jangan mengarang probabilitas acak dari nol.
+  6. [Heuristic Adjustment] Tugas utamamu adalah melakukan BUFF (+1% s.d. +15%) jika didukung volume/squeeze/tembok besar searah, atau NERF (-1% s.d. -15%) jika terhalang orderbook/likuidasi berlawanan. Tentukan "estimated_fair_probability" final setelah penyesuaian tersebut.
   
   ATURAN MUTLAK:
   - BERSIKAPLAH DINGIN DAN TEPAT. Jangan pernah overthink atau menggunakan kalimat ragu-ragu dalam "reason" kamu.
   - JANGAN MENEBAK REVERSAL. Harga bergerak berdasarkan volume, bukan tebakan. Jika tren sedang kuat menuju target, ikuti.
-  - Jika EV dihitung Negatif atau Nol, WAJIB 'AVOID'.
-  - Jika harga token Polymarket (MarketOutcomePrice) tidak tersedia/N/A, buat asumsi 50% ($0.50) untuk menghitung EV kasaran, dan fokus pada Distance to Target untuk menentukan 'estimated_fair_probability'.
-  - Jika Liquidasi besar searah dengan target, itu menambah 'estimated_fair_probability'.
+  - JANGAN mencoba menghitung Expected Value (EV). Tugasmu HANYA menganalisis kondisi dan menentukan 'estimated_fair_probability'. Sistem akan menghitung EV-nya.
+  - Jika harga token Polymarket (MarketOutcomePrice) tidak tersedia/N/A, abaikan, dan fokus murni pada penentuan 'estimated_fair_probability' berdasarkan Distance vs ATR.
+  - Jika Liquidasi besar searah dengan target, itu sangat menambah 'estimated_fair_probability'.
 
 Format JSON wajib:
 {
@@ -1399,8 +1404,7 @@ Format JSON wajib:
   "direction": "UP" atau "DOWN" atau "NEUTRAL",
   "confidence": 80,
   "estimated_fair_probability": 85,
-  "expected_value_cents": 9,
-  "reason": "Analisis mendalam berdasarkan Jarak ke Target, Tembok Binance, Momentum Market, dan hitungan EV. Buktikan kenapa EV Positif/Negatif.",
+  "reason": "Analisis mendalam berdasarkan Jarak ke Target, ATR, Tembok Binance, dan Momentum Market. Jelaskan probabilitas tembus secara rasional.",
   "key_signals": {
     "depth_verdict": "BULLISH_WALL / BEARISH_WALL / CLEAR_PATH",
     "liquidation_verdict": "SQUEEZE_UP / SQUEEZE_DOWN / NORMAL",

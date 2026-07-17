@@ -456,7 +456,7 @@ export function formatBook(book) {
   ].join("\n");
 }
 
-export function formatAnalysis({ market, score, qwenResult, finalPrediction }) {
+export function formatAnalysis({ market, score, qwenResult, finalPrediction, analysisTime }) {
   const qwen = qwenResult?.analysis || {};
   const verdict = finalVerdict(score, qwen);
   const blockers = score.blockers?.length ? score.blockers.join("; ") : "Tidak ada hard blocker";
@@ -494,6 +494,8 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction }) {
       : null,
     market.selectionNote ? `Selection: ${market.selectionNote}` : null,
     `Market ID: ${market.id || "n/a"}`,
+    `Waktu Analisis: ${formatDateWib(new Date())} WIB`,
+    analysisTime != null ? `Durasi Analisis: ${analysisTime} detik` : null,
     `Status: ${statusLabel(market)}`,
     market.groupItemTitle ? `Variant: ${market.groupItemTitle}` : null,
     `API close/resolution: ${formatDateWib(market.endDate)} WIB`,

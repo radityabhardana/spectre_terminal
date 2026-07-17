@@ -633,7 +633,7 @@ export function startWebServer(options = {}) {
           
           const marketQuestion = `${asset} ${tf} up or down`;
           // Evaluate market condition (this runs Qwen)
-          const result = await evaluateShortMarketCondition({ asset, marketQuestion, isPulseCheck: true });
+          const result = await evaluateShortMarketCondition({ asset, marketQuestion });
           return sendJson(res, 200, { ok: true, data: result });
         } catch (e) {
           console.error("Market pulse error:", e);

@@ -30,7 +30,7 @@ import { broadcastAlert } from "./web.js";
 import { buildResearchContext } from "./research.js";
 import { enterCommandGuard, releaseCommandGuard } from "./rate-limit.js";
 import { scoreMarket } from "./scoring.js";
-import { getRecentWhales, formatSnifferWhales, setSnifferState, getSnifferState, setNotificationCallback, getTrackerConfig, setTrackerConfig, getAggressiveMode } from "./sniffer.js";
+import { getRecentWhales, formatSnifferWhales, setSnifferState, getSnifferState, setNotificationCallback, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
 import { appendAnalysisLog, addAnalyzedEvent } from "./storage.js";
 
 // Helper untuk UI
@@ -457,13 +457,9 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
   const scored = await scoreOneMarket(market);
 
   throwIfAborted(signal);
-  setStep("Fetching crypto research context");
-  const researchContext = await buildResearchContext({ market: scored.market });
-
-  throwIfAborted(signal);
-  
   const isShortCryptoMarket = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below)/i.test(scored.market.question || "");
   let qwenResult;
+  let researchContext = "";
 
   if (isShortCryptoMarket) {
     setStep("Running Qwen SHORT MARKET Sniper pipeline");
@@ -494,6 +490,10 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
       }
     };
   } else {
+    setStep("Fetching crypto research context");
+    researchContext = await buildResearchContext({ market: scored.market });
+    throwIfAborted(signal);
+    
     setStep("Running Qwen market pipeline (Hedge Fund Mode)");
     qwenResult = await askQwen({
       market: scored.market,
@@ -547,34 +547,10 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
     }
   }
 
-  if (finalPrediction === "=" && getAggressiveMode()) {
-    const qwenConf = Number(qwenResult?.analysis?.confidence);
-    const hasValidConfidence = Number.isNaN(qwenConf) || qwenConf >= config.minQwenConfidence;
-
-    if (hasValidConfidence) {
-      const primaryLabelAgg = String(scored.score?.primaryOutcomeLabel || "YES").toUpperCase();
-      const secondaryLabelAgg = String(scored.score?.secondaryOutcomeLabel || "NO").toUpperCase();
-      
-      const fairProbAgg = Number(qwenResult?.analysis?.estimatedFairProbability);
-      if (Number.isFinite(fairProbAgg) && fairProbAgg !== 50) {
-        finalPrediction = fairProbAgg > 50 ? primaryLabelAgg : secondaryLabelAgg;
-      } else {
-        const scoreNum = Number(scored.score?.score || 50);
-        finalPrediction = scoreNum >= 50 ? primaryLabelAgg : secondaryLabelAgg;
-      }
-      
-      if (qwenResult?.analysis) {
-        qwenResult.analysis.final_reason = `[AGGRESSIVE MODE] Memaksa trade. Awalnya NETRAL, dipaksa ke ${finalPrediction}. ` + (qwenResult.analysis.final_reason || "");
-      }
-    } else if (qwenResult?.analysis) {
-      qwenResult.analysis.final_reason = `[AGGRESSIVE MODE BLOCKED] Mode Agresif tidak dapat memaksa trade karena confidence terlalu rendah (${qwenConf}% < ${config.minQwenConfidence}%). ` + (qwenResult.analysis.final_reason || "");
-    }
-  }
-
-  const fullAnalysisMarkdown = formatAnalysis({ market: scored.market, score: scored.score, qwenResult, finalPrediction });
+  const executionTime = ctx?.commandStartTime ? Math.round((Date.now() - ctx.commandStartTime) / 1000) : null;
+  const fullAnalysisMarkdown = formatAnalysis({ market: scored.market, score: scored.score, qwenResult, finalPrediction, analysisTime: executionTime });
 
   if (!signal?.aborted) {
-    const executionTime = ctx?.commandStartTime ? Math.round((Date.now() - ctx.commandStartTime) / 1000) : null;
     addAnalyzedEvent({
       market_id: scored.market.id,
       question: scored.market.question,
@@ -744,35 +720,10 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
     }
   }
 
-  // Aggressive Mode override for bestFinalPrediction
-  if (bestFinalPrediction === "=" && getAggressiveMode()) {
-    const bestQwenConf = Number(bestQwen?.analysis?.confidence);
-    const hasValidBestConf = Number.isNaN(bestQwenConf) || bestQwenConf >= config.minQwenConfidence;
-
-    if (hasValidBestConf) {
-      const pLabelAgg = String(best.score?.primaryOutcomeLabel || "YES").toUpperCase();
-      const sLabelAgg = String(best.score?.secondaryOutcomeLabel || "NO").toUpperCase();
-      
-      const fairProbAgg = Number(bestQwen?.analysis?.estimatedFairProbability);
-      if (Number.isFinite(fairProbAgg) && fairProbAgg !== 50) {
-        bestFinalPrediction = fairProbAgg > 50 ? pLabelAgg : sLabelAgg;
-      } else {
-        const scoreNum = Number(best.score?.score || 50);
-        bestFinalPrediction = scoreNum >= 50 ? pLabelAgg : sLabelAgg;
-      }
-
-      if (bestQwen?.analysis) {
-        bestQwen.analysis.final_reason = `[AGGRESSIVE MODE] Memaksa trade. Awalnya NETRAL, dipaksa ke ${bestFinalPrediction}. ` + (bestQwen.analysis.final_reason || "");
-      }
-    } else if (bestQwen?.analysis) {
-      bestQwen.analysis.final_reason = `[AGGRESSIVE MODE BLOCKED] Mode Agresif tidak dapat memaksa trade karena confidence terlalu rendah (${bestQwenConf}% < ${config.minQwenConfidence}%). ` + (bestQwen.analysis.final_reason || "");
-    }
-  }
-
-  const fullAnalysisMarkdownBest = formatAnalysis({ market: best.market, score: best.score, qwenResult: bestQwen, finalPrediction: bestFinalPrediction });
+  const executionTime = ctx?.commandStartTime ? Math.round((Date.now() - ctx.commandStartTime) / 1000) : null;
+  const fullAnalysisMarkdownBest = formatAnalysis({ market: best.market, score: best.score, qwenResult: bestQwen, finalPrediction: bestFinalPrediction, analysisTime: executionTime });
 
   if (!signal?.aborted) {
-    const executionTime = ctx?.commandStartTime ? Math.round((Date.now() - ctx.commandStartTime) / 1000) : null;
     addAnalyzedEvent({
       market_id: best.market.id,
       question: best.market.question,

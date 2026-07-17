@@ -4612,6 +4612,27 @@ let isFirstLoad = true;
     });
   }
 
+  // Maximize Button Logic
+  const trackerMaximizeBtn = document.getElementById('trackerMaximizeBtn');
+  let dashTrackerOriginalParent = null;
+  let dashTrackerNextSibling = null;
+  if (trackerMaximizeBtn && dashTrackerCard) {
+    trackerMaximizeBtn.addEventListener('click', () => {
+      const isMax = dashTrackerCard.classList.toggle('maximized-tracker');
+      if (isMax) {
+        dashTrackerOriginalParent = dashTrackerCard.parentNode;
+        dashTrackerNextSibling = dashTrackerCard.nextSibling;
+        document.body.appendChild(dashTrackerCard);
+      } else {
+        if (dashTrackerOriginalParent) {
+          dashTrackerOriginalParent.insertBefore(dashTrackerCard, dashTrackerNextSibling);
+        }
+      }
+      trackerMaximizeBtn.innerHTML = isMax ? '<i data-lucide="minimize-2" style="width:14px; height:14px; color:var(--neon-green);"></i>' : '<i data-lucide="maximize-2" style="width:14px; height:14px; color:var(--text-secondary);"></i>';
+      if (window.lucide) window.lucide.createIcons({root: trackerMaximizeBtn});
+    });
+  }
+
   // Dashboard Power Button Logic
   if (dashTrackerPowerBtn) {
     dashTrackerPowerBtn.addEventListener('click', async () => {
@@ -4721,7 +4742,6 @@ let isFirstLoad = true;
         const dashStatusText = document.getElementById('trackerCardStatusText');
         if (dashStatusPill && dashStatusText) {
           dashStatusPill.classList.add('live');
-          dashStatusText.innerText = 'Live';
         }
       } else {
         if (topBtnText) topBtnText.innerText = 'TRACKER: OFF';
@@ -4961,20 +4981,28 @@ let isFirstLoad = true;
 
   setInterval(() => {
     const text = document.getElementById('snifferToggleText');
-    if (!text || !currentSnifferStartTime) return;
+    const dashText = document.getElementById('trackerCardStatusText');
+    const powerBtn = document.getElementById('dashTrackerPowerBtn');
     
-    // If it's explicitly OFF, skip timer
-    if (text.innerText === 'TRACKER: OFF') return;
+    if (!currentSnifferStartTime) return;
+    
+    // Check if sniffer is off
+    const isOff = text ? text.innerText.includes('OFF') : (powerBtn && !powerBtn.classList.contains('on'));
+    if (isOff) return;
+    
     const diff = Math.floor((Date.now() - currentSnifferStartTime) / 1000);
     const m = String(Math.floor(diff / 60)).padStart(2, '0');
     const s = String(diff % 60).padStart(2, '0');
+    let timeStr = `${m}:${s}`;
+    
     if (diff >= 3600) {
       const h = String(Math.floor(diff / 3600)).padStart(2, '0');
       const m2 = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
-      text.innerText = `TRACKER: ON (${h}:${m2}:${s})`;
-    } else {
-      text.innerText = `TRACKER: ON (${m}:${s})`;
+      timeStr = `${h}:${m2}:${s}`;
     }
+    
+    if (text) text.innerText = `TRACKER: ON (${timeStr})`;
+    if (dashText) dashText.innerText = `Live (${timeStr})`;
   }, 1000);
   
   setInterval(updateSnifferUI, 5000);
@@ -4992,7 +5020,7 @@ let isFirstLoad = true;
       } else {
         dashWalletTags.innerHTML = activeTrackedWallets.map(w => `
           <div class="wallet-tag" title="${w.address}">
-            <span>${w.nickname || (w.address.slice(0,6)+'...')}</span>
+            <span onclick="window.viewWalletPositions('${w.address}', '${w.nickname}')" style="cursor:pointer; text-decoration:underline; text-underline-offset:2px; font-weight:600; color:var(--text-secondary); transition:color 0.2s;" onmouseover="this.style.color='var(--neon-cyan)';" onmouseout="this.style.color='var(--text-secondary)';">${w.nickname || (w.address.slice(0,6)+'...')}</span>
             <button type="button" onclick="window.removeDashWallet('${w.address}')">
               <i data-lucide="x" style="width:10px; height:10px;"></i>
             </button>
@@ -5759,7 +5787,7 @@ window.toggleWhaleVolume = toggleWhaleVolume;
 function buildBentoGrid(text, isHistory = false) {
   const data = {
      arah: "-", entry: "-", liquidity: "-", gammaVol: "-", orderbook: "-", conf: "-", qwenScore: "-", risk: "-",
-     deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-"
+     deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-", analysisTime: null, url: null
   };
   const lines = text.split("\n");
   for (let line of lines) {
@@ -5774,6 +5802,8 @@ function buildBentoGrid(text, isHistory = false) {
     if (line.includes("Kesimpulan Analisis:")) data.summary = line.split("Kesimpulan Analisis:")[1].trim();
     if (line.includes("Target Price:")) data.targetPrice = line.split("Target Price:")[1].trim();
     if (line.includes("Realtime Price:")) data.realtimePrice = line.split("Realtime Price:")[1].trim();
+    if (line.includes("Durasi Analisis:")) data.analysisTime = line.split("Durasi Analisis:")[1].trim().replace(" detik", "");
+    if (line.startsWith("URL:")) data.url = line.split("URL:")[1].trim();
   }
   
   // Fallback extraction from summary if backend explicit fields are missing
@@ -5824,7 +5854,9 @@ function buildBentoGrid(text, isHistory = false) {
              <span style="color:${headerColor}; font-weight:800; letter-spacing:0.25em;">${headerText}</span>
            </div>
            <div style="display:flex; gap:12px; align-items:center;">
+             ${data.analysisTime ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="timer" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.analysisTime}s</span>` : ""}
              ${data.deadline !== "-" ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="clock" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.deadline}</span>` : ""}
+             ${data.url ? `<a href="${data.url}" target="_blank" class="msp-link" style="color:var(--neon-cyan); text-decoration:none; display:flex; align-items:center; gap:2px;"><i data-lucide="external-link" style="width:12px;height:12px;"></i> Polymarket</a>` : ""}
              <span class="msp-link" id="bentoKesimpulanBox" style="cursor:pointer;">View full report →</span>
              <span class="msp-link" onclick="closeStaticPanel()" style="cursor:pointer; color:var(--neon-red); margin-left:8px; display:flex; align-items:center; gap:2px;" title="Tutup analisis dan kembali ke Live Charts"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
            </div>

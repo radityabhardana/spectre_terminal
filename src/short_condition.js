@@ -31,12 +31,12 @@ async function fetchWithFallback(endpoints, path, options) {
 async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5) {
   try {
     const interval = intervalMinutes <= 5 ? "5m" : intervalMinutes <= 15 ? "15m" : intervalMinutes <= 60 ? "1h" : "4h";
-    const klinePath = `/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=60`;
-    const tickerPath = `/api/v3/ticker/24hr?symbol=${symbol}`;
+    const klinePath = `/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=60`;
+    const tickerPath = `/fapi/v1/ticker/24hr?symbol=${symbol}`;
 
     const [klineRes, tickerRes] = await Promise.all([
-      fetchWithFallback(BINANCE_BASE_URLS, klinePath, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(8000) }),
-      fetchWithFallback(BINANCE_BASE_URLS, tickerPath, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(8000) }),
+      fetchWithFallback(BINANCE_FAPI_URLS, klinePath, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(8000) }),
+      fetchWithFallback(BINANCE_FAPI_URLS, tickerPath, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(8000) }),
     ]);
 
     if (!klineRes.ok || !tickerRes.ok) throw new Error("Binance kline/ticker error");
@@ -78,6 +78,18 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5) {
     const lastVol  = volumes[volumes.length - 1];
     const volRatio = avgVol10 > 0 ? parseFloat((lastVol / avgVol10).toFixed(2)) : 1;
 
+    // ATR-14 (Average True Range)
+    const atrPeriod = 14;
+    let trs = [];
+    for (let i = klines.length - atrPeriod; i < klines.length; i++) {
+      const high = parseFloat(klines[i][2]);
+      const low = parseFloat(klines[i][3]);
+      const prevClose = i > 0 ? parseFloat(klines[i-1][4]) : parseFloat(klines[i][1]);
+      const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+      trs.push(tr);
+    }
+    const atr14 = trs.reduce((a, b) => a + b, 0) / atrPeriod;
+
     // Recent 5 candles
     const recentCandles = klines.slice(-5).map(k => ({
       time:      new Date(k[0]).toISOString().slice(11, 16),
@@ -94,6 +106,7 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5) {
       high24h:        parseFloat(ticker.highPrice).toFixed(2),
       low24h:         parseFloat(ticker.lowPrice).toFixed(2),
       volume24h:      parseFloat(ticker.volume).toFixed(2),
+      atr14:          parseFloat(atr14.toFixed(2)),
       rsi14:          rsi,
       rsiSignal:      rsi > 70 ? 'OVERBOUGHT' : rsi < 30 ? 'OVERSOLD' : rsi > 55 ? 'BULLISH ZONE' : rsi < 45 ? 'BEARISH ZONE' : 'NEUTRAL',
       macd:           { line: macdLine, signal: macdSignal, histogram: macdHistogram, trend: macdHistogram > 0 ? 'BULLISH' : 'BEARISH' },
@@ -115,8 +128,16 @@ const BINANCE_FAPI_URLS = [
   'https://fapi3.binance.com'
 ];
 
+let longShortRatioCache = {}; // Symbol-specific cache: { [symbol]: { data, timestamp } }
+const CACHE_DURATION_MS = 30 * 1000; // 30 detik (agar selalu fresh tapi anti-spam)
+
 // Fetch Binance Futures Long/Short ratio
 async function fetchLongShortRatio(symbol = "BTCUSDT") {
+  const now = Date.now();
+  if (longShortRatioCache[symbol] && (now - longShortRatioCache[symbol].timestamp < CACHE_DURATION_MS)) {
+    return longShortRatioCache[symbol].data;
+  }
+
   try {
     const path = `/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=5m&limit=3`;
     const res = await fetchWithFallback(BINANCE_FAPI_URLS, path, { headers: { 'Cache-Control': 'no-cache' } });
@@ -126,43 +147,20 @@ async function fetchLongShortRatio(symbol = "BTCUSDT") {
     const ratio  = parseFloat(latest.longShortRatio).toFixed(3);
     const longPct = parseFloat(latest.longAccount * 100).toFixed(1);
     const shortPct = parseFloat(latest.shortAccount * 100).toFixed(1);
-    return { ratio, longPct, shortPct, bias: parseFloat(ratio) >= 1 ? 'LONG_DOMINANT' : 'SHORT_DOMINANT' };
+    
+    const result = { ratio, longPct, shortPct, bias: parseFloat(ratio) >= 1 ? 'LONG_DOMINANT' : 'SHORT_DOMINANT' };
+    
+    // Save to cache
+    longShortRatioCache[symbol] = { data: result, timestamp: now };
+    
+    return result;
   } catch (err) {
     console.error("[Short Condition] fetchLongShortRatio error:", err.message);
     return null;
   }
 }
 
-// Fallback: hanya fetch 24h ticker (tanpa kline / RSI / MACD)
-async function fetchBinanceTickerOnly(symbol = "BTCUSDT") {
-  try {
-    const res = await fetchWithFallback(BINANCE_BASE_URLS, `/api/v3/ticker/24hr?symbol=${symbol}`, {
-      headers: { 'Cache-Control': 'no-cache' },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) throw new Error("Ticker API error");
-    const d = await res.json();
-    return {
-      symbol,
-      interval: 'n/a',
-      currentPrice:   parseFloat(d.lastPrice).toFixed(2),
-      priceChange24h: parseFloat(d.priceChangePercent).toFixed(2),
-      high24h:        parseFloat(d.highPrice).toFixed(2),
-      low24h:         parseFloat(d.lowPrice).toFixed(2),
-      volume24h:      parseFloat(d.volume).toFixed(2),
-      rsi14:          null,
-      rsiSignal:      'unavailable (kline error)',
-      macd:           null,
-      volumeRatio:    null,
-      volumeSignal:   'unavailable (kline error)',
-      recentCandles:  null,
-      fallback:       true,
-    };
-  } catch (err) {
-    console.error("[Short Condition] fetchBinanceTickerOnly error:", err.message);
-    return null;
-  }
-}
+
 
 // Fetch Fear & Greed Index (alternative.me)
 async function fetchFearGreed() {
@@ -179,7 +177,7 @@ async function fetchFearGreed() {
   }
 }
 
-export async function evaluateShortMarketCondition({ signal = null, currentPriceStr = "", asset = "BTC", marketQuestion = "", marketOutcomePrice = null, isPulseCheck = false }) {
+export async function evaluateShortMarketCondition({ signal = null, currentPriceStr = "", asset = "BTC", marketQuestion = "", marketOutcomePrice = null }) {
   const symbol = asset === "ETH" ? "ETHUSDT" : asset === "DOGE" ? "DOGEUSDT" : "BTCUSDT";
 
   // Extract target price from market question
@@ -259,13 +257,7 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
   else if (mqLower.includes("1h") || mqLower.includes("1 hour")) intervalMinutes = 60;
   else if (mqLower.includes("15m") || mqLower.includes("15 min")) intervalMinutes = 15;
 
-  let tickerData;
-  if (isPulseCheck) {
-    tickerData = await fetchBinanceTechData(symbol, intervalMinutes);
-  } else {
-    // We only need the current price and 24h stats. Klines (RSI/MACD) are removed for 5-minute short markets.
-    tickerData = await fetchBinanceTickerOnly(symbol);
-  }
+  let tickerData = await fetchBinanceTechData(symbol, intervalMinutes);
   
   if (!tickerData) {
     if (pythPrice) {
@@ -307,6 +299,91 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
   // Orderbook Depth (Websocket 100ms)
   const depthData = getOrderbookImbalance(symbol);
 
+  // Calculate Base Probability mechanically
+  let baseProbability = 50;
+  if (targetPrice && tickerData && tickerData.atr14) {
+    const currentP = pythPrice || parseFloat(tickerData.currentPrice);
+    const distance = targetPrice - currentP;
+    const relDistance = Math.abs(distance) / tickerData.atr14;
+
+    let isAboveMarket = /above|higher|>/i.test(marketQuestion);
+    let isBelowMarket = /below|lower|</i.test(marketQuestion);
+    
+    // Jika tidak tertulis eksplisit "above" atau "below", tapi merupakan market "Up or Down"
+    if (!isAboveMarket && !isBelowMarket) {
+       if (/up or down/i.test(marketQuestion)) {
+          isAboveMarket = true; // Di Polymarket, YES = UP pada market "Up or Down"
+       } else if (/up/i.test(marketQuestion)) {
+          isAboveMarket = true;
+       } else if (/down/i.test(marketQuestion)) {
+          isBelowMarket = true;
+       } else {
+          isAboveMarket = true; // Default
+       }
+    }
+
+    // Probability of touching/crossing the target
+    let targetProb = 50;
+    if (relDistance <= 2.5) {
+      targetProb = Math.max(10, Math.min(90, 50 - (relDistance * 16)));
+    } else {
+      targetProb = 10;
+    }
+
+    // If currently winning
+    const isCurrentlyWinning = (isAboveMarket && currentP > targetPrice) || (isBelowMarket && currentP < targetPrice);
+    if (isCurrentlyWinning) {
+      targetProb = Math.max(50, Math.min(95, 50 + (relDistance * 16)));
+    }
+
+    // Adjust based on Trend indicators (RSI and MACD)
+    let trendAdjustment = 0;
+    if (tickerData.rsi14) {
+      if (isAboveMarket) {
+        if (tickerData.rsi14 > 55) trendAdjustment += 5;
+        if (tickerData.rsi14 < 45) trendAdjustment -= 5;
+      } else if (isBelowMarket) {
+        if (tickerData.rsi14 < 45) trendAdjustment += 5;
+        if (tickerData.rsi14 > 55) trendAdjustment -= 5;
+      }
+    }
+    if (tickerData.macd) {
+      const isBullish = tickerData.macd.trend === 'BULLISH';
+      if (isAboveMarket) {
+        trendAdjustment += isBullish ? 5 : -5;
+      } else if (isBelowMarket) {
+        trendAdjustment += isBullish ? -5 : 5;
+      }
+    }
+
+    // Adjust based on orderbook imbalance
+    if (depthData) {
+      const imbalance = depthData.imbalanceRatio;
+      if (isAboveMarket) {
+        if (imbalance > 1.5) trendAdjustment += 5;
+        if (imbalance < 0.7) trendAdjustment -= 5;
+      } else if (isBelowMarket) {
+        if (imbalance < 0.7) trendAdjustment += 5;
+        if (imbalance > 1.5) trendAdjustment -= 5;
+      }
+    }
+
+    // Adjust for Liquidations (Squeeze Momentum)
+    if (liqData) {
+      const longsLiq = liqData.longsLiqValue || 0;
+      const shortsLiq = liqData.shortsLiqValue || 0;
+      if (shortsLiq > longsLiq * 1.5) {
+        if (isAboveMarket) trendAdjustment += 5;
+        if (isBelowMarket) trendAdjustment -= 5;
+      } else if (longsLiq > shortsLiq * 1.5) {
+        if (isBelowMarket) trendAdjustment += 5;
+        if (isAboveMarket) trendAdjustment -= 5;
+      }
+    }
+
+    baseProbability = Math.round(Math.max(5, Math.min(95, targetProb + trendAdjustment)));
+  }
+
   // Ask Qwen
     const result = await askQwenShortCondition({ 
       tickerData, 
@@ -318,20 +395,38 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
       targetPrice,
       pythPrice,
       marketQuestion,
-      marketOutcomePrice
+      marketOutcomePrice,
+      baseProbability
     });
 
+    // Celah 1b: EV Math in Backend with Safety Buffer (+2 cents)
+    if (result.estimated_fair_probability && marketOutcomePrice) {
+       const ev = (result.estimated_fair_probability / 100) - marketOutcomePrice;
+       result.expected_value_cents = Math.round(ev * 100);
+       
+       if (ev <= 0.02 && result.recommendation === "PLAY") {
+          result.recommendation = "AVOID";
+          result.reason = `[EV OVERRIDE] Margin EV terlalu tipis/negatif (${result.expected_value_cents} cents <= 2 cents). Rekomendasi Qwen dibatalkan demi keamanan matematis.\nAsli: ` + (result.reason || "");
+       }
+    }
+
     // Mechanical Scout Override (Optimize WR by trusting crowd/market over AI if strong)
-    if (marketOutcomePrice !== null) {
-      if (marketOutcomePrice >= 0.65) {
+    // Threshold 0.62/0.38 — captures cases where crowd is clearly >60% to one side
+    // Celah 2: Kondisional Volume Momentum (Anti-Squeeze Blindness)
+    const isExtremeSqueeze = tickerData?.volumeRatio > 2.0;
+
+    if (marketOutcomePrice !== null && !isExtremeSqueeze) {
+      if (marketOutcomePrice >= 0.62) {
         result.direction = "UP";
         result.recommendation = "PLAY";
         result.reason = `[SCOUT OVERRIDE] Probabilitas arah UP sangat kuat (${(marketOutcomePrice * 100).toFixed(1)}%). Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
-      } else if (marketOutcomePrice <= 0.35) {
+      } else if (marketOutcomePrice <= 0.38) {
         result.direction = "DOWN";
         result.recommendation = "PLAY";
         result.reason = `[SCOUT OVERRIDE] Probabilitas arah DOWN sangat kuat (${(marketOutcomePrice * 100).toFixed(1)}%). Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
       }
+    } else if (isExtremeSqueeze && (marketOutcomePrice >= 0.62 || marketOutcomePrice <= 0.38)) {
+      result.reason = `[SCOUT OVERRIDE CANCELLED] Terdeteksi anomali volume momentum ekstrem (Ratio: ${tickerData?.volumeRatio}x). Mengikuti murni hasil AI.\n` + (result.reason || "");
     }
   
     return { tickerData, liquidations: liqData, depth: depthData, pythPrice, targetPrice, evaluation: result, usage: result.usage };

@@ -35,6 +35,12 @@ export function resetTotalAITokensUsed() {
   saveTokenUsage();
 }
 
+// Short Market Memory toggle — controlled via /api/settings/short-memory
+// ponytail: in-memory flag, no file needed, resets to true on restart (safe default)
+let shortMemoryEnabled = true;
+export function getShortMemoryEnabled() { return shortMemoryEnabled; }
+export function setShortMemoryEnabled(val) { shortMemoryEnabled = !!val; }
+
 const BINANCE_BASE_URLS = [
   'https://api.binance.com',
   'https://api-gcp.binance.com',
@@ -1316,18 +1322,20 @@ export async function askQwenShortCondition({
   throwIfAborted(signal);
 
   let historyContext = "";
-  // Always use short market learning memory
-  try {
-    const histPath = path.join(dataDir, "short_condition_history.json");
-    if (fs.existsSync(histPath)) {
-      const histData = JSON.parse(fs.readFileSync(histPath, "utf-8"));
-      if (histData.length > 0) {
-        const recentHist = histData.slice(-3).map((h, i) => `[Memory ${i+1}] ${h.date} | Recommendation:${h.recommendation} Dir:${h.direction || 'N/A'}\nReason: ${(h.reason||'').slice(0, 200)}...`).join("\n\n");
-        historyContext = `\n\nAI LEARNING MEMORY (Last 3 analyses):\n${recentHist}\nPelajari memori ini, tapi utamakan perhitungan matematis jarak vs sisa waktu.\n`;
+  // Always use short market learning memory — unless disabled by toggle
+  if (shortMemoryEnabled) {
+    try {
+      const histPath = path.join(dataDir, "short_condition_history.json");
+      if (fs.existsSync(histPath)) {
+        const histData = JSON.parse(fs.readFileSync(histPath, "utf-8"));
+        if (histData.length > 0) {
+          const recentHist = histData.slice(-3).map((h, i) => `[Memory ${i+1}] ${h.date} | Dir:${h.direction || 'N/A'} | Outcome:${h.outcome || 'belum diketahui'}\nReason: ${(h.reason||'').slice(0, 200)}...`).join("\n\n");
+          historyContext = `\n\nAI LEARNING MEMORY (Last 3 analyses):\n${recentHist}\nPelajari memori ini: jika Outcome='kalah', hindari mengulangi pola yang sama. Utamakan perhitungan matematis jarak vs sisa waktu.\n`;
+        }
       }
+    } catch (err) {
+      console.error("[Qwen] Gagal memuat memory short condition:", err.message);
     }
-  } catch (err) {
-    console.error("[Qwen] Gagal memuat memory short condition:", err.message);
   }
 
   const td = tickerData || {};

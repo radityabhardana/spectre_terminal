@@ -1,4 +1,5 @@
-  import fs from "node:fs/promises";
+import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,7 @@ import { SEARCH_ENGINE_VERSION, getMarketById, getShortTermMarkets } from "./pol
 import { getAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, getReflectionByMarketId, getAllReflections, getAnalysisLogs } from "./storage.js";
 import { evaluateSingleEvent, evaluateAllResolutions } from "./evaluate.js";
 import { getBinanceWsStatus } from "./binance_ws.js";
+import { getShortMemoryEnabled, setShortMemoryEnabled } from "./qwen.js";
 import { getSnifferWsStatus, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig, setAggressiveMode, getAggressiveMode } from "./sniffer.js";
 import { initWallet, getWalletBalances } from "./wallet.js";
 import { initTradeModule } from "./trade.js";
@@ -32,6 +34,19 @@ const publicDir = path.resolve(__dirname, "..", "public");
 const dataDir = path.resolve(__dirname, "..", "data");
 const port = Number(process.env.WEB_PORT || process.env.PORT || 8787);
 const host = process.env.WEB_HOST || "127.0.0.1";
+
+// Patch outcome ke entri terakhir short_condition_history.json
+// ponytail: sync write, file kecil (<50 entri), tidak perlu queue
+function patchLastShortMemoryOutcome(outcome) {
+  try {
+    const histPath = path.join(dataDir, "short_condition_history.json");
+    if (!fsSync.existsSync(histPath)) return;
+    const hist = JSON.parse(fsSync.readFileSync(histPath, "utf-8"));
+    if (!hist.length) return;
+    hist[hist.length - 1].outcome = outcome;
+    fsSync.writeFileSync(histPath, JSON.stringify(hist, null, 2));
+  } catch { /* silent — jangan ganggu flow resolve */ }
+}
 
 const modeCommands = {
   auto: "",
@@ -414,6 +429,18 @@ export function startWebServer(options = {}) {
         return;
       }
 
+      // Toggle Short Market Memory (wires UI checkbox ke backend)
+      if (req.url === "/api/settings/short-memory") {
+        if (req.method === "GET") {
+          sendJson(res, 200, { ok: true, enabled: getShortMemoryEnabled() });
+        } else if (req.method === "POST") {
+          const body = await readBody(req);
+          setShortMemoryEnabled(body.enabled !== false);
+          sendJson(res, 200, { ok: true, enabled: getShortMemoryEnabled() });
+        }
+        return;
+      }
+
       if (req.method === "GET" && req.url === "/api/memory-checklist") {
         try {
           const { getRecentReflections } = await import("./storage.js");
@@ -528,6 +555,9 @@ export function startWebServer(options = {}) {
             }
             
             updateAnalyzedEventStatus(eventId, status, result, actualOutcome);
+            if (result === 'menang' || result === 'kalah' || result === 'netral') {
+              patchLastShortMemoryOutcome(result); // inject outcome ke memori AI
+            }
             sendJson(res, 200, { ok: true, status, result, actualOutcome });
           } else {
             sendJson(res, 200, { ok: true, status: 'belum selesai', result: null, message: "Market is still active" });

@@ -3304,6 +3304,32 @@ document.querySelectorAll(".history-asset-btn").forEach(btn => {
   });
 });
 
+// Event Listeners for filters
+if (document.getElementById("btnFilterHistoryDate")) {
+  document.getElementById("btnFilterHistoryDate").addEventListener("click", fetchHistoryEvents);
+}
+if (document.getElementById("btnResetHistoryFilters")) {
+  document.getElementById("btnResetHistoryFilters").addEventListener("click", () => {
+    document.getElementById("historyStartDate").value = "";
+    document.getElementById("historyEndDate").value = "";
+    document.getElementById("historyLimit").value = "100";
+    currentHistoryAsset = "all";
+    currentHistoryDuration = "all";
+    document.querySelectorAll(".history-asset-btn").forEach(b => b.classList.toggle("active", b.dataset.asset === "all"));
+    document.querySelectorAll(".history-duration-btn").forEach(b => b.classList.toggle("active", b.dataset.duration === "all"));
+    fetchHistoryEvents();
+  });
+}
+if (document.getElementById("historyLimit")) {
+  document.getElementById("historyLimit").addEventListener("change", applyHistoryFilter);
+  document.getElementById("historyLimit").addEventListener("keyup", (e) => {
+    if (e.key === "Enter") applyHistoryFilter();
+  });
+}
+if (document.getElementById("btnSetHistoryLimit")) {
+  document.getElementById("btnSetHistoryLimit").addEventListener("click", applyHistoryFilter);
+}
+
 document.querySelectorAll(".history-duration-btn").forEach(btn => {
   btn.addEventListener("click", (e) => {
     document.querySelectorAll(".history-duration-btn").forEach(b => {
@@ -3555,21 +3581,24 @@ window.showHistoryChat = function(eventId) {
 }
 
 function renderHistoryEvents(events) {
-  let total = events.length;
+  const limitInput = document.getElementById('historyLimit');
+  const limit = limitInput ? (parseInt(limitInput.value) || 10) : 100;
+  const displayEvents = events.slice(0, limit);
+
+  let total = displayEvents.length;
   let wins = 0;
   let losses = 0;
   let neutrals = 0;
   let pending = 0;
 
   let html = "";
-  for (const event of events) {
+  for (const event of displayEvents) {
     if (event.result === 'menang') wins++;
     else if (event.result === 'kalah') losses++;
     else if (event.result === 'netral') neutrals++;
     else pending++;
   }
 
-  const displayEvents = events.slice(0, 100);
   for (const event of displayEvents) {
     const statusColor = event.status === 'selesai' 
       ? (event.result === 'menang' ? 'var(--neon-green)' : (event.result === 'kalah' ? 'var(--neon-red)' : 'var(--neon-amber)')) 
@@ -3857,20 +3886,33 @@ const settingsPanes = document.querySelectorAll(".settings-pane");
 const chkShortMarketLearning = document.querySelector("#chkShortMarketLearning");
 const botLanguageSelect = document.querySelector("#botLanguageSelect");
 
-// Load Short Market Learning setting
-let shortMarketLearningEnabled = localStorage.getItem("shortMarketLearningEnabled") === "true";
+// Load Short Market Learning setting — sync dari backend
 if (chkShortMarketLearning) {
-  chkShortMarketLearning.checked = shortMarketLearningEnabled;
-  
+  // Load state awal dari backend (sumber kebenaran)
+  fetch("/api/settings/short-memory").then(r => r.json()).then(d => {
+    if (d.ok) {
+      chkShortMarketLearning.checked = d.enabled;
+      localStorage.setItem("shortMarketLearningEnabled", d.enabled);
+    }
+  }).catch(() => {
+    // fallback ke localStorage jika server belum siap
+    chkShortMarketLearning.checked = localStorage.getItem("shortMarketLearningEnabled") !== "false";
+  });
+
   // Load Bot Language
   if (botLanguageSelect) {
     botLanguageSelect.value = localStorage.getItem("botLanguage") || "Indonesia";
     applyLanguageUI(botLanguageSelect.value);
   }
-  
+
   chkShortMarketLearning.addEventListener("change", (e) => {
-    shortMarketLearningEnabled = e.target.checked;
-    localStorage.setItem("shortMarketLearningEnabled", shortMarketLearningEnabled);
+    const enabled = e.target.checked;
+    localStorage.setItem("shortMarketLearningEnabled", enabled);
+    fetch("/api/settings/short-memory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled })
+    }).catch(() => {}); // silent \u2014 toggle tetap responsif walau request gagal
   });
 }
 

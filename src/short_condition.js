@@ -1,5 +1,10 @@
 import { askQwenShortCondition } from "./qwen.js";
 import { getRecentLiquidations, getOrderbookImbalance } from "./binance_ws.js";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dataDir = path.join(__dirname, "../data");
 
 // Bypass Cloudflare WARP TLS block for Node.js native fetch
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
@@ -119,6 +124,22 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5) {
     // console.error("[Short Condition] fetchBinanceTechData error:", err.message);
     return null;
   }
+}
+
+// Scout Override anti-streak cooldown
+// ponytail: cek 3 memori terakhir — jika stuck ke 1 arah & CHOPPY, blokir override
+function getRecentDirectionBias() {
+  try {
+    const histPath = path.join(dataDir, "short_condition_history.json");
+    if (!fs.existsSync(histPath)) return { isStuck: false };
+    const hist = JSON.parse(fs.readFileSync(histPath, "utf-8"));
+    const last3 = hist.slice(-3);
+    if (last3.length < 3) return { isStuck: false };
+    const choppyCount = last3.filter(h => h.condition === "CHOPPY").length;
+    const dirs = last3.map(h => h.direction);
+    const allSameDir = dirs.every(d => d === dirs[0]);
+    return { isStuck: choppyCount >= 2 && allSameDir, direction: dirs[0] };
+  } catch { return { isStuck: false }; }
 }
 
 const BINANCE_FAPI_URLS = [
@@ -425,7 +446,13 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
     // GUARDRAIL: Scout Override TIDAK BOLEH menimpa EV Override (sesuai AGENTS.md)
     const isExtremeSqueeze = tickerData?.volumeRatio > 2.0;
 
-    if (upTokenPrice !== null && !isExtremeSqueeze && !evOverrideActive) {
+    const dirBias = getRecentDirectionBias();
+    const scoutBlocked = dirBias.isStuck; // ponytail: cooldown — reset otomatis tiap ada analisis baru
+    if (scoutBlocked) {
+      result.reason = `[SCOUT OVERRIDE COOLDOWN] 3 analisis terakhir semuanya arah ${dirBias.direction} di kondisi CHOPPY. Override diblokir demi mencegah streak salah.\n` + (result.reason || "");
+    }
+
+    if (upTokenPrice !== null && !isExtremeSqueeze && !evOverrideActive && !scoutBlocked) {
       if (upTokenPrice >= 0.62) {
         // Crowd sangat dominan percaya arah UP
         result.direction = "UP";

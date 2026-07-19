@@ -3781,3 +3781,180 @@ textarea::-webkit-scrollbar-thumb,
   content: "\\";
   animation: spin-slash 0.4s infinite;
 }
+
+/* ================================================================
+   RESPONSIVE SYSTEM v2
+   Strategy: CSS custom property --main-left drives all offset panels.
+   On mobile: sidebar becomes drawer toggled by .sidebar-open on body.
+   ================================================================ */
+
+:root {
+  --sb-w: 420px;
+  --main-left: 440px;
+  --topbar-h: 72px;
+  --statusbar-h: 40px;
+}
+
+/* === Hamburger toggle — lives inside .topbar, hidden on desktop === */
+#sidebarToggleBtn {
+  display: none !important;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-right: 8px;
+}
+#sidebarToggleBtn:hover { background: var(--bg-overlay); color: var(--text-primary); }
+
+/* Backdrop for sidebar drawer */
+#sidebarBackdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 8999;
+  backdrop-filter: blur(2px);
+}
+
+/* === TABLET ≤1280px: hide right wallet panel, shrink sidebar === */
+@media (max-width: 1280px) {
+  #pmRightPanel { display: none !important; }
+  :root { --sb-w: 360px; --main-left: 380px; }
+
+  #leftSidebar { width: var(--sb-w) !important; }
+  #idleCommandCenter, #centerDashboard { left: var(--main-left) !important; }
+  #staticResultPanel {
+    left: var(--main-left) !important;
+    width: calc(100vw - var(--main-left) - 20px) !important;
+  }
+}
+
+/* === SMALL TABLET ≤1024px === */
+@media (max-width: 1024px) {
+  :root { --sb-w: 320px; --main-left: 340px; }
+  .header-clock { display: none; }
+  .status-pill:nth-child(n+4) { display: none; }
+  #leftSidebar { width: var(--sb-w) !important; }
+  #idleCommandCenter, #centerDashboard { left: var(--main-left) !important; }
+  #staticResultPanel {
+    left: var(--main-left) !important;
+    width: calc(100vw - var(--main-left) - 16px) !important;
+  }
+}
+
+/* === MOBILE ≤768px: sidebar becomes slide-over drawer === */
+@media (max-width: 768px) {
+  :root { --sb-w: 300px; --main-left: 0px; }
+
+  #sidebarToggleBtn { display: flex !important; }
+  .header-clock { display: none; }
+  .status-pill { display: none !important; }
+  #wsStatusContainer { display: none !important; }
+
+  /* Sidebar: hidden off-screen, slides in */
+  #leftSidebar {
+    top: 0 !important;
+    bottom: 0 !important;
+    left: calc(-1 * var(--sb-w) - 20px) !important;
+    width: var(--sb-w) !important;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    padding-top: 52px;
+    pointer-events: auto !important;
+    transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 9000 !important;
+  }
+
+  body.sidebar-open #leftSidebar { left: 0 !important; }
+  body.sidebar-open #sidebarBackdrop { display: block; }
+
+  /* Main panels: full viewport width */
+  #idleCommandCenter {
+    left: 0 !important;
+    right: 0 !important;
+    top: var(--topbar-h) !important;
+    bottom: auto !important;
+    max-height: 30vh;
+    grid-template-columns: 1fr !important;
+    overflow: hidden;
+  }
+
+  /* Hide ETH + DOGE charts, show only BTC on mobile */
+  #chart-col-eth, #chart-col-doge { display: none !important; }
+
+  #staticResultPanel {
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    top: var(--topbar-h) !important;
+  }
+
+  #centerDashboard {
+    left: 0 !important;
+    right: 0 !important;
+    bottom: var(--statusbar-h) !important;
+    height: auto !important;
+    min-height: 200px;
+    max-height: 50vh;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 8px;
+    gap: 8px;
+  }
+
+  #centerDashboard .dash-bottom-card {
+    min-width: 260px;
+    flex: 0 0 260px;
+  }
+
+  /* Status bar: hide price ticker to save space */
+  .padre-footer-center { display: none !important; }
+
+  /* Modals: full screen on mobile */
+  #tradePanelModal > div,
+  #historyModal > div {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+  }
+
+  .padre-modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+  }
+}
+
+/* === PHONE ≤480px === */
+@media (max-width: 480px) {
+  :root { --sb-w: calc(100vw - 24px); }
+
+  .topbar { padding: 0 10px; }
+
+  #idleCommandCenter { top: 60px !important; max-height: 28vh; }
+
+  #staticResultPanel {
+    top: 60px !important;
+    left: 4px !important;
+    right: 4px !important;
+    border-radius: 12px !important;
+  }
+
+  #centerDashboard {
+    bottom: 30px !important;
+    max-height: 48vh;
+  }
+}
+
+/* ponytail: sidebar uses left offset instead of transform to avoid creating
+   new stacking context on an already z-index-heavy layout. */

@@ -1,10 +1,19 @@
+/**
+ * Sanitize all raw font name strings in public/ files,
+ * replacing them with the correct CSS variable references.
+ * Run: node scripts/clean_fonts.js
+ */
+
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const files = [
-  path.resolve('./public/index.html'),
-  path.resolve('./public/styles-v2.css'),
-  path.resolve('./public/app.js')
+  path.resolve(__dirname, '../public/index.html'),
+  path.resolve(__dirname, '../public/styles-v2.css'),
+  path.resolve(__dirname, '../public/app.js'),
 ];
 
 for (const file of files) {
@@ -22,14 +31,14 @@ for (const file of files) {
   content = content.replace(/['"]Outfit['"]\s*,\s*monospace/g, 'var(--font-primary)');
   content = content.replace(/font-family:\s*['"]Outfit['"]/g, 'font-family: var(--font-primary)');
   content = content.replace(/font-family:\s*\\"Outfit\\"/g, 'font-family: var(--font-primary)');
-  
+
   // Fix any remaining raw font names for secondary
   content = content.replace(/['"]Plus Jakarta Sans['"]\s*,\s*system-ui\s*,\s*sans-serif/g, 'var(--font-secondary)');
   content = content.replace(/['"]Plus Jakarta Sans['"]\s*,\s*sans-serif/g, 'var(--font-secondary)');
   content = content.replace(/['"]Plus Jakarta Sans['"]\s*,\s*monospace\s*,\s*sans-serif/g, 'var(--font-secondary)');
   content = content.replace(/font-family:\s*['"]Plus Jakarta Sans['"]/g, 'font-family: var(--font-secondary)');
   content = content.replace(/font-family:\s*\\"Plus Jakarta Sans\\"/g, 'font-family: var(--font-secondary)');
-  
+
   // Fix rogue Inter
   content = content.replace(/font-family:\s*['"]Inter['"]\s*,\s*system-ui\s*,\s*sans-serif/g, 'font-family: var(--font-secondary)');
   content = content.replace(/font-family:\s*['"]Inter['"]\s*,\s*sans-serif/g, 'font-family: var(--font-secondary)');

@@ -90,7 +90,7 @@
   <!-- LightweightCharts must load before app.js -->
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <script src="/lucide.min.js"></script>
-  <link rel="stylesheet" href="/styles-v2.css?v=131" />
+  <link rel="stylesheet" href="/styles-v2.css?v=135" />
   <style>
 /* ================================================================
    FONT VARIABLES (DATA-FONT ATTR)
@@ -242,6 +242,9 @@ html[data-font="inter"] {
 </style>
 </head>
   <body>
+    <!-- Sidebar backdrop (closes drawer on tap) -->
+    <div id="sidebarBackdrop" onclick="document.body.classList.remove('sidebar-open')"></div>
+
     <!-- Left Sidebar - Houses Short Market and Queue Panel -->
     <aside id="leftSidebar" style="position:fixed; top:70px; bottom:40px; left:12px; width:420px; z-index:9000; display:flex; flex-direction:column; gap:12px; pointer-events:none;">
       <!-- Short Market Card - Koyfin-style compact widget -->
@@ -353,18 +356,21 @@ html[data-font="inter"] {
     <div class="app-shell">
       <!-- === HEADER BAR === -->
       <header class="topbar" style="display:flex; justify-content:space-between; align-items:center; padding-right:24px;">
-        <div class="brand">
-          <div aria-hidden="true" style="display:flex; align-items:center; justify-content:center; color:#ffffff;">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:24px; height:24px;">
-              <!-- Left wing -->
-              <path d="M12 16c-3.5-3-7-4.5-9-8 2 1.5 5 2 7 5 0-3-1.5-6-3-9 4 2 6 6 5 12z"/>
-              <!-- Right wing -->
-              <path d="M12 16c3.5-3 7-4.5 9-8-2 1.5-5 2-7 5 0-3 1.5-6 3-9-4 2-6 6-5 12z"/>
-            </svg>
-          </div>
-          <div>
-            <h1>Icarus Terminal</h1>
-            <p id="versionText">Engine handshake...</p>
+        <div style="display:flex; align-items:center;">
+
+          <div class="brand">
+            <div aria-hidden="true" style="display:flex; align-items:center; justify-content:center; color:#ffffff;">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:24px; height:24px;">
+                <!-- Left wing -->
+                <path d="M12 16c-3.5-3-7-4.5-9-8 2 1.5 5 2 7 5 0-3-1.5-6-3-9 4 2 6 6 5 12z"/>
+                <!-- Right wing -->
+                <path d="M12 16c3.5-3 7-4.5 9-8-2 1.5-5 2-7 5 0-3 1.5-6 3-9-4 2-6 6-5 12z"/>
+              </svg>
+            </div>
+            <div>
+              <h1>Icarus Terminal</h1>
+              <p id="versionText">Engine handshake...</p>
+            </div>
           </div>
         </div>
 
@@ -1043,6 +1049,15 @@ html[data-font="inter"] {
                   <button id="btnResetHistoryFilters" style="padding:6px 12px; border-radius:4px; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3); cursor:pointer; font-size:10px; font-weight:bold; margin-left:4px; display:flex; align-items:center; gap:4px; transition:all 0.2s;">
                     <i data-lucide="rotate-ccw" style="width:12px; height:12px;"></i> Reset
                   </button>
+                </div>
+              </div>
+              
+              <!-- Limit filter -->
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Batas Tampil</div>
+                <div style="display:flex; gap:2px; align-items:center; background:rgba(0,0,0,0.4); padding:2px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+                  <input type="number" id="historyLimit" value="10" min="1" max="2000" style="padding:4px 8px; border-radius:4px; background:var(--bg-input, transparent); border:1px solid var(--border); color:var(--text-primary, #fff); font-size:10px; font-family:inherit; width:60px; text-align:center;">
+                  <button id="btnSetHistoryLimit" style="padding:6px 10px; border-radius:4px; background:rgba(59,130,246,0.1); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); cursor:pointer; font-size:10px; font-weight:bold; margin-left:4px;">Set</button>
                 </div>
               </div>
 

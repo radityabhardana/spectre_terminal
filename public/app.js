@@ -574,7 +574,7 @@ function setBusy(nextBusy) {
       if (dConc) dConc.innerText = initialText;
       
       if (staticPanel && staticBody) {
-        staticPanel.classList.remove("hidden");
+        staticPanel.style.display = "flex";
         staticBody.innerHTML = `
           <div class="empty-dashboard-state" style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 240px; gap: 20px;">
             <div class="spinner" style="width:40px; height:40px; border-width:2px; border-radius:50%; border-color:rgba(16,185,129,0.15); border-top-color:var(--neon-green);"></div>
@@ -958,13 +958,13 @@ function appendMessageElement(message) {
           staticBody.innerHTML = html;
         }
         
-        staticPanel.classList.remove("hidden");
+        staticPanel.style.display = "flex";
         if (window.lucide) window.lucide.createIcons({ root: staticBody });
         wrapper.style.display = "none";
       } else {
         // Raw text / errors: also show them in the static panel if the console feed is hidden
         staticBody.innerHTML = `<div style="display:flex; flex-direction:column; justify-content:center; padding: 24px; background:var(--bg-elevated); border-radius:12px; border:1px solid rgba(255,255,255,0.05); position:relative;">\n          <button onclick="closeStaticPanel()" style="position:absolute; top:12px; right:12px; background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:16px;height:16px;"></i></button>\n          ${html}\n        </div>`;
-        staticPanel.classList.remove("hidden");
+        staticPanel.style.display = "flex";
         if (window.lucide) window.lucide.createIcons({ root: staticBody });
         wrapper.style.display = "none";
       }
@@ -3565,8 +3565,7 @@ window.showHistoryChat = function(eventId) {
   const staticPanel = document.getElementById("staticResultPanel");
   const staticBody = document.getElementById("staticResultBody");
   if (staticPanel) {
-    staticPanel.classList.remove("hidden");
-    staticPanel.style.display = "block";
+    staticPanel.style.display = "flex";
     localStorage.setItem("market_summary_closed", "false"); // Ensure it stays open
   }
   
@@ -5539,16 +5538,10 @@ window.addEventListener('load', () => {
 });
 
 function closeStaticPanel() {
-  const staticBody = document.getElementById('staticResultBody');
-  if (staticBody) {
+  const panel = document.getElementById('staticResultPanel');
+  if (panel) {
     localStorage.setItem("market_summary_closed", "true");
-    staticBody.innerHTML = `
-      <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:var(--text-tertiary); font-family:var(--font-secondary); font-size:11px;">
-        <i data-lucide="bar-chart-2" style="width:24px; height:24px; margin-bottom:12px; opacity:0.5;"></i>
-        <span>Pilih event atau jalankan analisis untuk melihat Market Summary</span>
-      </div>
-    `;
-    if (window.lucide) window.lucide.createIcons({ root: staticBody });
+    panel.style.display = 'none';
   }
 }
 window.closeStaticPanel = closeStaticPanel;
@@ -5825,7 +5818,49 @@ function toggleWhaleVolume() {
 }
 window.toggleWhaleVolume = toggleWhaleVolume;
 
+function injectMspStyles() {
+  if (document.getElementById('msp-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'msp-styles';
+  style.innerHTML = `
+/* Outer bezel */
+.msp-shell { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; padding: 2px; box-shadow: 0 12px 40px rgba(0,0,0,0.6), 0 0 0 0.5px rgba(255,255,255,0.04) inset; }
+.msp-core { box-sizing: border-box; background: rgba(22,22,26,0.98); border-radius: 12px; border: 1px solid rgba(255,255,255,0.07); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); padding: 18px 20px 16px; display: flex; flex-direction: column; justify-content: space-between; gap: 0; }
+.msp-top-row { display: flex; justify-content: space-between; align-items: center; }
+.msp-eyebrow { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.18em; }
+.msp-link { font-family: var(--font-secondary); font-size: 10px; font-weight: 500; color: rgba(16,185,129,0.55); letter-spacing: 0.02em; cursor: pointer; transition: color 0.2s ease; }
+.msp-link:hover { color: var(--neon-green); }
+.msp-hero-row { display: flex; align-items: center; flex: 1; margin: 10px 0; }
+.msp-signal-block { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.msp-signal-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px 6px 12px; border-radius: 8px; width: fit-content; }
+.msp-signal-arrow { font-size: 18px; font-weight: 900; line-height: 1; }
+.msp-signal-text { font-family: var(--font-primary); font-size: 22px; font-weight: 800; letter-spacing: 0.05em; line-height: 1; }
+.msp-vline { width: 1px; height: 48px; background: rgba(255,255,255,0.1); margin: 0 20px; flex-shrink: 0; }
+.msp-entry-block { display: flex; flex-direction: column; gap: 6px; text-align: right; }
+.msp-entry-val { font-family: var(--font-primary); font-size: 18px; font-weight: 800; letter-spacing: 0.04em; line-height: 1; }
+.msp-field-label { font-family: var(--font-secondary); font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
+.msp-hline { height: 1px; background: rgba(255,255,255,0.08); margin: 0 -20px; }
+.msp-strip { display: flex; align-items: stretch; padding: 12px 0; }
+.msp-strip-item { flex: 1; display: flex; flex-direction: column; gap: 5px; padding: 2px 0; }
+.msp-strip-item--wide { flex: 1.6; }
+.msp-strip-sep { width: 1px; background: rgba(255,255,255,0.08); margin: 0 14px; flex-shrink: 0; }
+.msp-strip-label { font-family: var(--font-secondary); font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
+.msp-strip-val { font-family: var(--font-primary); font-size: 13px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+.msp-depth { padding-top: 14px; }
+.msp-depth-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.msp-depth-bid-txt { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: var(--neon-green); text-transform: uppercase; letter-spacing: 0.07em; }
+.msp-depth-center-txt { font-family: var(--font-secondary); font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.28); text-transform: uppercase; letter-spacing: 0.12em; }
+.msp-depth-ask-txt { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 0.07em; }
+.msp-depth-bar { display: flex; width: 100%; height: 6px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); gap: 1px; }
+.msp-depth-bid-fill { height: 100%; background: linear-gradient(90deg, rgba(16,185,129,0.4), rgba(16,185,129,0.85)); border-radius: 4px 0 0 4px; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(16,185,129,0.5); }
+.msp-depth-ask-fill { height: 100%; background: linear-gradient(90deg, rgba(239,68,68,0.85), rgba(239,68,68,0.4)); border-radius: 0 4px 4px 0; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(239,68,68,0.5); }
+`;
+  document.head.appendChild(style);
+}
+
 function buildBentoGrid(text, isHistory = false) {
+  if (typeof injectMspStyles === "function") injectMspStyles();
+
   const data = {
      arah: "-", entry: "-", liquidity: "-", gammaVol: "-", orderbook: "-", conf: "-", qwenScore: "-", risk: "-",
      deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-", analysisTime: null, url: null, tokens: null
@@ -5882,15 +5917,11 @@ function buildBentoGrid(text, isHistory = false) {
      }
   }
 
-  if (typeof injectMspStyles === "function") injectMspStyles();
-
   const headerText = isHistory ? "HISTORY ARCHIVE" : "MARKET SUMMARY";
   const headerIcon = isHistory ? "archive" : "zap";
   const headerColor = isHistory ? "var(--neon-purple)" : "var(--neon-amber)";
 
   return `
-    <div class="msp-shell">
-      <div class="msp-core">
         <div class="msp-top-row">
            <div class="msp-eyebrow" style="display:flex; align-items:center; gap:6px;">
              <i data-lucide="${headerIcon}" style="width:12px; height:12px; color:${headerColor};"></i>
@@ -5993,51 +6024,8 @@ function buildBentoGrid(text, isHistory = false) {
             <div class="msp-depth-ask-fill" style="width:${askPct}%;"></div>
           </div>
         </div>
-      </div>
-    </div>
   `;
 }
-
-function injectMspStyles() {
-  if (document.getElementById('msp-styles')) return;
-  const style = document.createElement('style');
-  style.id = 'msp-styles';
-  style.innerHTML = `
-/* Outer bezel */
-.msp-shell { height: 340px; box-sizing: border-box; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; padding: 2px; box-shadow: 0 12px 40px rgba(0,0,0,0.6), 0 0 0 0.5px rgba(255,255,255,0.04) inset; }
-.msp-core { height: 100%; box-sizing: border-box; background: rgba(22,22,26,0.98); border-radius: 12px; border: 1px solid rgba(255,255,255,0.07); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); padding: 18px 20px 16px; display: flex; flex-direction: column; justify-content: space-between; gap: 0; }
-.msp-top-row { display: flex; justify-content: space-between; align-items: center; }
-.msp-eyebrow { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.18em; }
-.msp-link { font-family: var(--font-secondary); font-size: 10px; font-weight: 500; color: rgba(16,185,129,0.55); letter-spacing: 0.02em; cursor: pointer; transition: color 0.2s ease; }
-.msp-link:hover { color: var(--neon-green); }
-.msp-hero-row { display: flex; align-items: center; flex: 1; margin: 10px 0; }
-.msp-signal-block { flex: 1; display: flex; flex-direction: column; gap: 6px; }
-.msp-signal-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px 6px 12px; border-radius: 8px; width: fit-content; }
-.msp-signal-arrow { font-size: 18px; font-weight: 900; line-height: 1; }
-.msp-signal-text { font-family: var(--font-primary); font-size: 22px; font-weight: 800; letter-spacing: 0.05em; line-height: 1; }
-.msp-vline { width: 1px; height: 48px; background: rgba(255,255,255,0.1); margin: 0 20px; flex-shrink: 0; }
-.msp-entry-block { display: flex; flex-direction: column; gap: 6px; text-align: right; }
-.msp-entry-val { font-family: var(--font-primary); font-size: 18px; font-weight: 800; letter-spacing: 0.04em; line-height: 1; }
-.msp-field-label { font-family: var(--font-secondary); font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
-.msp-hline { height: 1px; background: rgba(255,255,255,0.08); margin: 0 -20px; }
-.msp-strip { display: flex; align-items: stretch; padding: 12px 0; }
-.msp-strip-item { flex: 1; display: flex; flex-direction: column; gap: 5px; padding: 2px 0; }
-.msp-strip-item--wide { flex: 1.6; }
-.msp-strip-sep { width: 1px; background: rgba(255,255,255,0.08); margin: 0 14px; flex-shrink: 0; }
-.msp-strip-label { font-family: var(--font-secondary); font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
-.msp-strip-val { font-family: var(--font-primary); font-size: 13px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
-.msp-depth { padding-top: 14px; }
-.msp-depth-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.msp-depth-bid-txt { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: var(--neon-green); text-transform: uppercase; letter-spacing: 0.07em; }
-.msp-depth-center-txt { font-family: var(--font-secondary); font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.28); text-transform: uppercase; letter-spacing: 0.12em; }
-.msp-depth-ask-txt { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 0.07em; }
-.msp-depth-bar { display: flex; width: 100%; height: 6px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); gap: 1px; }
-.msp-depth-bid-fill { height: 100%; background: linear-gradient(90deg, rgba(16,185,129,0.4), rgba(16,185,129,0.85)); border-radius: 4px 0 0 4px; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(16,185,129,0.5); }
-.msp-depth-ask-fill { height: 100%; background: linear-gradient(90deg, rgba(239,68,68,0.85), rgba(239,68,68,0.4)); border-radius: 0 4px 4px 0; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(239,68,68,0.5); }
-`;
-  document.head.appendChild(style);
-}
-
 
 // ==========================================
 // BULK TRADE PANEL LOGIC
@@ -6215,6 +6203,8 @@ window.executeBulkTrade = async function() {
 };
 
 window.triggerMarketPulse = async (asset) => {
+  if (typeof injectMspStyles === "function") injectMspStyles();
+
   const panel = document.getElementById("staticResultPanel");
   const body = document.getElementById("staticResultBody");
   if (!panel || !body) return;
@@ -6223,11 +6213,12 @@ window.triggerMarketPulse = async (asset) => {
   
   // Custom Loading UI for Pulse
   body.innerHTML = `
-    <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; width:100%; height:100%; min-height:300px; padding:40px 20px; text-align:center; color:var(--neon-cyan);">
-      <div style="width:40px; height:40px; border:3px solid var(--neon-cyan); border-top-color:transparent; border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 16px;"></div>
-      <div style="font-family:var(--font-primary); font-size:16px; font-weight:800; letter-spacing:2px; text-transform:uppercase;">Scanning Market Pulse</div>
-      <div style="font-size:11px; color:rgba(255,255,255,0.5); margin-top:8px;">Evaluating liquidity, sentiment, and momentum for ${asset}...</div>
-    </div>
+      <div style="min-height:220px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; position:relative;">
+        <span class="msp-link" onclick="closeStaticPanel()" style="position:absolute; top:-4px; right:-4px; cursor:pointer; color:rgba(255,255,255,0.3); display:flex; align-items:center; gap:4px; font-size:10px; font-weight:bold; text-transform:uppercase;"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
+        <div style="width:32px; height:32px; border:3px solid rgba(6,182,212,0.2); border-top-color:var(--neon-cyan); border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 16px;"></div>
+        <div style="font-family:var(--font-primary); font-size:14px; font-weight:800; color:var(--neon-cyan); letter-spacing:0.2em; text-transform:uppercase;">Scanning Pulse</div>
+        <div style="font-family:var(--font-secondary); font-size:10px; color:rgba(255,255,255,0.4); margin-top:8px; text-transform:uppercase; letter-spacing:1px;">Evaluating ${asset} momentum...</div>
+      </div>
   `;
 
   try {
@@ -6256,79 +6247,80 @@ window.triggerMarketPulse = async (asset) => {
 
     // Render Custom Pulse UI
     body.innerHTML = `
-      <style>
-        .pulse-bento-card:hover {
-          background: rgba(255,255,255,0.04) !important;
-          border-color: rgba(255,255,255,0.15) !important;
-          transform: translateY(-2px);
-        }
-      </style>
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        <!-- Top Hero Section -->
-        <div style="display:flex; justify-content:space-between; align-items:flex-end; padding:24px 20px; background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.05); border-radius:16px; position:relative; overflow:hidden;">
-          <span class="msp-link" onclick="closeStaticPanel()" style="position:absolute; top:16px; right:20px; cursor:pointer; color:var(--neon-red); display:flex; align-items:center; gap:4px; font-size:12px; font-weight:bold; z-index:10; background:rgba(255,255,255,0.05); padding:4px 8px; border-radius:4px;"><i data-lucide="x" style="width:14px;height:14px;"></i> Tutup</span>
-          <div style="position:absolute; inset:0; background:radial-gradient(circle at top right, rgba(6,182,212,0.1) 0%, transparent 70%); pointer-events:none;"></div>
-          <div style="position:relative; z-index:1;">
-            <div style="font-size:10px; font-weight:800; color:var(--neon-cyan); letter-spacing:0.2em; text-transform:uppercase; margin-bottom:8px;">Neural Market Pulse</div>
-            <div style="font-size:36px; font-weight:900; color:#fff; letter-spacing:-1px; line-height:1;">$${ticker.currentPrice || '-'}</div>
-            <div style="font-size:13px; font-weight:700; color:${parseFloat(ticker.priceChange24h) >= 0 ? 'var(--neon-green)' : 'var(--neon-red)'}; margin-top:8px;">
-              ${parseFloat(ticker.priceChange24h) > 0 ? '+' : ''}${ticker.priceChange24h || 0}% <span style="color:var(--text-secondary); font-weight:500;">(24h)</span>
+        <div class="msp-top-row">
+           <div class="msp-eyebrow" style="display:flex; align-items:center; gap:6px;">
+             <i data-lucide="activity" style="width:12px; height:12px; color:var(--neon-cyan);"></i>
+             <span style="color:var(--neon-cyan); font-weight:800; letter-spacing:0.25em;">NEURAL MARKET PULSE</span>
+           </div>
+           <div style="display:flex; gap:12px; align-items:center;">
+             <span style="font-family:var(--font-secondary); font-size:10px; color:var(--text-secondary); font-weight:700;">${asset} USDT-M</span>
+             <span class="msp-link" onclick="closeStaticPanel()" style="cursor:pointer; color:var(--neon-red); margin-left:8px; display:flex; align-items:center; gap:4px; text-transform:uppercase; font-size:10px; font-weight:800;" title="Tutup Panel"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
+           </div>
+        </div>
+        
+        <div class="msp-hero-row">
+          <div class="msp-signal-block">
+            <div class="msp-signal-pill" style="background:${dirColor}15; border:1px solid ${dirColor}40; color:${dirColor};">
+              <span class="msp-signal-text">${dir}</span>
             </div>
+            <span class="msp-field-label">AI Verdict</span>
           </div>
-          <div style="text-align:right; position:relative; z-index:1;">
-            <div style="font-size:16px; font-weight:800; color:var(--text-secondary);">${asset}</div>
-            <div style="font-size:10px; color:rgba(255,255,255,0.3); font-family:var(--font-mono); margin-top:4px;">USDT-M</div>
+          <div class="msp-vline"></div>
+          
+          <div style="flex:2.2; display:flex; flex-direction:column; justify-content:center; padding:0 12px;">
+             <div style="display:flex; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 14px; margin-bottom:12px; align-items:center; justify-content:space-between; box-shadow:inset 0 2px 10px rgba(0,0,0,0.4);">
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.1em;">Current Price</span>
+                   <div style="font-family:var(--font-primary); font-size:18px; font-weight:800; color:var(--text-primary); text-shadow:0 0 12px rgba(255,255,255,0.15); line-height:1;">
+                      $${ticker.currentPrice || '-'}
+                   </div>
+                </div>
+                
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 12px;">
+                   <div style="width:1px; height:8px; background:rgba(255,255,255,0.1); margin-bottom:4px;"></div>
+                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:800; color:rgba(255,255,255,0.2); font-style:italic;">CHG</span>
+                   <div style="width:1px; height:8px; background:rgba(255,255,255,0.1); margin-top:4px;"></div>
+                </div>
+                
+                <div style="display:flex; flex-direction:column; gap:4px; text-align:right;">
+                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:${parseFloat(ticker.priceChange24h) >= 0 ? 'var(--neon-green)' : 'var(--neon-red)'}; text-transform:uppercase; letter-spacing:0.1em; opacity:0.8;">24h Change</span>
+                   <div style="font-family:var(--font-primary); font-size:18px; font-weight:800; color:${parseFloat(ticker.priceChange24h) >= 0 ? 'var(--neon-green)' : 'var(--neon-red)'}; line-height:1;">
+                      ${parseFloat(ticker.priceChange24h) > 0 ? '+' : ''}${ticker.priceChange24h || 0}%
+                   </div>
+                </div>
+             </div>
+             
+             <!-- Recommendation Snippet -->
+             <div style="border-left:2px solid ${dirColor}; padding-left:12px; margin-left:2px; display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:rgba(255,255,255,0.3); text-transform:uppercase; margin-bottom:4px; letter-spacing:0.1em; display:block;">Recommendation</span>
+                   <p style="margin:0; font-family:var(--font-secondary); font-size:11px; font-weight:600; color:var(--text-primary); text-transform:uppercase;">${ev.recommendation || 'N/A'}</p>
+                </div>
+                <button onclick="window.showPulseReason()" style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:6px 12px; color:var(--neon-cyan); font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:1px; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(6,182,212,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">View Logic</button>
+             </div>
           </div>
         </div>
         
-        <!-- Bento Grid for Stats -->
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px;">
-          <!-- RSI -->
-          <div class="pulse-bento-card" style="background:rgba(255,255,255,0.015); border:1px solid rgba(255,255,255,0.05); padding:16px; border-radius:12px; transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
-            <div style="font-size:10px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">RSI (14)</div>
-            <div style="font-size:20px; font-weight:800; color:#fff; font-family:var(--font-mono);">${ticker.rsi14 ?? '-'}</div>
-            <div style="font-size:10px; font-weight:600; color:var(--neon-amber); margin-top:4px;">${ticker.rsiSignal || 'NEUTRAL'}</div>
+        <div class="msp-hline"></div>
+        <div class="msp-strip">
+          <div class="msp-strip-item">
+            <span class="msp-strip-label">RSI (14)</span>
+            <span class="msp-strip-val" style="color:var(--text-primary); font-size:12px;">${ticker.rsi14 ?? '-'}</span>
+            <span style="font-size:8px; font-weight:700; color:var(--neon-amber); margin-top:2px;">${ticker.rsiSignal || 'NEUTRAL'}</span>
           </div>
-          
-          <!-- Volume Momentum -->
-          <div class="pulse-bento-card" style="background:rgba(255,255,255,0.015); border:1px solid rgba(255,255,255,0.05); padding:16px; border-radius:12px; transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
-            <div style="font-size:10px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">Vol Momentum</div>
-            <div style="font-size:20px; font-weight:800; color:#fff; font-family:var(--font-mono);">${ticker.volumeRatio ?? '-'}x</div>
-            <div style="font-size:10px; font-weight:600; color:var(--neon-cyan); margin-top:4px;">${ticker.volumeSignal || 'NORMAL'}</div>
+          <div class="msp-strip-sep"></div>
+          <div class="msp-strip-item">
+            <span class="msp-strip-label">VOL MOMENTUM</span>
+            <span class="msp-strip-val" style="color:var(--neon-cyan); font-size:12px;">${ticker.volumeRatio ?? '-'}x</span>
+            <span style="font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); margin-top:2px;">${ticker.volumeSignal || 'NORMAL'}</span>
           </div>
-
-          <!-- MACD Trend -->
-          <div class="pulse-bento-card" style="background:rgba(255,255,255,0.015); border:1px solid rgba(255,255,255,0.05); padding:16px; border-radius:12px; transition:all 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
-            <div style="font-size:10px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">MACD Trend</div>
-            <div style="font-size:20px; font-weight:800; color:#fff; font-family:var(--font-mono);">${ticker.macd ? ticker.macd.histogram : '-'}</div>
-            <div style="font-size:10px; font-weight:600; color:${ticker.macd && ticker.macd.trend === 'BULLISH' ? 'var(--neon-green)' : (ticker.macd && ticker.macd.trend === 'BEARISH' ? 'var(--neon-red)' : 'var(--neon-amber)')}; margin-top:4px;">${ticker.macd ? ticker.macd.trend : 'NEUTRAL'}</div>
+          <div class="msp-strip-sep"></div>
+          <div class="msp-strip-item">
+            <span class="msp-strip-label">MACD TREND</span>
+            <span class="msp-strip-val" style="color:${ticker.macd && ticker.macd.trend === 'BULLISH' ? 'var(--neon-green)' : (ticker.macd && ticker.macd.trend === 'BEARISH' ? 'var(--neon-red)' : 'var(--neon-amber)')}; font-size:12px;">${ticker.macd ? ticker.macd.histogram : '-'}</span>
+            <span style="font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); margin-top:2px;">${ticker.macd ? ticker.macd.trend : 'NEUTRAL'}</span>
           </div>
         </div>
-
-        <!-- AI Verdict Section (Brutalist) -->
-        <div style="margin-top:4px; padding:24px; border-radius:16px; border:1px solid ${dirColor}40; background:linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.2) 100%); position:relative; overflow:hidden;">
-          <!-- Left Neon Bar -->
-          <div style="position:absolute; left:0; top:0; bottom:0; width:4px; background:${dirColor}; box-shadow:0 0 15px ${dirColor};"></div>
-          
-          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-            <div>
-              <div style="font-size:10px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:2px; margin-bottom:12px;">Qwen Engine Verdict</div>
-              <div style="font-size:32px; font-weight:900; color:${dirColor}; letter-spacing:2px; line-height:1; text-transform:uppercase;">
-                ${dir}
-              </div>
-            </div>
-            <div style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); padding:8px 16px; border-radius:8px; font-size:12px; font-weight:800; color:#fff; text-transform:uppercase; letter-spacing:1px;">
-              ${ev.recommendation || 'N/A'}
-            </div>
-          </div>
-          
-          <div style="margin-top:20px; padding-top:20px; border-top:1px dashed rgba(255,255,255,0.1); display:flex; justify-content:center;">
-            <button class="pulse-bento-card" onclick="window.showPulseReason()" style="padding:12px 32px; border-radius:8px; background:transparent; border:1px solid var(--neon-cyan); color:var(--neon-cyan); font-size:11px; font-weight:800; letter-spacing:2px; cursor:pointer; text-transform:uppercase;">
-              View AI Reasoning
-            </button>
-          </div>
-        </div>
-      </div>
     `;
 
     // Bind function to global scope to be called by onclick
@@ -6347,11 +6339,11 @@ window.triggerMarketPulse = async (asset) => {
     
   } catch(err) {
     body.innerHTML = `
-      <div style="padding:24px; text-align:center; color:var(--neon-red); background:var(--bg-elevated); border:1px solid rgba(255,255,255,0.05); border-radius:12px; position:relative;">
-        <span class="msp-link" onclick="closeStaticPanel()" style="position:absolute; top:12px; right:16px; cursor:pointer; color:var(--neon-red); display:flex; align-items:center; gap:4px; font-size:12px; font-weight:bold;"><i data-lucide="x" style="width:14px;height:14px;"></i> Tutup</span>
-        <i data-lucide="alert-triangle" style="width:32px; height:32px; margin-bottom:12px; margin-top:8px;"></i>
-        <div style="font-size:14px; font-weight:900; letter-spacing:1px; text-transform:uppercase; margin-bottom:16px;">Pulse Check Failed</div>
-        <div style="font-size:12px; color:rgba(255,255,255,0.7); line-height:1.7; text-align:left; background:rgba(0,0,0,0.3); padding:16px; border-radius:8px; display:inline-block; max-width:100%; white-space:pre-wrap;">${err.message}</div>
+      <div style="align-items:center; text-align:center; padding:12px; position:relative;">
+        <span class="msp-link" onclick="closeStaticPanel()" style="position:absolute; top:-4px; right:-4px; cursor:pointer; color:var(--neon-red); display:flex; align-items:center; gap:4px; font-size:10px; font-weight:bold; text-transform:uppercase;"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
+        <i data-lucide="alert-triangle" style="width:32px; height:32px; margin-bottom:12px; color:var(--neon-red);"></i>
+        <div style="font-family:var(--font-primary); font-size:14px; font-weight:900; color:var(--neon-red); letter-spacing:1px; text-transform:uppercase; margin-bottom:12px;">Pulse Check Failed</div>
+        <div style="font-family:var(--font-secondary); font-size:11px; color:rgba(255,255,255,0.6); line-height:1.6; background:rgba(0,0,0,0.3); padding:12px 16px; border-radius:8px; max-width:400px; text-align:left; margin:0 auto;">${err.message}</div>
       </div>
     `;
     if(window.lucide) window.lucide.createIcons({root: body});

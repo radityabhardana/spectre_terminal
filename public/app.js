@@ -2523,7 +2523,7 @@ function startSniper() {
     const min1h = document.querySelector("#set1hMin");
     const sec1h = document.querySelector("#set1hSec");
     
-    const val5m = ((min5 && min5.value ? parseInt(min5.value) : 4) * 60) + (sec5 && sec5.value ? parseInt(sec5.value) : 30);
+    const val5m = ((min5 && min5.value ? parseInt(min5.value) : 4) * 60) + (sec5 && sec5.value ? parseInt(sec5.value) : 45);
     const val15m = ((min15 && min15.value ? parseInt(min15.value) : 13) * 60) + (sec15 && sec15.value ? parseInt(sec15.value) : 30);
     const val1h = ((min1h && min1h.value ? parseInt(min1h.value) : 55) * 60) + (sec1h && sec1h.value ? parseInt(sec1h.value) : 0);
     
@@ -2976,7 +2976,7 @@ function renderShortMarkets(markets) {
     else if (activeShortDuration === '4h') durationLimit = 4 * 60 * 60 * 1000;
     else if (activeShortDuration === '1d') durationLimit = 24 * 60 * 60 * 1000;
     
-    const isFuture = timeToClose > durationLimit;
+    const isFuture = timeToClose > (durationLimit + 30000);
     const isClosed = timeToClose <= 0;
     const isLockedOut = !isFuture && !isClosed && timeToClose <= 60 * 1000; // Under 1 min
     const isClosingSoon = !isFuture && !isClosed && !isLockedOut && timeToClose < 2 * 60 * 1000;
@@ -3085,7 +3085,7 @@ function startShortRealtimeTimer() {
       else if (activeShortDuration === '4h') durationLimit = 4 * 60 * 60 * 1000;
       else if (activeShortDuration === '1d') durationLimit = 24 * 60 * 60 * 1000;
       
-      const isFuture = timeToClose > durationLimit;
+      const isFuture = timeToClose > (durationLimit + 30000);
       const isClosingSoon = timeToClose > 0 && timeToClose < 2 * 60 * 1000 && !isFuture;
       const isClosed = timeToClose <= 0;
       
@@ -3143,8 +3143,10 @@ window.analyzeShortMarket = function(marketId, url) {
     const btnAnalyze = document.querySelector("#btnAnalyze");
     if (btnAnalyze) {
       btnAnalyze.click();
-      const btnRun = document.querySelector("#runButton");
-      if (btnRun) btnRun.click();
+      setTimeout(() => {
+        const btnRun = document.querySelector("#runButton");
+        if (btnRun) btnRun.click();
+      }, 100);
     }
   }
 };
@@ -3373,8 +3375,19 @@ function applyHistoryFilter() {
       return true;
     });
   }
+
+  // 3. Client-side Date Filter fallback
+  const startDate = document.getElementById("historyStartDate")?.value || document.getElementById("archiveFilterDate")?.value;
+  const endDate = document.getElementById("historyEndDate")?.value || document.getElementById("archiveFilterDate")?.value;
+  if (startDate) {
+    filtered = filtered.filter(e => (e.created_at || "").slice(0, 10) >= startDate);
+  }
+  if (endDate) {
+    filtered = filtered.filter(e => (e.created_at || "").slice(0, 10) <= endDate);
+  }
   
   renderHistoryEvents(filtered);
+  renderHistoryListPanel(filtered);
 }
 
 async function fetchHistoryEvents() {
@@ -3490,17 +3503,18 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-function renderHistoryListPanel() {
+function renderHistoryListPanel(eventsToRender = null) {
   const container = document.querySelector("#historyListContainer");
-  if (!container || !allHistoryEvents) return;
+  const events = eventsToRender || allHistoryEvents;
+  if (!container || !events) return;
   
-  if (allHistoryEvents.length === 0) {
-    container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-tertiary);">Belum ada riwayat analisis.</div>';
+  if (events.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding:20px; color:var(--text-tertiary);">Belum ada riwayat analisis untuk filter ini.</div>';
     return;
   }
 
   let html = "";
-  for (const event of allHistoryEvents.slice(0, 50)) {
+  for (const event of events.slice(0, 50)) {
     const d = new Date(event.created_at);
     const timeStr = d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
     const dateStr = d.toLocaleDateString("id-ID", { month: "short", day: "numeric" });
@@ -3584,14 +3598,15 @@ function renderHistoryEvents(events) {
   const limit = limitInput ? (parseInt(limitInput.value) || 10) : 100;
   const displayEvents = events.slice(0, limit);
 
-  let total = displayEvents.length;
+  const statsEvents = events.filter((event) => event.strategy_version === "deepseek-chainlink-guarded-v2");
+  let total = statsEvents.length;
   let wins = 0;
   let losses = 0;
   let neutrals = 0;
   let pending = 0;
 
   let html = "";
-  for (const event of displayEvents) {
+  for (const event of statsEvents) {
     if (event.result === 'menang') wins++;
     else if (event.result === 'kalah') losses++;
     else if (event.result === 'netral') neutrals++;
@@ -3970,8 +3985,8 @@ async function fetchDashboardMetrics() {
       const dMDD = document.getElementById("dashMaxDd");
       const dWR = document.getElementById("dashWinRate");
       if (dPF) dPF.innerText = m.profitFactor;
-      if (dExp) dExp.innerText = m.expectancy + "%";
-      if (dMDD) dMDD.innerText = m.maxDrawdown + "%";
+      if (dExp) dExp.innerText = m.expectancy === "N/A" ? "N/A" : m.expectancy + "%";
+      if (dMDD) dMDD.innerText = m.maxDrawdown === "N/A" ? "N/A" : m.maxDrawdown + "%";
       if (dWR) dWR.innerText = m.winRate + "%";
 
       const g = m.grades;
@@ -4241,7 +4256,7 @@ if (btnSettings && settingsModal) {
   btnSaveSettings.addEventListener("click", () => {
     // Save sniper settings
     const sniperConf = {
-      m5: { min: set5mMin?.value || 4, sec: set5mSec?.value || 30 },
+      m5: { min: set5mMin?.value || 4, sec: set5mSec?.value || 45 },
       m15: { min: set15mMin?.value || 13, sec: set15mSec?.value || 30 },
       h1: { min: set1hMin?.value || 55, sec: set1hSec?.value || 0 }
     };
@@ -6064,16 +6079,14 @@ async function populateTradePanel() {
   document.getElementById('tradePanelStatus').innerText = '';
   
   try {
-    const queueRes = await fetch("/api/queue");
-    if (!queueRes.ok) throw new Error("Failed to fetch queue");
-    const queueData = await queueRes.json();
+    const queueData = { queue: Array.isArray(analysisQueue) ? analysisQueue : [] };
     
     if (!queueData.queue || queueData.queue.length === 0) {
       listEl.innerHTML = '<div style="text-align:center; padding:30px; color:#666; font-size:12px;">Queue is empty. Analyze some events first.</div>';
       return;
     }
     
-    if (!window.historyEventsData || window.historyEventsData.length === 0) {
+    if (!Array.isArray(allHistoryEvents) || allHistoryEvents.length === 0) {
       if (typeof fetchHistoryEvents === 'function') await fetchHistoryEvents(); 
     }
     
@@ -6081,7 +6094,7 @@ async function populateTradePanel() {
     let hasValid = false;
     
     queueData.queue.forEach(item => {
-      const historyMatch = (window.historyEventsData || []).find(h => h.market_id === item.id);
+      const historyMatch = (allHistoryEvents || []).find(h => String(h.market_id) === String(item.id));
       
       let predictionText = "UNKNOWN";
       let predictionColor = "#aaa";
@@ -6160,6 +6173,11 @@ window.executeBulkTrade = async function() {
       sizeUsdc: sizeUsdc
     });
   });
+
+  const totalUsdc = trades.reduce((sum, trade) => sum + trade.sizeUsdc, 0);
+  if (!window.confirm(`Confirm ${trades.length} FOK order(s), maximum total ${totalUsdc.toFixed(2)} USDC? Unfilled orders will be cancelled.`)) {
+    return;
+  }
   
   const statusEl = document.getElementById('tradePanelStatus');
   const btn = document.getElementById('btnExecuteTrade');
@@ -6174,7 +6192,10 @@ window.executeBulkTrade = async function() {
     const res = await fetch("/api/execute-trade", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ trades })
+      body: JSON.stringify({
+        trades,
+        idempotencyKey: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+      })
     });
     
     const data = await res.json();

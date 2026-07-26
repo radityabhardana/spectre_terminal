@@ -7,15 +7,15 @@
   "scripts": {
     "start": "node src/start-all.js",
     "web": "node src/web.js",
-    "check": "node --check src/index.js && node --check src/web.js && node --check src/start-all.js && node --check public/app.js",
+    "check": "node --check src/*.js && node --check public/app.js",
     "search": "node src/cli-search.js",
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "extract-tokens": "node scripts/extract_tokens.js",
     "backfill-tokens": "node scripts/backfill_tokens.js",
     "check-ids": "node scripts/check_ids.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.10"
   },
   "license": "UNLICENSED",
   "dependencies": {

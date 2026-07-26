@@ -1,5 +1,3 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-
 import { startWebServer } from "./web.js";
 import { startSniffer } from "./sniffer.js";
 import { initBlockchainTracker } from "./blockchain-tracker.js";
@@ -15,29 +13,34 @@ initBlockchainTracker(); // Start the Polygon on-chain wallet tracker
 startBinanceLiquidationStream(); // Start binance websocket liquidations
 startBinanceDepthStream(); // Start binance websocket depth
 
-console.log("Web UI is running (Telegram disabled).");
+console.log("Starting web UI and market-data services (Telegram disabled).");
 
 let shuttingDown = false;
-function shutdown() {
+function shutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log("Shutting down gracefully...");
   stopBinanceLiquidationStream();
   stopBinanceDepthStream();
-  webServer.close(() => {
-    process.exit(0);
-  });
-  setTimeout(() => process.exit(1), 5000); // force exit if hanging
+  if (webServer.listening) {
+    webServer.close(() => process.exit(exitCode));
+  } else {
+    process.exit(exitCode);
+  }
+  setTimeout(() => process.exit(exitCode || 1), 5000).unref();
 }
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+webServer.on("error", (error) => {
+  console.error("[WEB SERVER FATAL]:", error?.message || error);
+  shutdown(1);
+});
 process.on("uncaughtException", (error) => {
-  // Log tapi jangan crash — error dari background task (Shadow Bot, Qwen timeout, dll)
-  // tidak boleh membunuh seluruh server
-  console.error("[UNCAUGHT EXCEPTION - server tetap jalan]:", error?.message || error);
+  console.error("[UNCAUGHT EXCEPTION]:", error?.stack || error);
+  shutdown(1);
 });
 process.on("unhandledRejection", (reason) => {
-  // Sama — jangan crash jika ada promise rejection dari Qwen/fetch timeout
-  console.error("[UNHANDLED REJECTION - server tetap jalan]:", reason?.message || reason);
+  console.error("[UNHANDLED REJECTION]:", reason?.stack || reason);
+  shutdown(1);
 });

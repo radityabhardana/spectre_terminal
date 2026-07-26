@@ -1,15 +1,45 @@
-import { ClobClient } from "@polymarket/clob-client";
+import { ClobClient, OrderType, Side } from "@polymarket/clob-client";
 import { wallet } from "./wallet.js";
 import { config } from "./config.js";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "node:url";
 
 const CLOB_URL = process.env.POLYMARKET_CLOB_URL || "https://clob.polymarket.com";
 const CHAIN_ID = 137; // Polygon Mainnet
 
 let clobClient = null;
+let initPromise = null;
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function validCredentials(creds) {
+  return Boolean(creds?.key && creds?.secret && creds?.passphrase);
+}
+
+function withTimeout(promise, timeoutMs, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out; order state is unknown`)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
 
 export async function initTradeModule() {
+  if (initPromise) return initPromise;
+  initPromise = initializeTradeModule();
+  return initPromise;
+}
+
+async function initializeTradeModule() {
+  if (!config.enableLiveTrading) return false;
   if (!wallet) {
     console.log("[Trade] No wallet initialized, skipping ClobClient.");
     return false;
@@ -25,12 +55,21 @@ export async function initTradeModule() {
     }
   });
 
-  const credsPath = path.join(process.cwd(), ".gemini", "clob_creds.json");
-  let creds = null;
+  const credsPath = path.join(projectRoot, ".gemini", "clob_creds.json");
+  let creds = validCredentials({
+    key: config.clobApiKey,
+    secret: config.clobApiSecret,
+    passphrase: config.clobApiPassphrase,
+  }) ? {
+    key: config.clobApiKey,
+    secret: config.clobApiSecret,
+    passphrase: config.clobApiPassphrase,
+  } : null;
   
   try {
-    if (fs.existsSync(credsPath)) {
-      creds = JSON.parse(fs.readFileSync(credsPath, "utf-8"));
+    if (!creds && fs.existsSync(credsPath)) {
+      const stored = JSON.parse(fs.readFileSync(credsPath, "utf-8"));
+      if (validCredentials(stored)) creds = stored;
     }
   } catch (e) {
     console.error("[Trade] Failed to load CLOB credentials", e.message);
@@ -50,11 +89,13 @@ export async function initTradeModule() {
     try {
       console.log("[Trade] Generating new CLOB API keys...");
       const tempClient = new ClobClient(CLOB_URL, CHAIN_ID, signerAdapter);
-      creds = await tempClient.createApiKey();
+      creds = await tempClient.createOrDeriveApiKey();
+      if (!validCredentials(creds)) throw new Error("CLOB returned invalid API credentials");
       
       const dir = path.dirname(credsPath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(credsPath, JSON.stringify(creds, null, 2));
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(credsPath, JSON.stringify(creds, null, 2), { mode: 0o600 });
+      fs.chmodSync(credsPath, 0o600);
       
       clobClient = new ClobClient(CLOB_URL, CHAIN_ID, signerAdapter, creds);
       console.log("[Trade] CLOB API keys generated and saved successfully.");
@@ -67,67 +108,37 @@ export async function initTradeModule() {
   return true;
 }
 
-export async function executeMarketOrder(tokenId, side, sizeUsdc) {
+export async function executeMarketOrder(tokenId, side, sizeUsdc, maxEntryPrice = config.tradeMaxPrice) {
   if (!clobClient) {
     throw new Error("CLOB Client not initialized. Please ensure wallet is connected.");
   }
   
   try {
-    const orderbook = await clobClient.getOrderBook(tokenId);
-    
-    let sharesToBuy = 0;
-    let usdcRemaining = parseFloat(sizeUsdc);
-    let worstPrice = 0;
-    
-    // side === 'BUY' buys YES tokens (if tokenId is YES), side === 'SELL' sells them.
-    // Wait, in CLOB, side is ALWAYS BUY if we are buying a token (YES or NO).
-    // The user decides UP/DOWN which maps to a YES token or NO token.
-    // So if the user wants to buy NO, we pass the NO tokenId, and side is STILL 'BUY'.
-    const actualSide = "BUY";
-    const books = orderbook.asks;
-    
-    // Sort asks ascending for BUY
-    books.sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+    const amount = Number(sizeUsdc);
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid USDC amount");
+    if (side !== "BUY") throw new Error("Only BUY market orders are supported");
 
-    for (const level of books) {
-      if (usdcRemaining <= 0) break;
-      const price = parseFloat(level.price);
-      const size = parseFloat(level.size); // in shares
-      
-      const costForLevel = size * price;
-      
-      if (usdcRemaining > costForLevel) {
-        sharesToBuy += size;
-        usdcRemaining -= costForLevel;
-        worstPrice = price;
-      } else {
-        const partialShares = usdcRemaining / price;
-        sharesToBuy += partialShares;
-        usdcRemaining = 0;
-        worstPrice = price;
-      }
-    }
-    
-    if (usdcRemaining > 0 && sharesToBuy === 0) {
-      throw new Error(`Insufficient liquidity for ${sizeUsdc} USDC.`);
+    const executionPrice = await clobClient.calculateMarketPrice(tokenId, Side.BUY, amount, OrderType.FOK);
+    const priceCap = Math.min(config.tradeMaxPrice, Number(maxEntryPrice));
+    if (!Number.isFinite(priceCap) || priceCap <= 0) throw new Error("Invalid maximum entry price");
+    if (!Number.isFinite(executionPrice) || executionPrice <= 0 || executionPrice > priceCap) {
+      throw new Error(`Executable price ${executionPrice} exceeds the signal cap ${priceCap}`);
     }
 
-    // Set a limit price 5% worse than the worst price needed, capped at 0.99
-    const executionPrice = Math.min(worstPrice * 1.05, 0.99);
-    
-    // Round shares to 2 decimal places to match tick size / share size requirements
-    const roundedShares = Math.floor(sharesToBuy * 100) / 100;
-    const roundedPrice = Math.round(executionPrice * 1000) / 1000;
-
-    const order = await clobClient.createOrder({
+    const res = await withTimeout(clobClient.createAndPostMarketOrder({
       tokenID: tokenId,
-      price: roundedPrice,
-      side: actualSide,
-      size: roundedShares,
-      feeRateBps: 0
-    });
-    
-    const res = await clobClient.postOrder(order);
+      amount,
+      price: executionPrice,
+      side: Side.BUY,
+      orderType: OrderType.FOK,
+    }, undefined, OrderType.FOK), 15_000, "CLOB FOK submission");
+
+    if (!res || res.success !== true || !res.orderID || res.error || res.errorMsg) {
+      throw new Error(res?.errorMsg || res?.error || "CLOB rejected the order or returned an unknown result");
+    }
+    if (!/matched|filled/i.test(String(res.status || ""))) {
+      throw new Error(`CLOB returned non-terminal order status '${res.status || "unknown"}'; reconciliation required`);
+    }
     return res;
   } catch (err) {
     console.error("[Trade] executeMarketOrder Error:", err);

@@ -9,21 +9,25 @@ function bestBidAsk(book) {
 
   const bestBid = bids
     .map((x) => numberOrNull(x.price))
-    .filter((x) => x != null)
+    .filter((x) => x != null && x >= 0 && x <= 1)
     .sort((a, b) => b - a)[0];
   const bestAsk = asks
     .map((x) => numberOrNull(x.price))
-    .filter((x) => x != null)
+    .filter((x) => x != null && x >= 0 && x <= 1)
     .sort((a, b) => a - b)[0];
 
   let totalBidVolume = 0;
   for (const b of bids) {
-    totalBidVolume += (Number(b.price) || 0) * (Number(b.size) || 0);
+    const price = numberOrNull(b.price);
+    const size = numberOrNull(b.size);
+    if (price != null && price >= 0 && price <= 1 && size != null && size >= 0) totalBidVolume += price * size;
   }
 
   let totalAskVolume = 0;
   for (const a of asks) {
-    totalAskVolume += (Number(a.price) || 0) * (Number(a.size) || 0);
+    const price = numberOrNull(a.price);
+    const size = numberOrNull(a.size);
+    if (price != null && price >= 0 && price <= 1 && size != null && size >= 0) totalAskVolume += price * size;
   }
 
   const orderbookImbalance = (totalBidVolume + totalAskVolume > 0)
@@ -45,7 +49,7 @@ function riskFromScore(score) {
 
 export function scoreMarket({ market, yesBook }) {
   const { bestBid, bestAsk, orderbookImbalance, totalBidVolume, totalAskVolume } = bestBidAsk(yesBook);
-  const hasTwoSidedBook = bestBid != null && bestAsk != null;
+  const hasTwoSidedBook = bestBid != null && bestAsk != null && bestBid < bestAsk;
   const midpoint =
     hasTwoSidedBook
       ? (bestBid + bestAsk) / 2

@@ -5,19 +5,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { handleCommand } from "./index.js";
-import { getCooldownState } from "./rate-limit.js";
-import { SEARCH_ENGINE_VERSION, getMarketById, getShortTermMarkets } from "./polymarket.js";
-import { getAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, getReflectionByMarketId, getAllReflections, getAnalysisLogs } from "./storage.js";
+import { enterCommandGuard, getCooldownState, releaseCommandGuard } from "./rate-limit.js";
+import { SEARCH_ENGINE_VERSION, getMarketById, getShortTermMarkets, pickYesNoTokens } from "./polymarket.js";
+import { ANALYSIS_STRATEGY_VERSION, completeTradeExecution, getAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, getReflectionByMarketId, getAllReflections, getAnalysisLogs, reserveTradeExecutions } from "./storage.js";
 import { evaluateSingleEvent, evaluateAllResolutions } from "./evaluate.js";
 import { getBinanceWsStatus } from "./binance_ws.js";
-import { getShortMemoryEnabled, setShortMemoryEnabled } from "./qwen.js";
+import { getShortMemoryEnabled, runWithAiLanguage, setShortMemoryEnabled } from "./qwen.js";
 import { getSnifferWsStatus, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig, setAggressiveMode, getAggressiveMode } from "./sniffer.js";
 import { initWallet, getWalletBalances } from "./wallet.js";
 import { initTradeModule } from "./trade.js";
 
 // Initialize wallet and trade module
-initWallet();
-initTradeModule();
+const walletReady = config.enableLiveTrading ? initWallet() : false;
+const tradeReadyPromise = config.enableLiveTrading && walletReady
+  ? initTradeModule()
+  : Promise.resolve(false);
+const tradeIdempotencyKeys = new Map();
 
 const sseClients = new Set();
 
@@ -35,15 +38,17 @@ const dataDir = path.resolve(__dirname, "..", "data");
 const port = Number(process.env.WEB_PORT || process.env.PORT || 8787);
 const host = process.env.WEB_HOST || "127.0.0.1";
 
-// Patch outcome ke entri terakhir short_condition_history.json
-// ponytail: sync write, file kecil (<50 entri), tidak perlu queue
-function patchLastShortMemoryOutcome(outcome) {
+function patchShortMemoryOutcome(marketQuestion, outcome) {
   try {
     const histPath = path.join(dataDir, "short_condition_history.json");
     if (!fsSync.existsSync(histPath)) return;
     const hist = JSON.parse(fsSync.readFileSync(histPath, "utf-8"));
-    if (!hist.length) return;
-    hist[hist.length - 1].outcome = outcome;
+    const normalizedQuestion = String(marketQuestion || "").trim().toLowerCase();
+    const index = hist.findLastIndex((item) =>
+      String(item.marketQuestion || "").trim().toLowerCase() === normalizedQuestion && !item.outcome
+    );
+    if (index === -1) return;
+    hist[index].outcome = outcome;
     fsSync.writeFileSync(histPath, JSON.stringify(hist, null, 2));
   } catch { /* silent — jangan ganggu flow resolve */ }
 }
@@ -65,7 +70,7 @@ function qwenHealth() {
   return {
     qwenConfigured: configured,
     qwenStatus: configured ? "key_loaded" : "missing",
-    qwenLabel: configured ? "Qwen key loaded" : "Qwen key missing",
+    qwenLabel: configured ? "AI provider configured" : "AI provider key missing",
   };
 }
 
@@ -78,6 +83,38 @@ function rateLimitHealth(scope = "web") {
       ...getCooldownState(scope),
     },
   };
+}
+
+async function runGuardedAiCommand(command, arg, task) {
+  const guard = enterCommandGuard({
+    command,
+    arg,
+    message: { chat: { id: "web" } },
+    ctx: { chatId: "web" },
+  });
+  if (!guard.allowed) {
+    const error = new Error(guard.message);
+    error.status = 429;
+    throw error;
+  }
+  try {
+    return await task();
+  } finally {
+    releaseCommandGuard(guard);
+  }
+}
+
+function validateTradeRequest(req) {
+  if (!config.enableLiveTrading) throw Object.assign(new Error("Live trading is disabled"), { status: 403 });
+  if (!config.webPassword) throw Object.assign(new Error("WEB_PASSWORD is required for live trading"), { status: 503 });
+  if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) {
+    throw Object.assign(new Error("Content-Type must be application/json"), { status: 415 });
+  }
+  const origin = req.headers.origin;
+  if (origin) {
+    const expectedOrigin = `http://${req.headers.host}`;
+    if (origin !== expectedOrigin) throw Object.assign(new Error("Cross-origin trade request rejected"), { status: 403 });
+  }
 }
 
 function contentType(filePath) {
@@ -203,15 +240,13 @@ async function handleApiCommand(req, res) {
     return;
   }
   
-  if (payload.language) {
-    config.botLanguage = payload.language;
-  }
-
   const messages = [];
   const context = createWebContext(messages, controller.signal, payload.language || "Indonesia");
 
   try {
-    const answer = await handleCommand(commandText, { text: commandText, chat: { id: "web" } }, context);
+    const answer = await runWithAiLanguage(payload.language || "Indonesia", () =>
+      handleCommand(commandText, { text: commandText, chat: { id: "web" } }, context)
+    );
     const normalized = normalizeAnswer(answer);
     pushMessage(messages, normalized.text, normalized.options);
 
@@ -297,10 +332,16 @@ export function startWebServer(options = {}) {
       if (!checkAuth(req, res)) return;
 
       if (req.method === "GET" && req.url === "/api/health") {
-        const { getTotalAITokensUsed } = await import('./qwen.js');
+        const { checkAiProviderConnection, getTotalAITokensUsed } = await import('./qwen.js');
+        const providerConnection = await checkAiProviderConnection();
         sendJson(res, 200, {
           ok: true,
           qwen: qwenHealth(),
+          providerConnection,
+          trading: {
+            enabled: config.enableLiveTrading,
+            authenticated: Boolean(config.webPassword),
+          },
           engine: SEARCH_ENGINE_VERSION,
           cooldown: getCooldownState(),
           totalAITokensUsed: getTotalAITokensUsed()
@@ -396,11 +437,12 @@ export function startWebServer(options = {}) {
       if (req.method === "GET" && req.url === "/api/stats") {
         try {
           const { getStats } = await import("./storage.js");
-          const { totalAnalyzed, wins, losses } = getStats();
+          const stats = getStats();
+          const { totalAnalyzed, wins, losses } = stats;
           const totalResolved = wins + losses;
           const winRate = totalResolved > 0 ? Math.round((wins / totalResolved) * 100) : 0;
           
-          sendJson(res, 200, { ok: true, stats: { totalAnalyzed, wins, losses, winRate } });
+          sendJson(res, 200, { ok: true, stats: { ...stats, winRate } });
         } catch (error) {
           sendJson(res, 500, { ok: false, error: String(error.message) });
         }
@@ -437,6 +479,8 @@ export function startWebServer(options = {}) {
           const body = await readBody(req);
           setShortMemoryEnabled(body.enabled !== false);
           sendJson(res, 200, { ok: true, enabled: getShortMemoryEnabled() });
+        } else {
+          sendJson(res, 405, { ok: false, error: "Method not allowed" });
         }
         return;
       }
@@ -499,64 +543,55 @@ export function startWebServer(options = {}) {
         const payload = await readBody(req);
         const eventId = payload.id;
         const marketId = payload.market_id;
-        const prediction = payload.prediction;
-
         if (!eventId || !marketId) {
           sendJson(res, 400, { ok: false, error: "Missing id or market_id" });
           return;
         }
 
         try {
+          const storedEvent = getAnalyzedEventById(eventId);
+          if (!storedEvent || String(storedEvent.market_id) !== String(marketId)) {
+            sendJson(res, 400, { ok: false, error: "Event history does not match market_id" });
+            return;
+          }
+          const prediction = storedEvent.prediction;
           const market = await getMarketById(marketId, true);
           
-          let winnerIndex = -1;
-          for (let i = 0; i < market.outcomePrices.length; i++) {
-            if (Number(market.outcomePrices[i]) >= 0.90) {
-              winnerIndex = i;
-              break;
-            }
-          }
+          const prices = market.outcomePrices.map(Number);
+          const winners = prices
+            .map((price, index) => ({ price, index }))
+            .filter(({ price }) => price >= 0.99);
+          const winnerIndex = winners.length === 1 && prices.every((price, index) => index === winners[0].index || price <= 0.01)
+            ? winners[0].index
+            : -1;
           
-          let isTimeClosed = false;
-          if (market.endDate) {
-             const timeToClose = new Date(market.endDate).getTime() - Date.now();
-             if (timeToClose <= 0) isTimeClosed = true;
-          }
-
-          if (market.closed || !market.active || winnerIndex !== -1 || isTimeClosed) {
+          if (market.closed && winnerIndex !== -1) {
             let status = 'selesai';
             let result = 'menunggu hasil';
             let actualOutcome = null;
             
-            if (winnerIndex !== -1) {
-              status = 'selesai';
-              const winningOutcome = market.outcomes[winnerIndex];
-              actualOutcome = winningOutcome; // Set actual outcome
-              const p = (prediction || "").trim().toUpperCase();
-              const w = (winningOutcome || "").trim().toUpperCase();
-              
-              // Direct match (case-insensitive)
-              const directMatch = p && w && p === w;
-              // Alias match: UP=YES, DOWN=NO (some Polymarket markets use Yes/No)
-              const aliasMatch = (p === "UP" && w === "YES") || (p === "YES" && w === "UP")
-                || (p === "DOWN" && w === "NO") || (p === "NO" && w === "DOWN");
+            status = 'selesai';
+            const winningOutcome = market.outcomes[winnerIndex];
+            actualOutcome = winningOutcome;
+            const p = (prediction || "").trim().toUpperCase();
+            const w = (winningOutcome || "").trim().toUpperCase();
+            const directMatch = p && w && p === w;
+            const legacyAliasMatch = storedEvent.strategy_version !== ANALYSIS_STRATEGY_VERSION && (
+              (p === "UP" && w === "YES") || (p === "YES" && w === "UP")
+              || (p === "DOWN" && w === "NO") || (p === "NO" && w === "DOWN")
+            );
 
-              if (directMatch || aliasMatch) {
-                result = 'menang';
-              } else if (p === "=" || p === "SKIP" || p === "NETRAL" || p === "WATCHLIST") {
-                result = 'netral';
-              } else {
-                result = 'kalah';
-              }
+            if (directMatch || legacyAliasMatch) {
+              result = 'menang';
+            } else if (p === "=" || p === "SKIP" || p === "NETRAL" || p === "WATCHLIST") {
+              result = 'netral';
             } else {
-              // Not resolved yet, even if market.closed is true.
-              status = 'belum selesai';
-              result = 'menunggu hasil';
+              result = 'kalah';
             }
             
             updateAnalyzedEventStatus(eventId, status, result, actualOutcome);
             if (result === 'menang' || result === 'kalah' || result === 'netral') {
-              patchLastShortMemoryOutcome(result); // inject outcome ke memori AI
+              patchShortMemoryOutcome(market.question, result);
             }
             sendJson(res, 200, { ok: true, status, result, actualOutcome });
           } else {
@@ -575,24 +610,24 @@ export function startWebServer(options = {}) {
           return;
         }
         try {
-          const result = await evaluateSingleEvent(payload.eventId);
+          const result = await runGuardedAiCommand("/evaluate", String(payload.eventId), () => evaluateSingleEvent(payload.eventId));
           if (result.error) {
-            sendJson(res, 400, { ok: false, error: result.error });
+            sendJson(res, result.status || 400, { ok: false, error: result.error });
           } else {
             sendJson(res, 200, { ok: true, reflection: result.reflection });
           }
         } catch (error) {
-          sendJson(res, 500, { ok: false, error: error.message });
+          sendJson(res, error.status || 500, { ok: false, error: error.message });
         }
         return;
       }
 
       if (req.method === "POST" && req.url === "/api/evaluate/all") {
         try {
-          const result = await evaluateAllResolutions();
-          sendJson(res, 200, { ok: true, result });
+          const result = await runGuardedAiCommand("/evaluate", "all", () => evaluateAllResolutions());
+          sendJson(res, result.status === "Gagal" ? 502 : 200, { ok: result.status !== "Gagal", result });
         } catch (error) {
-          sendJson(res, 500, { ok: false, error: error.message });
+          sendJson(res, error.status || 500, { ok: false, error: error.message });
         }
         return;
       }
@@ -615,59 +650,106 @@ export function startWebServer(options = {}) {
       }
 
       if (req.method === "POST" && req.url === "/api/execute-trade") {
-        let body = "";
-        req.on("data", (chunk) => { body += chunk; });
-        req.on("end", async () => {
-          try {
-            const data = JSON.parse(body);
-            if (!Array.isArray(data.trades)) throw new Error("Invalid trades array");
-            
-            const { executeMarketOrder } = await import('./trade.js');
-            const { getMarketById, pickYesNoTokens } = await import('./polymarket.js');
-            
-            const results = [];
-            for (const t of data.trades) {
-              try {
-                // Fetch market to get token IDs
-                const market = await getMarketById(t.marketId);
-                if (!market) throw new Error("Market not found");
-                
-                const { yesToken, noToken } = pickYesNoTokens(market);
-                let targetTokenId = t.prediction.toUpperCase() === "YES" || t.prediction.toUpperCase() === "UP" ? yesToken : noToken;
-                
-                if (!targetTokenId) {
-                   targetTokenId = market.tokens?.[0]?.token_id; // Fallback if 2-outcome assumed
-                }
+        try {
+          validateTradeRequest(req);
+          if (!await tradeReadyPromise) throw Object.assign(new Error("Trade module is not ready"), { status: 503 });
+          const data = await readBody(req);
+          if (!Array.isArray(data.trades) || data.trades.length === 0) throw new Error("Invalid trades array");
+          if (data.trades.length > config.maxTradesPerRequest) throw new Error(`Maximum ${config.maxTradesPerRequest} trades per request`);
 
-                if (!targetTokenId) throw new Error("Token ID could not be determined");
-
-                const res = await executeMarketOrder(targetTokenId, "BUY", t.sizeUsdc);
-                results.push({ marketId: t.marketId, success: true, res });
-              } catch (e) {
-                results.push({ marketId: t.marketId, success: false, error: e.message });
-              }
-            }
-            sendJson(res, 200, { ok: true, results });
-          } catch (e) {
-            sendJson(res, 400, { ok: false, error: e.message });
+          const idempotencyKey = String(data.idempotencyKey || "").trim();
+          if (!idempotencyKey || idempotencyKey.length > 100) throw new Error("A valid idempotencyKey is required");
+          const idempotencyCutoff = Date.now() - 10 * 60 * 1000;
+          for (const [key, timestamp] of tradeIdempotencyKeys) {
+            if (timestamp < idempotencyCutoff) tradeIdempotencyKeys.delete(key);
           }
-        });
+          if (tradeIdempotencyKeys.has(idempotencyKey)) throw Object.assign(new Error("Duplicate trade request rejected"), { status: 409 });
+          tradeIdempotencyKeys.set(idempotencyKey, Date.now());
+
+          const marketIds = data.trades.map((trade) => String(trade.marketId || "").trim());
+          if (marketIds.some((id) => !id) || new Set(marketIds).size !== marketIds.length) throw new Error("Duplicate or missing marketId");
+          const sizes = data.trades.map((trade) => Number(trade.sizeUsdc));
+          if (sizes.some((size) => !Number.isFinite(size) || size <= 0 || size > config.maxTradeUsdc)) {
+            throw new Error(`Each trade must be between 0 and ${config.maxTradeUsdc} USDC`);
+          }
+          const totalSize = sizes.reduce((sum, size) => sum + size, 0);
+          if (totalSize > config.maxTradeBatchUsdc) throw new Error(`Batch exceeds ${config.maxTradeBatchUsdc} USDC`);
+
+          const history = getAnalyzedEvents(2000);
+          const prepared = await Promise.all(data.trades.map(async (trade, index) => {
+            const marketId = marketIds[index];
+            const market = await getMarketById(marketId, true);
+            if (!market || market.closed || !market.active || !market.acceptingOrders) throw new Error(`${marketId}: market is not open for trading`);
+            const closesAt = new Date(market.endDate).getTime();
+            if (!Number.isFinite(closesAt) || closesAt - Date.now() < config.tradeMinSecondsToClose * 1000) {
+              throw new Error(`${marketId}: market is too close to expiry`);
+            }
+
+            const stored = history.find((item) => String(item.market_id) === marketId);
+            const signalAgeMs = Date.now() - new Date(stored?.signal_data_at).getTime();
+            if (!stored || stored.strategy_version !== ANALYSIS_STRATEGY_VERSION || !stored.signal_data_at || !Number.isFinite(signalAgeMs) || signalAgeMs < 0 || signalAgeMs > config.tradeSignalTtlSeconds * 1000) {
+              throw new Error(`${marketId}: stored signal is missing, stale, or from another strategy version`);
+            }
+            const storedPrediction = String(stored.prediction || "").trim().toUpperCase();
+            const requestedPrediction = String(trade.prediction || "").trim().toUpperCase();
+            if (!["YES", "UP", "NO", "DOWN"].includes(storedPrediction) || requestedPrediction !== storedPrediction) {
+              throw new Error(`${marketId}: prediction is not actionable or does not match`);
+            }
+            const { yesTokenId, noTokenId } = pickYesNoTokens(market);
+            const tokenId = ["YES", "UP"].includes(storedPrediction) ? yesTokenId : noTokenId;
+            if (!tokenId) throw new Error(`${marketId}: token ID could not be determined`);
+            const maxEntryPrice = Math.min(config.tradeMaxPrice, Number(stored.max_entry_price));
+            if (!Number.isFinite(maxEntryPrice) || maxEntryPrice <= 0) throw new Error(`${marketId}: signal has no valid edge-preserving entry price`);
+            return { analysisId: stored.id, marketId, tokenId, sizeUsdc: sizes[index], maxEntryPrice };
+          }));
+
+          if (!reserveTradeExecutions(idempotencyKey, prepared)) {
+            throw Object.assign(new Error("Trade request or analyzed signal was already consumed"), { status: 409 });
+          }
+          const { executeMarketOrder } = await import('./trade.js');
+          const results = [];
+          for (const trade of prepared) {
+            try {
+              const result = await executeMarketOrder(trade.tokenId, "BUY", trade.sizeUsdc, trade.maxEntryPrice);
+              completeTradeExecution(trade.analysisId, "succeeded", result);
+              results.push({ marketId: trade.marketId, success: true, result });
+            } catch (error) {
+              completeTradeExecution(trade.analysisId, "failed", { error: error.message });
+              results.push({ marketId: trade.marketId, success: false, error: error.message });
+            }
+          }
+          sendJson(res, 200, { ok: results.every((result) => result.success), results });
+        } catch (error) {
+          sendJson(res, error.status || 400, { ok: false, error: error.message });
+        }
         return;
       }
 
       if (req.url === "/api/market-pulse" && req.method === "POST") {
         try {
           const body = await readBody(req);
-          const { asset = "BTC", tf = "15m" } = body;
+          const marketId = String(body.marketId || "").trim();
+          if (!marketId) return sendJson(res, 400, { ok: false, error: "marketId is required for a verifiable market pulse" });
+          const market = await getMarketById(marketId, true);
+          const question = String(market?.question || "");
+          const asset = /\b(?:ethereum|eth)\b/i.test(question) ? "ETH" : /\b(?:dogecoin|doge)\b/i.test(question) ? "DOGE" : "BTC";
           const { evaluateShortMarketCondition } = await import('./short_condition.js');
-          
-          const marketQuestion = `${asset} ${tf} up or down`;
-          // Evaluate market condition (this runs Qwen)
-          const result = await evaluateShortMarketCondition({ asset, marketQuestion });
+
+          const result = await runGuardedAiCommand("/shortcondition", marketId, () =>
+            evaluateShortMarketCondition({
+              asset,
+              marketQuestion: question,
+              marketOutcomePrice: market.outcomePrices?.[0],
+              durationType: market.durationType,
+              startDate: market.startDate,
+              endDate: market.endDate,
+              resolutionSource: market.resolutionSource,
+            })
+          );
           return sendJson(res, 200, { ok: true, data: result });
         } catch (e) {
           console.error("Market pulse error:", e);
-          return sendJson(res, 500, { ok: false, error: e.message });
+          return sendJson(res, e.status || 500, { ok: false, error: e.message });
         }
       }
 

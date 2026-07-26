@@ -15,4 +15,6 @@ docs/
 
 # Gemini Config
 .geminirules
+.gemini/clob_creds.json
 scratch/
+version-29juni/

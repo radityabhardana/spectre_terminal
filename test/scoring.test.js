@@ -56,4 +56,32 @@ describe("scoring.js", () => {
     assert.ok(result.blockers.includes("Market closed"));
     assert.ok(result.blockers.includes("Orderbook is not two-sided"));
   });
+
+  it("rejects crossed and out-of-range orderbook prices", () => {
+    const market = {
+      question: "Will the market be valid?",
+      description: "Detailed rules. ".repeat(20),
+      endDate: "2026-12-31T00:00:00Z",
+      clobTokenIds: ["yes", "no"],
+      liquidity: 10000,
+      outcomePrices: [0.5, 0.5],
+      closed: false,
+      acceptingOrders: true,
+      active: true,
+    };
+
+    const crossed = scoreMarket({
+      market,
+      yesBook: {
+        bids: [{ price: "0.60", size: "10" }, { price: "1.2", size: "1000" }],
+        asks: [{ price: "0.55", size: "10" }, { price: "-0.1", size: "1000" }],
+      },
+    });
+
+    assert.equal(crossed.hasTwoSidedBook, false);
+    assert.equal(crossed.verdict, "SKIP");
+    assert.ok(crossed.blockers.includes("Orderbook is not two-sided"));
+    assert.equal(crossed.totalBidVolume, 6);
+    assert.equal(crossed.totalAskVolume, 5.5);
+  });
 });

@@ -1,5 +1,64 @@
+import dns from "node:dns";
 import { config } from "./config.js";
 import { getCache, setCache } from "./storage.js";
+
+// Multi-network resilience: Dynamic DoH resolver for Polymarket endpoints
+// Works across School Wi-Fi, Smartfren Hotspot, Home Wi-Fi & Cloudflare 1.1.1.1 WARP
+const DOH_CACHE = {};
+async function resolveDoHIP(hostname) {
+  if (DOH_CACHE[hostname]) return DOH_CACHE[hostname];
+  try {
+    const res = await fetch(`https://cloudflare-dns.com/dns-query?name=${hostname}&type=A`, {
+      headers: { 'accept': 'application/dns-json' },
+      signal: AbortSignal.timeout(3000)
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const ips = json.Answer?.map(a => a.data).filter(ip => ip && !ip.startsWith('115.178') && /^[0-9.]+$/.test(ip));
+      if (ips && ips.length) {
+        DOH_CACHE[hostname] = ips[0];
+        return ips[0];
+      }
+    }
+  } catch {}
+  return null;
+}
+
+const origLookup = dns.lookup;
+dns.lookup = function(hostname, options, callback) {
+  let cb = callback;
+  let opts = options;
+  if (typeof options === 'function') {
+    cb = options;
+    opts = {};
+  }
+  
+  if (hostname === 'gamma-api.polymarket.com' || hostname === 'clob.polymarket.com') {
+    origLookup.call(this, hostname, options, (err, address, family) => {
+      const isBlocked = (addr) => {
+        if (!addr) return false;
+        if (typeof addr === 'string') return addr.startsWith('115.178');
+        if (Array.isArray(addr)) return addr.some(a => a.address && String(a.address).startsWith('115.178'));
+        return false;
+      };
+
+      // If OS DNS resolved to Smartfren/ISP block IP or failed, override with DoH IP
+      if (err || isBlocked(address)) {
+        resolveDoHIP(hostname).then(dohIp => {
+          if (dohIp) {
+            if (opts && opts.all) return cb(null, [{ address: dohIp, family: 4 }]);
+            return cb(null, dohIp, 4);
+          }
+          return cb(err, address, family);
+        });
+      } else {
+        return cb(err, address, family);
+      }
+    });
+    return;
+  }
+  return origLookup.call(this, hostname, options, callback);
+};
 
 async function fetchJson(url, forceRefresh = false, retries = 3) {
   if (!forceRefresh) {
@@ -14,6 +73,7 @@ async function fetchJson(url, forceRefresh = false, retries = 3) {
           accept: "application/json",
           "user-agent": "polymarket-telegram-analyzer/0.1",
         },
+        signal: AbortSignal.timeout(config.polymarketRequestTimeoutMs),
       });
 
       if (!response.ok) {
@@ -49,6 +109,13 @@ function normalizeMarket(raw, event = null, eventSearchRank = 999) {
   const clobTokenIds = safeJsonParse(raw.clobTokenIds, raw.clobTokenIds || []);
   const eventSlug = event?.slug || "";
   const marketSlug = raw.slug || "";
+  const durationType = raw.durationType || raw.duration_type || event?.durationType || event?.duration_type
+    || (/updown-5m/i.test(marketSlug) ? "5m"
+      : /updown-15m/i.test(marketSlug) ? "15m"
+        : /updown-4h/i.test(marketSlug) ? "4h"
+          : /updown-(?:hourly|1h)/i.test(marketSlug) ? "1h"
+            : /updown-(?:daily|1d)/i.test(marketSlug) ? "1d"
+              : null);
 
   return {
     id: String(raw.id ?? raw.conditionId ?? ""),
@@ -69,7 +136,9 @@ function normalizeMarket(raw, event = null, eventSearchRank = 999) {
     description: raw.description || "",
     resolutionSource: raw.resolutionSource || event?.resolutionSource || "",
     endDate: raw.endDate || raw.end_date || raw.endDateIso || event?.endDate || event?.end_date || "",
-    startDate: raw.startDate || raw.start_date || raw.startDateIso || event?.startDate || raw.createdAt || "",
+    startDate: raw.eventStartTime || event?.startTime || raw.startDate || raw.start_date || raw.startDateIso || event?.startDate || raw.createdAt || "",
+    eventStartTime: raw.eventStartTime || event?.startTime || "",
+    durationType,
     updatedAt: raw.updatedAt || raw.updated_at || "",
     active: raw.active ?? true,
     closed: raw.closed ?? false,
@@ -385,13 +454,18 @@ export async function getShortTermMarkets(asset = "btc") {
       const rawMarket = event.markets[0];
       const m = normalizeMarket(rawMarket, event);
       m.duration_type = durationType;
+      m.durationType = durationType;
       m.asset = asset;
       
       const endTime = new Date(m.endDate).getTime();
       const timeToClose = endTime - now;
         
       // Cache the raw market so getMarketById avoids network calls (prevents timeouts during snipe)
-      setCache(new URL(`/markets/${rawMarket.id}`, config.gammaUrl).toString(), rawMarket);
+      setCache(new URL(`/markets/${rawMarket.id}`, config.gammaUrl).toString(), {
+        ...rawMarket,
+        duration_type: durationType,
+        asset,
+      });
 
       // Hanya simpan event future atau yang max 1 jam lalu (3600000 ms)
       if (m.active && !m.closed && timeToClose > -3600000) {
@@ -635,7 +709,8 @@ export async function getMarketsFromPolymarketLink(value) {
 export async function getOrderBook(tokenId) {
   const url = new URL("/book", config.clobUrl);
   url.searchParams.set("token_id", tokenId);
-  return fetchJson(url.toString());
+  // Orderbooks are time-sensitive; the general 60-second API cache is unsafe here.
+  return fetchJson(url.toString(), true);
 }
 
 export function pickYesNoTokens(market) {

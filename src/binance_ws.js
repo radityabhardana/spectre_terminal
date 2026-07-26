@@ -8,10 +8,8 @@ const DEPTH_STREAMS = Array.from(TARGET_SYMBOLS).map(sym => `${sym.toLowerCase()
 const DEPTH_WS_URL = `wss://fstream.binancefuture.com/stream?streams=${DEPTH_STREAMS}`;
 
 
-// ponytail: rejectUnauthorized:false bypasses Cloudflare WARP TLS interception.
-// WARP replaces upstream cert with its own → Node rejects "certificate has expired".
-// Safe here because we only connect to known Binance endpoints.
-const WS_OPTS = { rejectUnauthorized: false };
+// TLS verification stays enabled unless the operator explicitly opts out.
+const WS_OPTS = { rejectUnauthorized: process.env.ALLOW_INSECURE_TLS !== "true" };
 
 // In-memory store: { "BTCUSDT": [ { timestamp, side, price, qty, value }, ... ] }
 const liquidations = {};

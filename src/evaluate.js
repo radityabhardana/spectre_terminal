@@ -1,6 +1,7 @@
-import { getAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, saveReflection, getReflectionByMarketId } from "./storage.js";
-import { getMarketById, pickYesNoTokens } from "./polymarket.js";
+import { ANALYSIS_STRATEGY_VERSION, getAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, saveReflection, getReflectionByMarketId } from "./storage.js";
+import { getMarketById } from "./polymarket.js";
 import { config } from "./config.js";
+import { requestAiText } from "./qwen.js";
 
 async function fetchQwenReflection(market, prediction, actualOutcome, originalAnalysis, signal = null) {
   const prompt = `
@@ -20,15 +21,15 @@ Lakukan evaluasi MENDALAM secara objektif, kejam, dan analitis. Jangan mencari a
 Jawab dalam format terstruktur berikut:
 
 1. **Root Cause Analysis (Akar Masalah)**
-Bongkar argumen di "Analisis Lamamu". Di mana letak kecacatan logikamu? Apakah ada data on-chain, orderbook, atau sentimen makro yang kamu abaikan atau salah interpretasi?
+Bongkar hanya argumen yang benar-benar tertulis di "Analisis Lamamu" dan tunjukkan kecacatan logikanya.
 
 2. **Blind Spots (Titik Buta)**
-Apa variabel tak terduga (contoh: Whale Trap, News Dadakan, Likuiditas Palsu) yang tidak kamu perhitungkan saat itu? Mengapa modelmu gagal mendeteksinya?
+Sebutkan data yang memang hilang dari input. Jangan mengklaim berita, whale trap, on-chain event, atau penyebab lain benar-benar terjadi jika tidak ada bukti di input; labeli semuanya sebagai hipotesis yang belum terverifikasi.
 
 3. **Core Lesson Learned (Pelajaran Inti)**
 Satu paragraf padat berisi inti pelajaran yang harus diingat seumur hidup agar kebodohan analitis ini tidak terulang di market serupa.
 
-Gunakan bahasa Indonesia yang tajam, profesional, dan to-the-point.
+Gunakan bahasa Indonesia yang profesional dan to-the-point. Pisahkan fakta terverifikasi dari hipotesis. Jika bukti tidak cukup, tulis "tidak dapat ditentukan dari data tersimpan".
 `.trim();
 
   const payload = {
@@ -40,26 +41,15 @@ Gunakan bahasa Indonesia yang tajam, profesional, dan to-the-point.
       },
       { role: "user", content: prompt },
     ],
-    temperature: 0.4,
+    temperature: 0.1,
     max_tokens: 1500,
   };
 
-  try {
-    const res = await fetch(`${config.qwenBaseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.qwenApiKey}`,
-      },
-      body: JSON.stringify(payload),
-      signal,
-    });
-    const json = await res.json();
-    return json?.choices?.[0]?.message?.content || "Gagal mendapatkan refleksi dari Qwen.";
-  } catch (error) {
-    console.error("[Evaluate] Error calling Qwen for reflection:", error.stack);
-    return "Error memanggil Qwen saat evaluasi.";
-  }
+  const result = await requestAiText(payload, {
+    fallbackModel: config.qwenRiskManagerModel,
+    signal,
+  });
+  return result.text;
 }
 
 export async function evaluateSingleEvent(eventId, signal = null) {
@@ -82,10 +72,6 @@ export async function evaluateSingleEvent(eventId, signal = null) {
 
     const reflectionNote = await fetchQwenReflection(market, event.prediction, event.actual_outcome, event.analysis_conclusion, signal);
     
-    if (reflectionNote === "Gagal mendapatkan refleksi dari Qwen." || reflectionNote === "Error memanggil Qwen saat evaluasi.") {
-      return { error: reflectionNote };
-    }
-    
     saveReflection({
       market_id: event.market_id,
       question: market.question,
@@ -97,21 +83,25 @@ export async function evaluateSingleEvent(eventId, signal = null) {
     return { reflection: reflectionNote };
   } catch (error) {
     console.error(`[Evaluate] Error evaluating single event ${eventId}:`, error.message);
-    return { error: error.message };
+    return { error: "AI evaluator gagal memproses event.", status: 502 };
   }
 }
 
 export async function evaluateAllResolutions(signal = null) {
-  const allEvents = getAnalyzedEvents(100).filter(e => e.status === "selesai" && e.result === "kalah");
+  const allEvents = getAnalyzedEvents(100).filter(e =>
+    e.status === "selesai" && e.result === "kalah" && e.strategy_version === ANALYSIS_STRATEGY_VERSION
+  );
   if (!allEvents.length) {
     return { status: "Selesai", message: "✅ Tidak ada histori tebakan yang salah untuk dievaluasi." };
   }
 
   let countEvaluated = 0;
+  let countFailed = 0;
+  let countAttempted = 0;
   let textOut = "🔍 *Mengevaluasi Prediksi Salah*\n\n";
 
   for (const event of allEvents) {
-    if (countEvaluated >= 5) break; // Limit API cost
+    if (countAttempted >= 5) break; // Limit provider cost, including failed attempts.
 
     try {
       if (signal?.aborted) break;
@@ -126,7 +116,7 @@ export async function evaluateAllResolutions(signal = null) {
       const market = await getMarketById(event.market_id, true);
       if (!market) continue;
 
-      countEvaluated++;
+      countAttempted++;
       const reflectionNote = await fetchQwenReflection(market, event.prediction, event.actual_outcome, event.analysis_conclusion, signal);
       
       saveReflection({
@@ -136,23 +126,35 @@ export async function evaluateAllResolutions(signal = null) {
         actual_outcome: event.actual_outcome,
         reflection_note: reflectionNote
       });
+      countEvaluated++;
 
       textOut += `🔹 Market: ${market.question}\n💡 *Refleksi*: ${reflectionNote}\n\n`;
 
     } catch (error) {
+      countFailed++;
       console.error(`[Evaluate] Error processing market ${event.market_id}:`, error.message);
     }
   }
 
   if (countEvaluated === 0) {
+    if (countFailed > 0) {
+      return { status: "Gagal", message: `Gagal mengevaluasi ${countFailed} market.`, attempted: countAttempted, succeeded: 0, failed: countFailed };
+    }
     return { status: "Selesai", message: "✅ Semua prediksi yang salah sudah dievaluasi sebelumnya." };
   }
 
-  return { status: "Berhasil", message: `Berhasil mengevaluasi ${countEvaluated} market.`, details: textOut.trim() };
+  return {
+    status: countFailed > 0 ? "Sebagian berhasil" : "Berhasil",
+    message: `Berhasil mengevaluasi ${countEvaluated} market${countFailed ? `; ${countFailed} gagal` : ""}.`,
+    attempted: countAttempted,
+    succeeded: countEvaluated,
+    failed: countFailed,
+    details: textOut.trim(),
+  };
 }
 
 export async function evaluateResolutions(ctx = null) {
-  const unresolved = getAnalyzedEvents(100).filter(e => e.status === "belum selesai");
+  const unresolved = getAnalyzedEvents(100).filter(e => e.status === "belum selesai" && e.strategy_version === ANALYSIS_STRATEGY_VERSION);
   if (!unresolved.length) {
     return "✅ Semua prediksi yang ada di memori saat ini sudah tereksekusi atau belum ada yang close.";
   }
@@ -166,21 +168,17 @@ export async function evaluateResolutions(ctx = null) {
       const market = await getMarketById(event.market_id, true);
       if (!market) continue;
       
-      // Cek apakah market sudah ditutup oleh Polymarket ATAU waktunya sudah habis (expired)
-      const isExpired = market.endDate && new Date(market.endDate).getTime() < Date.now();
-      if (!market.closed && !isExpired) continue;
+      // Never infer settlement from time alone; wait for Polymarket's final state.
+      if (!market.closed) continue;
 
       countChecked++;
-      const tokens = pickYesNoTokens(market);
-      
-      // Determine which outcome won based on price (>= 0.95 is considered settled)
-      let winnerIndex = -1;
-      for (let i = 0; i < market.outcomePrices.length; i++) {
-        if (Number(market.outcomePrices[i]) >= 0.95) {
-          winnerIndex = i;
-          break;
-        }
-      }
+      const prices = market.outcomePrices.map(Number);
+      const winners = prices
+        .map((price, index) => ({ price, index }))
+        .filter(({ price }) => price >= 0.99);
+      const winnerIndex = winners.length === 1 && prices.every((price, index) => index === winners[0].index || price <= 0.01)
+        ? winners[0].index
+        : -1;
       
       if (winnerIndex === -1) continue; // No clear winner yet
       
@@ -193,11 +191,10 @@ export async function evaluateResolutions(ctx = null) {
       const isNeutralPrediction = p === "=" || p === "SKIP" || p === "NETRAL" || p === "WATCHLIST";
       const w = (actualOutcome || "").toUpperCase();
       const directMatch = p && w && p === w;
-      const aliasMatch = (p === "UP" && w === "YES") || (p === "YES" && w === "UP") || (p === "DOWN" && w === "NO") || (p === "NO" && w === "DOWN");
       
       if (isNeutralPrediction) {
         statusText = "netral";
-      } else if (directMatch || aliasMatch) {
+      } else if (directMatch) {
         statusText = "menang";
       }
       

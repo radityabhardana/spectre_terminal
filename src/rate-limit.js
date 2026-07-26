@@ -10,11 +10,13 @@ const QWEN_COMMANDS = new Set([
   "/analyze",
   "/analyzebest",
   "/analyzeall",
+  "/analyzequeue",
   "/eventmarket",
   "/eventbest",
   "/eventall",
   "/shortcondition",
-  "/shortvibe"
+  "/shortvibe",
+  "/evaluate"
 ]);
 
 function cleanup(map, cutoff) {
@@ -63,15 +65,15 @@ export function enterCommandGuard({ command, arg, message, ctx }) {
   cleanup(commandCooldowns, staleCutoff);
   cleanup(qwenCooldowns, staleCutoff);
   cleanup(duplicateCooldowns, staleCutoff);
-  cleanup(qwenInFlight, now - 10 * 60 * 1000);
+  cleanup(qwenInFlight, now - 30 * 60 * 1000);
 
   const scope = chatScope(message, ctx);
   const commandKey = `${scope}:${normalizedCommandKey(command, arg)}`;
   const hasArg = Boolean(String(arg || "").trim());
   
   // For standard commands, require hasArg. For commands that don't need args, just check the set.
-  const isQwenCommand = QWEN_COMMANDS.has(normalizedCommand) && 
-    (hasArg || normalizedCommand === "/shortcondition" || normalizedCommand === "/shortvibe");
+  const isQwenCommand = QWEN_COMMANDS.has(normalizedCommand) &&
+    (hasArg || ["/shortcondition", "/shortvibe", "/evaluate"].includes(normalizedCommand));
 
   const lastCommandAt = commandCooldowns.get(scope) || 0;
   const commandWaitMs = config.commandCooldownMs - (now - lastCommandAt);
@@ -120,20 +122,24 @@ export function enterCommandGuard({ command, arg, message, ctx }) {
   duplicateCooldowns.set(commandKey, now);
 
   if (isQwenCommand) {
-    qwenInFlight.set(scope, {
+    const lock = {
       command: normalizedCommand,
       startedAt: now,
-    });
+    };
+    qwenInFlight.set(scope, lock);
+    return {
+      allowed: true,
+      release: () => {
+        if (qwenInFlight.get(scope) === lock) {
+          qwenCooldowns.set(scope, Date.now());
+          qwenInFlight.delete(scope);
+        }
+      },
+    };
   }
 
   return {
     allowed: true,
-    release: () => {
-      if (isQwenCommand) {
-        qwenCooldowns.set(scope, Date.now());
-        qwenInFlight.delete(scope);
-      }
-    },
   };
 }
 

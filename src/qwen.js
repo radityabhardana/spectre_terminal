@@ -1,10 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { config } from "./config.js";
 import { getRecentReflections } from "./storage.js";
 
 let tokenUsageByModel = {};
-const DATA_DIR = path.join(process.cwd(), 'data');
+let providerConnectionCache = null;
+let providerConnectionCheckedAt = 0;
+const aiRequestContext = new AsyncLocalStorage();
+const DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "data");
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -35,6 +40,62 @@ export function resetTotalAITokensUsed() {
   saveTokenUsage();
 }
 
+export function runWithAiLanguage(language, task) {
+  return aiRequestContext.run({ language: String(language || "Indonesia") }, task);
+}
+
+export async function checkAiProviderConnection() {
+  if (providerConnectionCache && Date.now() - providerConnectionCheckedAt < 30_000) {
+    return providerConnectionCache;
+  }
+  if (!config.qwenApiKey || !config.qwenBaseUrl) {
+    return { configured: false, reachable: false, provider: config.aiProviderName, modelsAvailable: false };
+  }
+
+  const configuredModels = [...new Set([
+    config.qwenBullModel,
+    config.qwenBearModel,
+    config.qwenRiskManagerModel,
+    config.qwenEvaluatorModel,
+    config.qwenScoutModel,
+    config.qwenEventAnalystModel,
+    config.qwenEventFinalModel,
+  ].filter(Boolean))];
+
+  try {
+    const response = await fetch(`${config.qwenBaseUrl}/models`, {
+      headers: { authorization: `Bearer ${config.qwenApiKey}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) {
+      return { configured: true, reachable: false, provider: config.aiProviderName, status: response.status, modelsAvailable: false };
+    }
+    const payload = await response.json();
+    const available = new Set((Array.isArray(payload?.data) ? payload.data : []).map((model) => String(model?.id || model)));
+    const missingModels = configuredModels.filter((model) => !available.has(model));
+    providerConnectionCache = {
+      configured: true,
+      reachable: true,
+      provider: config.aiProviderName,
+      modelsAvailable: configuredModels.length > 0 && missingModels.length === 0,
+      configuredModels,
+      missingModels,
+    };
+    providerConnectionCheckedAt = Date.now();
+    return providerConnectionCache;
+  } catch (error) {
+    providerConnectionCache = {
+      configured: true,
+      reachable: false,
+      provider: config.aiProviderName,
+      modelsAvailable: false,
+      error: error.name === "TimeoutError" ? "timeout" : "connection_failed",
+    };
+    providerConnectionCheckedAt = Date.now();
+    return providerConnectionCache;
+  }
+}
+
 // Short Market Memory toggle — controlled via /api/settings/short-memory
 // ponytail: in-memory flag, no file needed, resets to true on restart (safe default)
 let shortMemoryEnabled = true;
@@ -63,10 +124,7 @@ async function fetchWithFallback(endpoints, path, options) {
   throw new Error("All Binance endpoints failed");
 }
 
-const dataDir = path.resolve(process.cwd(), "data");
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
+const dataDir = DATA_DIR;
 
 const VALID_VERDICTS = new Set([
   "SKIP",
@@ -142,6 +200,12 @@ function cleanList(value) {
   return [];
 }
 
+function boundedNumber(value, min, max, fallback = null) {
+  if (value == null || (typeof value === "string" && !value.trim())) return fallback;
+  const num = typeof value === "string" ? Number(value.replace("%", "").trim()) : Number(value);
+  return Number.isFinite(num) ? Math.max(min, Math.min(max, num)) : fallback;
+}
+
 function normalizeAnalysis(value, rawText) {
   const verdict = String(value.verdict || "").trim().toUpperCase();
 
@@ -150,14 +214,13 @@ function normalizeAnalysis(value, rawText) {
     confidence: Number.isFinite(Number(value.confidence)) && Number(value.confidence) > 0
       ? Math.max(1, Math.min(100, Math.round(Number(value.confidence))))
       : null,
-    positionSizePct: Number.isFinite(Number(value.position_size_pct)) ? Number(value.position_size_pct) : null,
+    positionSizePct: boundedNumber(value.position_size_pct, 0, 5),
     estimatedFairProbability: (() => {
       const val = value.estimated_fair_probability !== undefined ? value.estimated_fair_probability : value.estimatedFairProbability;
-      const num = typeof val === 'string' ? parseFloat(val.replace('%', '')) : Number(val);
-      return Number.isFinite(num) ? num : null;
+      return boundedNumber(val, 0, 100);
     })(),
-    expectedValueCents: Number.isFinite(Number(value.expected_value_cents)) ? Number(value.expected_value_cents) : null,
-    kellyEdge: Number.isFinite(Number(value.kelly_edge)) ? Number(value.kelly_edge) : null,
+    expectedValueCents: boundedNumber(value.expected_value_cents, -100, 100),
+    kellyEdge: boundedNumber(value.kelly_edge, -1, 1),
     summary: truncate(value.summary || value.ringkasan || "", 420),
     dataQuality: truncate(value.data_quality || value.dataQuality || "", 360),
     bullishCase: cleanList(value.bullish_case || value.bullishCase),
@@ -299,41 +362,129 @@ function throwIfAborted(signal) {
   }
 }
 
-async function callQwen(payload, baseUrl, apiKey, signal = null, retries = 3) {
-  throwIfAborted(signal);
+export function parseOpenAiResponse(rawText) {
+  const text = String(rawText || "").trim();
+  if (!text) throw new Error("AI provider returned an empty response");
 
-  const lang = config.botLanguage || "Indonesia";
+  try {
+    return JSON.parse(text);
+  } catch {
+    const withoutDoneMarker = text.replace(/\s*data:\s*\[DONE\]\s*$/i, "").trim();
+    if (withoutDoneMarker !== text) {
+      try {
+        return JSON.parse(withoutDoneMarker);
+      } catch {
+        // Continue with SSE parsing below.
+      }
+    }
+    const events = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim())
+      .filter((line) => line && line !== "[DONE]");
+    if (!events.length) throw new Error("AI provider returned invalid JSON");
+
+    const chunks = events.map((event) => JSON.parse(event));
+    const last = chunks[chunks.length - 1];
+    const content = chunks
+      .map((chunk) => chunk.choices?.[0]?.delta?.content || chunk.choices?.[0]?.message?.content || "")
+      .join("");
+    if (!content) return last;
+    return {
+      ...last,
+      choices: [{ message: { role: "assistant", content } }],
+    };
+  }
+}
+
+function timedSignal(parentSignal, timeoutMs) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const onAbort = () => controller.abort(parentSignal?.reason);
+  if (parentSignal) {
+    if (parentSignal.aborted) onAbort();
+    else parentSignal.addEventListener("abort", onAbort, { once: true });
+  }
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  return {
+    signal: controller.signal,
+    timedOut: () => timedOut,
+    cleanup: () => {
+      clearTimeout(timer);
+      parentSignal?.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
+function retryableProviderError(error) {
+  if (error.retryable === false) return false;
+  if (error.name === "TimeoutError") return true;
+  if (!Number.isFinite(error.status)) return true;
+  return error.status === 408 || error.status === 409 || error.status === 425 || error.status === 429 || error.status >= 500;
+}
+
+async function callQwen(payload, baseUrl, apiKey, signal = null, retries = 3, deadlineAt = Date.now() + config.qwenRequestTimeoutMs) {
+  throwIfAborted(signal);
+  if (!apiKey || !baseUrl) throw new Error("AI provider is not configured");
+  if (!String(payload?.model || "").trim()) throw new Error("AI model is not configured for the selected provider");
+  const normalizedBaseUrl = String(baseUrl).replace(/\/+$/, "");
+
+  const lang = aiRequestContext.getStore()?.language || config.botLanguage || "Indonesia";
   const requestPayload = {
     ...payload,
+    stream: false,
     messages: payload.messages?.map(m => {
       if (m.role === "system") {
         return {
           ...m,
-          content: m.content + `\n\nCRITICAL INSTRUCTION: You MUST write ALL of your explanations, reasoning, thoughts, and output in the ${lang} language. Translate your entire output into ${lang} fluently.`
+          content: m.content + `\n\nWrite all user-visible output in ${lang}. Return only the format requested by the user prompt.`
         };
       }
       return m;
     })
   };
 
+  let activeApiKey = apiKey;
+  let activeBaseUrl = normalizedBaseUrl;
+
   for (let i = 0; i < retries; i++) {
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs <= 0) {
+      const error = new Error(`AI provider deadline exceeded after ${config.qwenRequestTimeoutMs}ms`);
+      error.name = "TimeoutError";
+      throw error;
+    }
+    const request = timedSignal(signal, remainingMs);
     try {
-      const response = await fetch(`${baseUrl}/chat/completions`, {
+      const response = await fetch(`${activeBaseUrl}/chat/completions`, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${apiKey}`,
+          authorization: `Bearer ${activeApiKey}`,
           "content-type": "application/json",
+          "user-agent": "Cline/3.0.0",
         },
         body: JSON.stringify(requestPayload),
-        signal,
+        signal: request.signal,
       });
 
       if (!response.ok) {
         const text = await response.text().catch(() => "");
-        throw new Error(`Qwen HTTP ${response.status}: ${text.slice(0, 300)}`);
+        const error = new Error(`AI provider HTTP ${response.status}: ${text.slice(0, 300)}`);
+        error.status = response.status;
+        throw error;
       }
 
-      const json = await response.json();
+      const rawText = await response.text();
+      const json = parseOpenAiResponse(rawText);
+      if (!json?.choices?.[0]?.message?.content?.trim()) {
+        const error = new Error("AI provider response is missing choices[0].message.content");
+        error.retryable = false;
+        throw error;
+      }
       if (json.usage && json.usage.total_tokens) {
         const mName = json.model || requestPayload.model || "unknown";
         tokenUsageByModel[mName] = (tokenUsageByModel[mName] || 0) + json.usage.total_tokens;
@@ -341,35 +492,60 @@ async function callQwen(payload, baseUrl, apiKey, signal = null, retries = 3) {
       }
       return json;
     } catch (error) {
-      if (i === retries - 1 || error.name === "AbortError") throw error;
+      let attemptError = error;
+      if (request.timedOut()) {
+        attemptError = new Error(`AI provider timeout after ${config.qwenRequestTimeoutMs}ms`);
+        attemptError.name = "TimeoutError";
+      }
+      if (signal?.aborted) throw error;
 
-      // Auto-switch to backup API key if forbidden/rate-limited/out of balance
-      const isAuthOrQuotaError = error.message.includes("HTTP 401") || error.message.includes("HTTP 403") || error.message.includes("HTTP 429") || error.message.includes("Insufficient") || error.message.includes("Arrearage") || error.message.includes("DataInspectionFailed");
+      const isAuthOrQuotaError = [401, 403, 429].includes(attemptError.status) || /Insufficient|Arrearage|DataInspectionFailed/i.test(attemptError.message);
+      const canUseBackup = config.qwenApiKeyBackup && activeApiKey === config.qwenApiKey && normalizedBaseUrl === config.qwenBaseUrl;
       
-      if (isAuthOrQuotaError && config.qwenApiKeyBackup && apiKey === config.qwenApiKey && apiKey !== config.qwenApiKeyBackup) {
-        console.error(`[Qwen] Primary API Key failed (${error.message}). SWAPPING TO BACKUP API KEY GLOBALLY!`);
-        config.qwenApiKey = config.qwenApiKeyBackup;
-        apiKey = config.qwenApiKeyBackup; // Update local variable for the next retry iteration
+      if (isAuthOrQuotaError && canUseBackup && i < retries - 1) {
+        activeApiKey = config.qwenApiKeyBackup;
+        activeBaseUrl = config.qwenBackupBaseUrl || config.qwenBaseUrl;
+        console.warn(`[AI] Primary provider failed; retrying with the configured backup provider.`);
+      } else if (i === retries - 1 || !retryableProviderError(attemptError)) {
+        throw attemptError;
       } else {
-        console.warn(`[Qwen] fetch failed, retrying (${i + 1}/${retries})... Error: ${error.message}`);
+        console.warn(`[AI] Request failed, retrying (${i + 1}/${retries}): ${attemptError.message}`);
       }
 
-      await new Promise(r => setTimeout(r, 2000));
+      const delayMs = Math.min(8000, 1000 * (2 ** i), Math.max(0, deadlineAt - Date.now()));
+      await new Promise((resolve, reject) => {
+        const onAbort = () => {
+          clearTimeout(timer);
+          const abortError = new Error("Prompt dibatalkan.");
+          abortError.name = "AbortError";
+          reject(abortError);
+        };
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, delayMs);
+        if (signal) {
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+      });
+    } finally {
+      request.cleanup();
     }
   }
 }
 
-async function callQwenJson(payload, baseUrl, apiKey, signal = null) {
+async function callQwenJson(payload, baseUrl, apiKey, signal = null, deadlineAt = Date.now() + config.qwenRequestTimeoutMs) {
   let json;
   try {
-    json = await callQwen(payload, baseUrl, apiKey, signal);
+    json = await callQwen(payload, baseUrl, apiKey, signal, 3, deadlineAt);
   } catch (error) {
     if (!String(error.message).includes("response_format")) throw error;
     const { response_format, ...fallbackPayload } = payload;
-    json = await callQwen(fallbackPayload, baseUrl, apiKey, signal);
+    json = await callQwen(fallbackPayload, baseUrl, apiKey, signal, 3, deadlineAt);
   }
 
   const text = json.choices?.[0]?.message?.content?.trim() || "";
+  if (!text) throw new Error("AI provider response is missing choices[0].message.content");
   return {
     json,
     text,
@@ -379,15 +555,30 @@ async function callQwenJson(payload, baseUrl, apiKey, signal = null) {
 }
 
 async function callRoleQwenJson(payload, fallbackModel = "", baseUrl, apiKey, signal = null) {
+  const deadlineAt = Date.now() + config.qwenRequestTimeoutMs;
   try {
-    return await callQwenJson(payload, baseUrl, apiKey, signal);
+    return await callQwenJson(payload, baseUrl, apiKey, signal, deadlineAt);
   } catch (error) {
     if (error.name === "AbortError") throw error;
-    if (/Qwen HTTP (401|403)/.test(String(error.message))) throw error;
+    if ([401, 403, 408, 429].includes(error.status) || error.status >= 500 || error.name === "TimeoutError") throw error;
     if (!fallbackModel || payload.model === fallbackModel) throw error;
-    const fallback = await callQwenJson({ ...payload, model: fallbackModel }, baseUrl, apiKey, signal);
+    const modelSpecificFailure = [400, 404, 422].includes(error.status)
+      || /invalid JSON|missing choices|response_format/i.test(String(error.message));
+    if (!modelSpecificFailure) throw error;
+    const fallback = await callQwenJson({ ...payload, model: fallbackModel }, baseUrl, apiKey, signal, deadlineAt);
     return { ...fallback, fallbackFrom: payload.model };
   }
+}
+
+export async function requestAiText(payload, { fallbackModel = "", signal = null } = {}) {
+  const result = await callRoleQwenJson(
+    payload,
+    fallbackModel,
+    config.qwenBaseUrl,
+    config.qwenApiKey,
+    signal
+  );
+  return result;
 }
 
 function usageValue(usage, key) {
@@ -439,6 +630,62 @@ function parseJsonOr(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+export function normalizeShortAnalysis(value, baseProbability = 50) {
+  const input = value && typeof value === "object" ? value : {};
+  const base = boundedNumber(baseProbability, 0, 100, 50);
+  const rawPrimaryProbability = boundedNumber(
+    input.estimated_fair_probability ?? input.estimatedFairProbability,
+    0,
+    100
+  );
+  const primaryProbability = rawPrimaryProbability == null
+    ? base
+    : Math.max(Math.max(0, base - 15), Math.min(Math.min(100, base + 15), rawPrimaryProbability));
+  const probabilityDirection = primaryProbability >= 55 ? "UP" : primaryProbability <= 45 ? "DOWN" : "NEUTRAL";
+  const modelDirection = String(input.direction || "").trim().toUpperCase();
+  const directionValid = ["UP", "DOWN", "NEUTRAL"].includes(modelDirection);
+  const directionConsistent = directionValid && (
+    modelDirection === probabilityDirection ||
+    (probabilityDirection === "NEUTRAL" && modelDirection === "NEUTRAL")
+  );
+  const confidence = boundedNumber(input.confidence, 0, 100, 0);
+  let recommendation = String(input.recommendation || "").trim().toUpperCase() === "PLAY" ? "PLAY" : "AVOID";
+  let direction = directionValid ? modelDirection : "NEUTRAL";
+  let reason = truncate(input.reason || "", 1200);
+
+  if (rawPrimaryProbability == null || !directionConsistent || direction === "NEUTRAL") {
+    recommendation = "AVOID";
+    direction = "NEUTRAL";
+    const issue = rawPrimaryProbability == null
+      ? "probabilitas primer tidak valid"
+      : "arah AI bertentangan dengan probabilitas primer yang dikalibrasi";
+    reason = `[OUTPUT VALIDATION] ${issue}. ${reason}`.trim();
+  }
+
+  const selectedProbability = direction === "DOWN" ? 100 - primaryProbability : primaryProbability;
+  const condition = String(input.condition || "").trim().toUpperCase();
+  if (!["TRENDING", "CHOPPY"].includes(condition)) {
+    recommendation = "AVOID";
+    direction = "NEUTRAL";
+    reason = `[OUTPUT VALIDATION] kondisi market tidak valid. ${reason}`.trim();
+  }
+  return {
+    condition: ["TRENDING", "CHOPPY"].includes(condition) ? condition : "UNKNOWN",
+    recommendation,
+    direction,
+    confidence: Math.round(confidence),
+    primary_outcome_probability: Number(primaryProbability.toFixed(2)),
+    estimated_fair_probability: Number(selectedProbability.toFixed(2)),
+    reason,
+    key_signals: {
+      depth_verdict: truncate(input.key_signals?.depth_verdict || "UNKNOWN", 80),
+      liquidation_verdict: truncate(input.key_signals?.liquidation_verdict || "UNKNOWN", 80),
+      flow_verdict: truncate(input.key_signals?.flow_verdict || "UNKNOWN", 80),
+    },
+    risk_warning: truncate(input.risk_warning || "", 300),
+  };
 }
 
 function promptSafe(value) {
@@ -674,7 +921,7 @@ ${techData.recentCandles.map(c => `   ${c.time} ${c.direction} $${c.close} vol:$
     return text.length > 300 ? "..." + text.substring(text.length - 300) : text;
   }
 
-  const recentReflections = getRecentReflections(5);
+  const recentReflections = config.enableAiReflectionMemory ? getRecentReflections(5) : [];
   const lessonsBlock = recentReflections.length > 0 
     ? `\nGLOBAL TRAPS CHECKLIST (EXTRACTED RAG MEMORY):\n${recentReflections.map((r, i) => `${i+1}. [Market: ${r.question} | Tebakan Salah: ${r.prediction}] -> ${extractCoreLesson(r.reflection_note)}`).join("\n\n")}`
     : "";
@@ -774,20 +1021,31 @@ Format JSON:
       response_format: { type: "json_object" },
     };
 
-    const result = await callRoleQwenJson(shortPayload, config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
-    const analysis = result.text ? parseJsonOr(result.text, { verdict: "SKIP", final_reason: "Failed to parse Scalper JSON." }) : { verdict: "SKIP", final_reason: "Failed to parse Scalper JSON." };
-    const normalizedAnalysis = normalizeAnalysis(analysis, result.text);
+    const result = await callRoleQwenJson(shortPayload, config.qwenEvaluatorModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+    const parsed = result.text ? parseJsonOr(result.text, null) : null;
+    const normalizedAnalysis = normalizeAnalysis(
+      parsed
+        ? { ...parsed, verdict: String(parsed.verdict).toUpperCase() === "PLAY" ? "VALUE CANDIDATE" : parsed.verdict }
+        : { verdict: "SKIP", final_reason: "Failed to parse Scalper JSON." },
+      result.text
+    );
     
     // Override mathematical calculations
     try {
-      const fairProb = Number(analysis.estimatedFairProbability);
+      const fairProb = Number(normalizedAnalysis.estimatedFairProbability);
       const marketProb = Number(score.marketProbability);
-      if (!isNaN(fairProb) && !isNaN(marketProb)) {
+      if (Number.isFinite(fairProb) && Number.isFinite(marketProb)) {
         const diff = fairProb - marketProb;
-        if (analysis.verdict === "PLAY" && diff <= 0 && analysis.estimatedFairProbability < 95) {
-          analysis.verdict = "SKIP";
-          analysis.final_reason = "[OVERRIDE] EV negatif (" + diff.toFixed(2) + "%). Model mencoba PLAY tapi matematika melarang.";
+        normalizedAnalysis.expectedValueCents = diff;
+        if (normalizedAnalysis.verdict !== "SKIP" && diff <= 0 && fairProb < 95) {
+          normalizedAnalysis.verdict = "SKIP";
+          normalizedAnalysis.positionSizePct = 0;
+          normalizedAnalysis.finalReason = "[OVERRIDE] EV negatif (" + diff.toFixed(2) + "%). Model mencoba PLAY tapi matematika melarang.";
         }
+      } else {
+        normalizedAnalysis.verdict = "SKIP";
+        normalizedAnalysis.positionSizePct = 0;
+        normalizedAnalysis.finalReason = "SKIP: probabilitas atau harga market tidak valid.";
       }
     } catch (e) {}
 
@@ -837,7 +1095,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenBullModel || config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
   const scout = parseJsonOr(scoutJson.text, {});
 
   // STAGE 2: ANALYST REVIEW (Deep risk + bull/bear evaluation)
@@ -885,7 +1143,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const analystJson = await callRoleQwenJson(analystPayload, config.qwenBearModel || config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  const analystJson = await callRoleQwenJson(analystPayload, config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
   const analyst = parseJsonOr(analystJson.text, {});
 
   // STAGE 3: RISK MANAGER (FINAL JUDGE)
@@ -939,9 +1197,14 @@ Format JSON wajib:
 }
 `.trim();
 
-  const finalApiKey = config.customApiKey || config.qwenApiKey;
-  const finalBaseUrl = config.customBaseUrl || config.qwenBaseUrl;
-  const finalModel = config.customFinalModel || config.qwenRiskManagerModel;
+  const customFinalValues = [config.customApiKey, config.customBaseUrl, config.customFinalModel].filter(Boolean);
+  if (customFinalValues.length > 0 && customFinalValues.length < 3) {
+    throw new Error("CUSTOM_API_KEY, CUSTOM_BASE_URL, and CUSTOM_FINAL_MODEL must be configured together");
+  }
+  const usingCustomFinal = customFinalValues.length === 3;
+  const finalApiKey = usingCustomFinal ? config.customApiKey : config.qwenApiKey;
+  const finalBaseUrl = usingCustomFinal ? config.customBaseUrl : config.qwenBaseUrl;
+  const finalModel = usingCustomFinal ? config.customFinalModel : config.qwenRiskManagerModel;
 
   const rmPayload = {
     model: finalModel,
@@ -954,19 +1217,12 @@ Format JSON wajib:
     response_format: { type: "json_object" },
   };
 
-  let finalJson;
-  let parsedJson;
-  try {
-    finalJson = await callRoleQwenJson(rmPayload, finalModel, finalBaseUrl, finalApiKey, signal);
-    parsedJson = extractJsonObject(finalJson.text);
-  } catch (error) {
-    throw error;
-  }
+  const finalFallbackModel = usingCustomFinal ? "" : config.qwenEvaluatorModel;
+  const finalJson = await callRoleQwenJson(rmPayload, finalFallbackModel, finalBaseUrl, finalApiKey, signal);
 
   let analysis;
   try {
-    if (!parsedJson) parsedJson = extractJsonObject(finalJson.text);
-    analysis = normalizeAnalysis(parsedJson, finalJson.text);
+    analysis = normalizeAnalysis(extractJsonObject(finalJson.text), finalJson.text);
   } catch {
     analysis = normalizeAnalysis(
       {
@@ -986,14 +1242,16 @@ Format JSON wajib:
     const fairProb = Number(analysis.estimatedFairProbability);
     const marketProb = Number(score.marketProbability);
     
-    if (Number.isFinite(fairProb) && Number.isFinite(marketProb) && marketProb > 0) {
-      const odds = (1 / (marketProb / 100)) - 1;
+    if (Number.isFinite(fairProb) && Number.isFinite(marketProb) && marketProb > 0 && marketProb < 100) {
+      const marketPrice = marketProb / 100;
+      const winProbability = fairProb / 100;
+      const odds = (1 - marketPrice) / marketPrice;
       const edge = fairProb - marketProb;
       analysis.expectedValueCents = edge; 
       
       let kelly = 0;
       if (edge > 0 && odds > 0) {
-          const f = ((edge / 100) * odds - (1 - (edge / 100))) / odds;
+          const f = ((winProbability * odds) - (1 - winProbability)) / odds;
           kelly = Math.max(0, Math.min(5, (f * 100) / 2)); // Half-Kelly capped at 5%
       }
       analysis.positionSizePct = parseFloat(kelly.toFixed(2));
@@ -1003,6 +1261,10 @@ Format JSON wajib:
         analysis.verdict = "SKIP";
         analysis.finalReason = "OVERRIDDEN BY NATIVE MATH: Kalkulasi sistem Razor membuktikan EV negatif. Keputusan asli Risk Manager ditolak dan diubah menjadi SKIP. Alasan asli: " + analysis.finalReason;
       }
+    } else {
+      analysis.verdict = "SKIP";
+      analysis.positionSizePct = 0;
+      analysis.finalReason = "SKIP: probabilitas AI atau harga market tidak valid sehingga EV tidak dapat diverifikasi.";
     }
   } catch (e) {
     console.error("Failed to calculate native math override", e);
@@ -1116,7 +1378,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenScoutModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenEventFinalModel, config.qwenBaseUrl, config.qwenApiKey, signal);
   const scout = normalizeScout(parseJsonOr(scoutJson.text, {}), scoutJson.text);
 
   const analystPrompt = `
@@ -1166,7 +1428,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const analystJson = await callRoleQwenJson(analystPayload, config.qwenEventAnalystModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  const analystJson = await callRoleQwenJson(analystPayload, config.qwenEventFinalModel, config.qwenBaseUrl, config.qwenApiKey, signal);
   const analyst = normalizeAnalystReview(parseJsonOr(analystJson.text, {}), analystJson.text);
 
   const finalPrompt = `
@@ -1228,19 +1490,11 @@ Format JSON wajib:
     response_format: { type: "json_object" },
   };
 
-  let finalJson;
-  let parsedJson;
-  try {
-    finalJson = await callRoleQwenJson(payload, finalModel, finalBaseUrl, finalApiKey, signal);
-    parsedJson = extractJsonObject(finalJson.text);
-  } catch (error) {
-    throw error;
-  }
+  const finalJson = await callRoleQwenJson(payload, config.qwenEvaluatorModel, finalBaseUrl, finalApiKey, signal);
 
   let analysis;
   try {
-    if (!parsedJson) parsedJson = extractJsonObject(finalJson.text);
-    analysis = normalizeEventAnalysis(parsedJson, finalJson.text);
+    analysis = normalizeEventAnalysis(extractJsonObject(finalJson.text), finalJson.text);
   } catch {
     analysis = mechanicalEventFallback(analyzedMarkets, finalJson.text);
   }
@@ -1269,40 +1523,11 @@ Format JSON wajib:
 
 export async function askQwenHotNiche({ market, volumeSpike, signal = null }) {
   throwIfAborted(signal);
-
-  const context = `
-MARKET: ${market.question}
-VOLUME SPIKE: ${volumeSpike}
-  `.trim();
-
-  const prompt = `
-Kamu adalah analis market. Sebuah market di Polymarket baru saja mengalami lonjakan volume mendadak (Whale/Hot Niche).
-Berikut adalah data market terkait topik ini.
-
-Tugasmu:
-1. Buat ringkasan singkat (1-2 kalimat) tentang sentimen atau faktor logis yang memengaruhi market ini berdasarkan pengetahuan umum.
-
-Format JSON wajib:
-{
-  "reason_found": true,
-  "sentiment": "BULLISH/BEARISH/NEUTRAL/UNCLEAR",
-  "summary": "Ringkasan analisis."
-}
-  `.trim();
-
-  const payload = {
-    model: config.qwenScoutModel,
-    messages: [
-      { role: "system", content: "Kamu analis sentimen sosial. Jawab HANYA dengan JSON valid." },
-      { role: "user", content: `${context}\n\n${prompt}` }
-    ],
-    temperature: 0.2,
-    max_tokens: 300,
-    response_format: { type: "json_object" }
+  return {
+    reason_found: false,
+    sentiment: "UNCLEAR",
+    summary: `Lonjakan volume terdeteksi (${volumeSpike}) pada ${market.question}, tetapi penyebab dan arah tidak dapat diverifikasi dari data volume saja.`,
   };
-
-  const json = await callRoleQwenJson(payload, config.qwenEventAnalystModel, config.qwenBaseUrl, config.qwenApiKey, signal);
-  return parseJsonOr(json.text, { reason_found: false, sentiment: "UNCLEAR", summary: "Gagal memproses sentimen Twitter." });
 }
 
 export async function askQwenShortCondition({ 
@@ -1314,7 +1539,7 @@ export async function askQwenShortCondition({
   liquidations = null, 
   orderbookDepth = null,
   targetPrice = null,
-  pythPrice = null,
+  oraclePrice = null,
   marketQuestion = "",
   marketOutcomePrice = null,
   baseProbability = 50
@@ -1342,14 +1567,14 @@ export async function askQwenShortCondition({
   
   let targetContext = "";
   if (marketQuestion && targetPrice) {
-    const currentP = pythPrice || td.currentPrice;
+    const currentP = oraclePrice || td.currentPrice;
     const distance = targetPrice - currentP;
     
     targetContext = `
 MARKET TARGET (PRICE TO BEAT):
 - Pertanyaan Polymarket: "${marketQuestion}"
 - Target Price: $${targetPrice}
-- Current Pyth Price (Oracle): $${pythPrice || "N/A"}
+- Current Chainlink Price (Oracle): $${oraclePrice || "N/A"}
 - Jarak Absolut: $${distance.toFixed(2)}
 - Volatilitas/ATR-14 (Kekuatan Gerak Normal): $${td.atr14 || "N/A"}
 - Jarak Relatif (Distance/ATR): ${td.atr14 ? (Math.abs(distance) / td.atr14).toFixed(2) + "x ATR" : "N/A"}
@@ -1393,13 +1618,13 @@ ${historyContext}`.trim();
   
   Tugasmu: Berikan keputusan entry murni berdasarkan FAKTA KUANTITATIF (Jarak Harga, Orderbook Flow, dan Nilai Ekspektasi/EV). JANGAN menebak reversal menggunakan pola atau tebakan kosong!
   
-  Langkah Analisis (chain-of-thought WAJIB):
-  1. [Distance Check] Berapa jarak harga Oracle Pyth saat ini ke Target Price? Bandingkan dengan ATR-14.
+  Pemeriksaan wajib yang harus diringkas secara singkat dalam field "reason":
+  1. [Distance Check] Berapa jarak harga Oracle Chainlink saat ini ke Target Price? Bandingkan dengan ATR-14.
   2. [Orderbook Flow] Apakah ada tembok duit raksasa (Bid/Ask Depth) di Binance yang menghalangi pergerakan harga menuju target?
   3. [Crowd Wisdom / Market Probability] Berapa harga token Polymarket saat ini? (Contoh $0.76 = Crowd yakin 76% UP).
   4. [Momentum Follow] Jangan melawan tren! Jika Crowd Probability tinggi (> 60%) dan tidak ada tembok yang memblokir, asumsikan Crowd BENAR. Jangan coba-coba menebak reversal.
   5. [Base Probability Calibration] Perhatikan angka "Base Probability Kuantitatif (JS Mechanical)" sebesar ${baseProbability}% yang dihitung di backend. Jangan mengarang probabilitas acak dari nol.
-  6. [Heuristic Adjustment] Tugas utamamu adalah melakukan BUFF (+1% s.d. +15%) jika didukung volume/squeeze/tembok besar searah, atau NERF (-1% s.d. -15%) jika terhalang orderbook/likuidasi berlawanan. Tentukan "estimated_fair_probability" final setelah penyesuaian tersebut.
+  6. [Heuristic Adjustment] Lakukan BUFF (+1% s.d. +15%) atau NERF (-1% s.d. -15%) terhadap base probability. "estimated_fair_probability" SELALU berarti probabilitas outcome primer/UP/YES menang, termasuk saat direction adalah DOWN.
   
   ATURAN MUTLAK:
   - BERSIKAPLAH DINGIN DAN TEPAT. Jangan pernah overthink atau menggunakan kalimat ragu-ragu dalam "reason" kamu.
@@ -1435,43 +1660,13 @@ Format JSON wajib:
       { role: "system", content: "Kamu adalah analis teknikal tingkat dewa. Jawab HANYA dengan JSON valid." },
       { role: "user", content: `${context}\n\n${prompt}` }
     ],
-    temperature: 0.3, // Sedikit lebih tinggi untuk memungkinkan analisis kreatif tapi tetap presisi
-    max_tokens: 5000,
+    temperature: 0,
+    max_tokens: 1200,
     response_format: { type: "json_object" }
   };
 
-  let json;
-  try {
-    json = await callRoleQwenJson(payload, finalModel, finalBaseUrl, finalApiKey, signal);
-    extractJsonObject(json.text); // Test parse
-  } catch (error) {
-    throw error;
-  }
-  const result = parseJsonOr(json.text, { condition: "UNKNOWN", recommendation: "AVOID", direction: "NEUTRAL", confidence: 0, reason: "Gagal memproses data.", sentiment: "NEUTRAL", key_signals: {}, memory_reflection: "Gagal.", risk_warning: "" });
-  
-  if (result.condition !== "UNKNOWN") {
-    try {
-      const histPath = path.join(dataDir, "short_condition_history.json");
-      let histData = [];
-      if (fs.existsSync(histPath)) {
-        histData = JSON.parse(fs.readFileSync(histPath, "utf-8"));
-      }
-      histData.push({
-        date: new Date().toISOString(),
-        condition: result.condition,
-        recommendation: result.recommendation,
-        direction: result.direction,
-        confidence: result.confidence,
-        reason: result.reason,
-        memory_reflection: result.memory_reflection,
-      });
-      // Simpan max 50 history
-      if (histData.length > 50) histData = histData.slice(-50);
-      fs.writeFileSync(histPath, JSON.stringify(histData, null, 2));
-    } catch(err) {
-      console.error("[Qwen] Gagal menyimpan memory short condition:", err.message);
-    }
-  }
-
-  return { ...result, usage: json.usage };
+  const json = await callRoleQwenJson(payload, config.qwenEvaluatorModel, finalBaseUrl, finalApiKey, signal);
+  const parsed = parseJsonOr(json.text, null);
+  const result = normalizeShortAnalysis(parsed, baseProbability);
+  return { ...result, usage: json.usage, providerModel: json.model, fallbackFrom: json.fallbackFrom || null };
 }

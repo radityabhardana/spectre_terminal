@@ -1,29 +1,126 @@
 import { askQwenShortCondition } from "./qwen.js";
 import { getRecentLiquidations, getOrderbookImbalance } from "./binance_ws.js";
+import { config } from "./config.js";
+import WebSocket from "ws";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, "../data");
 
-// Bypass Cloudflare WARP TLS block for Node.js native fetch
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+const BINANCE_FAPI_URLS = [...new Set([config.binanceFuturesBaseUrl, "https://fapi.binance.com"])];
 
-const BINANCE_BASE_URLS = [
-  'https://api.binancefuture.com', // Best for Indonesia/ISP Blocks
-  'https://api.binance.com',
-  'https://api-gcp.binance.com',
-  'https://api1.binance.com',
-  'https://api2.binance.com',
-  'https://api3.binance.com',
-  'https://api4.binance.com',
-  'https://data-api.binance.vision'
-];
+const DURATION_MS = {
+  "5m": 5 * 60 * 1000,
+  "15m": 15 * 60 * 1000,
+  "1h": 60 * 60 * 1000,
+  "4h": 4 * 60 * 60 * 1000,
+  "1d": 24 * 60 * 60 * 1000,
+};
 
-async function fetchWithFallback(endpoints, path, options) {
+function normalizeDurationType(value, question = "") {
+  const direct = String(value || "").trim().toLowerCase();
+  if (DURATION_MS[direct]) return direct;
+  const text = String(question).toLowerCase();
+  if (/\b(?:daily|1d|24h)\b/.test(text)) return "1d";
+  if (/\b4h\b|4 hours?/.test(text)) return "4h";
+  if (/\b1h\b|1 hour/.test(text)) return "1h";
+  if (/\b15m\b|15 min/.test(text)) return "15m";
+  if (/\b5m\b|5 min/.test(text)) return "5m";
+  return null;
+}
+
+function parseTimestamp(value) {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+export function chainlinkVariant(durationType) {
+  if (durationType === "5m") return "fiveminute";
+  if (durationType === "15m") return "fifteen";
+  if (durationType === "4h") return "fourhour";
+  if (durationType === "1h") return "hourly";
+  if (durationType === "1d") return "daily";
+  return null;
+}
+
+async function fetchChainlinkOpeningPrice(asset, startTimeMs, endTimeMs, durationType, signal) {
+  const variant = chainlinkVariant(durationType);
+  if (!variant || startTimeMs == null || endTimeMs == null) return null;
+  const url = new URL("https://polymarket.com/api/crypto/crypto-price");
+  url.searchParams.set("symbol", asset);
+  url.searchParams.set("eventStartTime", new Date(startTimeMs).toISOString());
+  url.searchParams.set("variant", variant);
+  url.searchParams.set("endDate", new Date(endTimeMs).toISOString());
+  const requestSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(5000)])
+    : AbortSignal.timeout(5000);
+  const response = await fetch(url, { signal: requestSignal });
+  if (!response.ok) return null;
+  const payload = await response.json();
+  const price = Number(payload?.openPrice);
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+function fetchChainlinkLivePrice(asset, signal) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket("wss://ws-live-data.polymarket.com");
+    let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      ws.close();
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const onAbort = () => {
+      const error = new Error("Chainlink request aborted");
+      error.name = "AbortError";
+      finish(error);
+    };
+    const timeout = setTimeout(() => finish(new Error("Chainlink live price timeout")), 5000);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    ws.on("open", () => {
+      ws.send(JSON.stringify({
+        action: "subscribe",
+        subscriptions: [{
+          topic: "crypto_prices_chainlink",
+          type: "update",
+          filters: JSON.stringify({ symbol: `${asset.toLowerCase()}/usd` }),
+        }],
+      }));
+    });
+    ws.on("message", (raw) => {
+      try {
+        const message = JSON.parse(String(raw));
+        const directValue = Number(message?.payload?.value);
+        const points = Array.isArray(message?.payload?.data) ? message.payload.data : [];
+        const latestPoint = points.at(-1);
+        const value = Number.isFinite(directValue) ? directValue : Number(latestPoint?.value);
+        const timestamp = Number(message?.payload?.timestamp ?? latestPoint?.timestamp);
+        const ageMs = Date.now() - timestamp;
+        if (Number.isFinite(value) && value > 0 && Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= 15_000) {
+          finish(null, { price: value, publishTime: new Date(timestamp).toISOString() });
+        }
+      } catch {
+        // Ignore heartbeat and unrelated topic messages.
+      }
+    });
+    ws.on("error", (error) => finish(error));
+  });
+}
+
+async function fetchWithFallback(endpoints, path, options = {}) {
+  const { signal, ...fetchOptions } = options;
   for (const base of endpoints) {
     try {
-      const res = await fetch(base + path, options);
+      const attemptSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+        : AbortSignal.timeout(8000);
+      const res = await fetch(base + path, { ...fetchOptions, signal: attemptSignal });
       if (res.ok) return res;
     } catch (e) {
       // Continue to next
@@ -33,20 +130,24 @@ async function fetchWithFallback(endpoints, path, options) {
 }
 
 // Fetch 24h ticker + klines + RSI/MACD dari Binance
-async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5) {
+async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5, signal = null) {
   try {
     const interval = intervalMinutes <= 5 ? "5m" : intervalMinutes <= 15 ? "15m" : intervalMinutes <= 60 ? "1h" : "4h";
     const klinePath = `/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=60`;
     const tickerPath = `/fapi/v1/ticker/24hr?symbol=${symbol}`;
 
     const [klineRes, tickerRes] = await Promise.all([
-      fetchWithFallback(BINANCE_FAPI_URLS, klinePath, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(8000) }),
-      fetchWithFallback(BINANCE_FAPI_URLS, tickerPath, { headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(8000) }),
+      fetchWithFallback(BINANCE_FAPI_URLS, klinePath, { headers: { 'Cache-Control': 'no-cache' }, signal }),
+      fetchWithFallback(BINANCE_FAPI_URLS, tickerPath, { headers: { 'Cache-Control': 'no-cache' }, signal }),
     ]);
 
     if (!klineRes.ok || !tickerRes.ok) throw new Error("Binance kline/ticker error");
-    const klines = await klineRes.json();
+    const rawKlines = await klineRes.json();
     const ticker = await tickerRes.json();
+    const klines = Array.isArray(rawKlines)
+      ? rawKlines.filter((kline) => Number(kline?.[6]) <= Date.now())
+      : [];
+    if (klines.length < 35) throw new Error("Not enough closed Binance candles");
 
     const closes  = klines.map(k => parseFloat(k[4]));
     const volumes = klines.map(k => parseFloat(k[5]));
@@ -64,18 +165,25 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5) {
     const rsi = Math.round(100 - (100 / (1 + rs)));
 
     // EMA helper
-    const ema = (data, period) => {
+    const emaSeries = (data, period) => {
+      if (data.length < period) return [];
       const k = 2 / (period + 1);
       let val = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
-      for (let i = period; i < data.length; i++) val = data[i] * k + val * (1 - k);
-      return val;
+      const result = [val];
+      for (let i = period; i < data.length; i++) {
+        val = data[i] * k + val * (1 - k);
+        result.push(val);
+      }
+      return result;
     };
 
     // MACD (12, 26, 9)
-    const ema12 = ema(closes, 12);
-    const ema26 = ema(closes, 26);
-    const macdLine      = parseFloat((ema12 - ema26).toFixed(2));
-    const macdSignal    = parseFloat(ema(closes.slice(-15).map((c, i, arr) => i >= 9 ? ema(arr.slice(0, i + 1), 12) - ema(arr.slice(0, i + 1), 26) : 0).filter(v => v !== 0), 9).toFixed(2));
+    const ema12 = emaSeries(closes, 12);
+    const ema26 = emaSeries(closes, 26);
+    const macdValues = ema26.map((ema26Value, index) => ema12[index + 14] - ema26Value);
+    const signalValues = emaSeries(macdValues, 9);
+    const macdLine = parseFloat(macdValues.at(-1).toFixed(2));
+    const macdSignal = parseFloat(signalValues.at(-1).toFixed(2));
     const macdHistogram = parseFloat((macdLine - macdSignal).toFixed(2));
 
     // Volume ratio: last vs 10-candle avg
@@ -126,35 +234,34 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5) {
   }
 }
 
-// Scout Override anti-streak cooldown
-// ponytail: cek 3 memori terakhir — jika stuck ke 1 arah & CHOPPY, blokir override
-function getRecentDirectionBias() {
+function saveShortConditionHistory(result, marketQuestion) {
   try {
     const histPath = path.join(dataDir, "short_condition_history.json");
-    if (!fs.existsSync(histPath)) return { isStuck: false };
-    const hist = JSON.parse(fs.readFileSync(histPath, "utf-8"));
-    const last3 = hist.slice(-3);
-    if (last3.length < 3) return { isStuck: false };
-    const choppyCount = last3.filter(h => h.condition === "CHOPPY").length;
-    const dirs = last3.map(h => h.direction);
-    const allSameDir = dirs.every(d => d === dirs[0]);
-    return { isStuck: choppyCount >= 2 && allSameDir, direction: dirs[0] };
-  } catch { return { isStuck: false }; }
+    let history = [];
+    if (fs.existsSync(histPath)) history = JSON.parse(fs.readFileSync(histPath, "utf-8"));
+    history.push({
+      date: new Date().toISOString(),
+      marketQuestion,
+      condition: result.condition,
+      recommendation: result.recommendation,
+      direction: result.direction,
+      confidence: result.confidence,
+      primaryOutcomeProbability: result.primary_outcome_probability,
+      selectedOutcomeProbability: result.estimated_fair_probability,
+      expectedValueCents: result.expected_value_cents ?? null,
+      reason: result.reason,
+    });
+    fs.writeFileSync(histPath, JSON.stringify(history.slice(-50), null, 2));
+  } catch (error) {
+    console.error("[Short Condition] Gagal menyimpan history:", error.message);
+  }
 }
-
-const BINANCE_FAPI_URLS = [
-  'https://fapi.binancefuture.com', // Best for Indonesia/ISP Blocks
-  'https://fapi.binance.com',
-  'https://fapi1.binance.com',
-  'https://fapi2.binance.com',
-  'https://fapi3.binance.com'
-];
 
 let longShortRatioCache = {}; // Symbol-specific cache: { [symbol]: { data, timestamp } }
 const CACHE_DURATION_MS = 30 * 1000; // 30 detik (agar selalu fresh tapi anti-spam)
 
 // Fetch Binance Futures Long/Short ratio
-async function fetchLongShortRatio(symbol = "BTCUSDT") {
+async function fetchLongShortRatio(symbol = "BTCUSDT", signal = null) {
   const now = Date.now();
   if (longShortRatioCache[symbol] && (now - longShortRatioCache[symbol].timestamp < CACHE_DURATION_MS)) {
     return longShortRatioCache[symbol].data;
@@ -162,7 +269,10 @@ async function fetchLongShortRatio(symbol = "BTCUSDT") {
 
   try {
     const path = `/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=5m&limit=3`;
-    const res = await fetchWithFallback(BINANCE_FAPI_URLS, path, { headers: { 'Cache-Control': 'no-cache' } });
+    const res = await fetchWithFallback(BINANCE_FAPI_URLS, path, {
+      headers: { 'Cache-Control': 'no-cache' },
+      signal
+    });
     const data = await res.json();
     if (!Array.isArray(data) || !data.length) return null;
     const latest = data[data.length - 1];
@@ -186,9 +296,12 @@ async function fetchLongShortRatio(symbol = "BTCUSDT") {
 
 
 // Fetch Fear & Greed Index (alternative.me)
-async function fetchFearGreed() {
+async function fetchFearGreed(signal = null) {
   try {
-    const res = await fetch("https://api.alternative.me/fng/?limit=1", { headers: { 'Cache-Control': 'no-cache' } });
+    const res = await fetch("https://api.alternative.me/fng/?limit=1", {
+      headers: { 'Cache-Control': 'no-cache' },
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000)
+    });
     if (!res.ok) throw new Error("FGI API error");
     const data = await res.json();
     const item = data?.data?.[0];
@@ -200,8 +313,26 @@ async function fetchFearGreed() {
   }
 }
 
-export async function evaluateShortMarketCondition({ signal = null, currentPriceStr = "", asset = "BTC", marketQuestion = "", marketOutcomePrice = null }) {
-  const symbol = asset === "ETH" ? "ETHUSDT" : asset === "DOGE" ? "DOGEUSDT" : "BTCUSDT";
+export async function evaluateShortMarketCondition({
+  signal = null,
+  currentPriceStr = "",
+  asset = "BTC",
+  marketQuestion = "",
+  marketOutcomePrice = null,
+  durationType = null,
+  startDate = null,
+  endDate = null,
+  resolutionSource = "",
+}) {
+  const normalizedAsset = String(asset || "BTC").toUpperCase();
+  const symbol = normalizedAsset === "ETH" ? "ETHUSDT" : normalizedAsset === "DOGE" ? "DOGEUSDT" : "BTCUSDT";
+  const normalizedDuration = normalizeDurationType(durationType, marketQuestion);
+  const durationMs = DURATION_MS[normalizedDuration] || null;
+  const endTimeMs = parseTimestamp(endDate);
+  const explicitStartMs = parseTimestamp(startDate);
+  const derivedStartMs = endTimeMs != null && durationMs ? endTimeMs - durationMs : explicitStartMs;
+  const expectedOraclePath = `${normalizedAsset.toLowerCase()}-usd`;
+  const oracleSourceVerified = String(resolutionSource || "").toLowerCase().includes(`data.chain.link/streams/${expectedOraclePath}`);
 
   // Extract target price from market question
   let targetPrice = null;
@@ -212,85 +343,31 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
     }
   }
 
-    // Fetch Pyth Oracle Data
-    let pythPrice = null;
-    const pythIds = {
-      BTC: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-      ETH: "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
-      DOGE: "dcef50dd0a4cd2dcc17e45df1676dcb336a11a61c69df7a0299b0150c672d25c"
-    };
-    const pid = pythIds[asset];
-    if (pid) {
-      try {
-        const pythCtrl = new AbortController();
-        const pythTimeout = setTimeout(() => pythCtrl.abort(), 5000);
-        
-        const pRes = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${pid}`, { signal: pythCtrl.signal });
-        clearTimeout(pythTimeout);
-        if (pRes.ok) {
-          const pData = await pRes.json();
-          const pInfo = pData.parsed?.[0]?.price;
-          if (pInfo) {
-            pythPrice = parseFloat(pInfo.price) * Math.pow(10, pInfo.expo);
-          }
-        }
-        
-        // Dynamically fetch Target Price (Opening Price) for 5-minute Up/Down markets
-        if (!targetPrice && marketQuestion.toLowerCase().includes("up or down")) {
-           let msInterval = 5 * 60 * 1000;
-           const mqLower = marketQuestion.toLowerCase();
-           if (mqLower.includes("4h")) {
-               msInterval = 4 * 60 * 60 * 1000;
-           } else if (mqLower.includes("1h") || mqLower.includes("1 hour")) {
-               msInterval = 60 * 60 * 1000;
-           } else if (mqLower.includes("15m") || mqLower.includes("15 min")) {
-               msInterval = 15 * 60 * 1000;
-           }
-           const startTs = Math.floor((Math.floor(Date.now() / msInterval) * msInterval) / 1000);
-           const kCtrl = new AbortController();
-           const kTimeout = setTimeout(() => kCtrl.abort(), 5000);
-           let kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs}?ids[]=${pid}`, { signal: kCtrl.signal });
-           clearTimeout(kTimeout);
-           if (!kRes.ok) {
-             const kCtrl2 = new AbortController();
-             const kTimeout2 = setTimeout(() => kCtrl2.abort(), 5000);
-             kRes = await fetch(`https://hermes.pyth.network/v2/updates/price/${startTs - 5}?ids[]=${pid}`, { signal: kCtrl2.signal });
-             clearTimeout(kTimeout2);
-           }
-           if (kRes.ok) {
-              const kData = await kRes.json();
-              const kInfo = kData.parsed?.[0]?.price;
-              if (kInfo) {
-                 targetPrice = parseFloat(kInfo.price) * Math.pow(10, kInfo.expo);
-              }
-           }
-        }
-      } catch(err) {
-        if (err.name === 'AbortError') {
-          console.warn("[Short Condition] Pyth Oracle timeout (>5s), skipping.");
-        } else {
-          console.warn("[Short Condition] Failed to fetch Pyth Oracle:", err.message);
-        }
-      }
-    }
+  let oraclePrice = null;
+  let oraclePublishTime = null;
+  if (oracleSourceVerified) {
+    const [openingPrice, livePrice] = await Promise.all([
+      targetPrice ? Promise.resolve(targetPrice) : fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal).catch(() => null),
+      fetchChainlinkLivePrice(normalizedAsset, signal).catch(() => null),
+    ]);
+    targetPrice = openingPrice;
+    oraclePrice = livePrice?.price ?? null;
+    oraclePublishTime = livePrice?.publishTime ?? null;
+  }
 
-  let intervalMinutes = 5;
-  const mqLower = marketQuestion.toLowerCase();
-  if (mqLower.includes("4h")) intervalMinutes = 240;
-  else if (mqLower.includes("1h") || mqLower.includes("1 hour")) intervalMinutes = 60;
-  else if (mqLower.includes("15m") || mqLower.includes("15 min")) intervalMinutes = 15;
+  const intervalMinutes = durationMs ? durationMs / 60_000 : 5;
 
-  let tickerData = await fetchBinanceTechData(symbol, intervalMinutes);
+  let tickerData = await fetchBinanceTechData(symbol, intervalMinutes, signal);
   
   if (!tickerData) {
-    if (pythPrice) {
+    if (oraclePrice) {
       tickerData = {
         symbol,
         interval: 'n/a',
-        currentPrice: pythPrice.toFixed(2),
+        currentPrice: oraclePrice.toFixed(2),
         priceChange24h: '0.00',
-        high24h: pythPrice.toFixed(2),
-        low24h: pythPrice.toFixed(2),
+        high24h: oraclePrice.toFixed(2),
+        low24h: oraclePrice.toFixed(2),
         volume24h: '0.00',
         rsi14: null,
         rsiSignal: 'unavailable',
@@ -301,7 +378,7 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
         fallback: true
       };
     } else {
-      throw new Error("Gagal mengambil data ticker Binance maupun Oracle Pyth. Periksa koneksi internet.");
+      throw new Error("Gagal mengambil data ticker Binance maupun Oracle Chainlink. Periksa koneksi internet.");
     }
   }
 
@@ -312,8 +389,8 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
 
   // Fetch remaining data sources in parallel (all gracefully fail to null)
   const [longShort, fearGreed] = await Promise.all([
-    fetchLongShortRatio(symbol),
-    fetchFearGreed(),
+    fetchLongShortRatio(symbol, signal),
+    fetchFearGreed(signal),
   ]);
 
   // Liquidations (Websocket 15m)
@@ -325,9 +402,13 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
   // Calculate Base Probability mechanically
   let baseProbability = 50;
   if (targetPrice && tickerData && tickerData.atr14) {
-    const currentP = pythPrice || parseFloat(tickerData.currentPrice);
+    const currentP = oraclePrice || parseFloat(tickerData.currentPrice);
     const distance = targetPrice - currentP;
-    const relDistance = Math.abs(distance) / tickerData.atr14;
+    const remainingRatio = endTimeMs != null && durationMs
+      ? Math.max(0.02, Math.min(1, (endTimeMs - Date.now()) / durationMs))
+      : 1;
+    const horizonAtr = tickerData.atr14 * Math.sqrt(remainingRatio);
+    const relDistance = Math.abs(distance) / horizonAtr;
 
     let isAboveMarket = /above|higher|>/i.test(marketQuestion);
     let isBelowMarket = /below|lower|</i.test(marketQuestion);
@@ -416,60 +497,103 @@ export async function evaluateShortMarketCondition({ signal = null, currentPrice
       liquidations: liqData, 
       orderbookDepth: depthData,
       targetPrice,
-      pythPrice,
+      oraclePrice,
       marketQuestion,
       marketOutcomePrice,
       baseProbability
     });
 
-    // Celah 1b: EV Math in Backend with Safety Buffer (+2 cents)
-    let evOverrideActive = false;
-    if (result.estimated_fair_probability && marketOutcomePrice) {
-       const ev = (result.estimated_fair_probability / 100) - marketOutcomePrice;
-       result.expected_value_cents = Math.round(ev * 100);
-       
-       if (ev <= 0.02 && result.recommendation === "PLAY") {
-          result.recommendation = "AVOID";
-          evOverrideActive = true; // Mark so Scout Override cannot re-enable PLAY
-          result.reason = `[EV OVERRIDE] Margin EV terlalu tipis/negatif (${result.expected_value_cents} cents <= 2 cents). Rekomendasi Qwen dibatalkan demi keamanan matematis.\nAsli: ` + (result.reason || "");
-       }
+    // Deterministic guardrails: AI may explain a signal, but cannot bypass math/data checks.
+    const MAX_ENTRY_PRICE = config.tradeMaxPrice;
+    const MIN_EV_CENTS = 5;
+    const upTokenPrice = Number.isFinite(Number(marketOutcomePrice))
+      ? Math.max(0, Math.min(1, Number(marketOutcomePrice)))
+      : null;
+    const downTokenPrice = upTokenPrice == null ? null : Number((1 - upTokenPrice).toFixed(4));
+    const selectedDirection = result.direction;
+    const selectedFairProbability = Number(result.estimated_fair_probability);
+
+    const blockPlay = (message) => {
+      if (result.recommendation !== "PLAY") return;
+      result.recommendation = "AVOID";
+      result.reason = `${message}\nAsli: ${result.reason || ""}`;
+    };
+
+    if (!normalizedDuration || derivedStartMs == null || endTimeMs == null || endTimeMs <= Date.now()) {
+      blockPlay("[TIME GUARDRAIL] Durasi serta waktu mulai/selesai market tidak dapat diverifikasi atau market sudah berakhir.");
     }
 
-    // marketOutcomePrice = harga token UP/YES di CLOB (0.0 - 1.0)
-    // Token DOWN/NO = 1 - upPrice (karena binary market)
-    const upTokenPrice = marketOutcomePrice;
-    const downTokenPrice = upTokenPrice !== null ? parseFloat((1 - upTokenPrice).toFixed(4)) : null;
-
-    // Mechanical Scout Override (Optimize WR by trusting crowd/market over AI if strong)
-    // Threshold 0.62/0.38 — captures cases where crowd is clearly >60% to one side
-    // Celah 2: Kondisional Volume Momentum (Anti-Squeeze Blindness)
-    // GUARDRAIL: Scout Override TIDAK BOLEH menimpa EV Override (sesuai AGENTS.md)
-    const isExtremeSqueeze = tickerData?.volumeRatio > 2.0;
-
-    const dirBias = getRecentDirectionBias();
-    const scoutBlocked = dirBias.isStuck; // ponytail: cooldown — reset otomatis tiap ada analisis baru
-    if (scoutBlocked) {
-      result.reason = `[SCOUT OVERRIDE COOLDOWN] 3 analisis terakhir semuanya arah ${dirBias.direction} di kondisi CHOPPY. Override diblokir demi mencegah streak salah.\n` + (result.reason || "");
+    if (!oracleSourceVerified) {
+      blockPlay("[ORACLE GUARDRAIL] Resolution source market tidak cocok dengan Chainlink stream untuk aset ini.");
     }
 
-    if (upTokenPrice !== null && !isExtremeSqueeze && !evOverrideActive && !scoutBlocked) {
-      if (upTokenPrice >= 0.62) {
-        // Crowd sangat dominan percaya arah UP
-        result.direction = "UP";
-        result.recommendation = "PLAY";
-        result.reason = `[SCOUT OVERRIDE] Crowd dominan arah UP — Token UP: ${(upTokenPrice * 100).toFixed(1)}% vs DOWN: ${(downTokenPrice * 100).toFixed(1)}%. Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
-      } else if (downTokenPrice !== null && downTokenPrice >= 0.62) {
-        // Crowd sangat dominan percaya arah DOWN
-        result.direction = "DOWN";
-        result.recommendation = "PLAY";
-        result.reason = `[SCOUT OVERRIDE] Crowd dominan arah DOWN — Token DOWN: ${(downTokenPrice * 100).toFixed(1)}% vs UP: ${(upTokenPrice * 100).toFixed(1)}%. Mengabaikan keraguan Qwen demi Win Rate.\nAsli: ` + (result.reason || "");
+    if (!targetPrice || !oraclePrice || !oraclePublishTime || !tickerData?.atr14) {
+      blockPlay("[DATA GUARDRAIL] Target, harga oracle, atau ATR tidak lengkap; edge tidak dapat diverifikasi.");
+    }
+
+    if (upTokenPrice == null || !Number.isFinite(selectedFairProbability)) {
+      blockPlay("[EV GUARDRAIL] Harga token atau fair probability tidak valid; EV tidak dapat dihitung.");
+    } else {
+      const tokenPriceForDirection = selectedDirection === "DOWN" ? downTokenPrice : upTokenPrice;
+      const ev = (selectedFairProbability / 100) - tokenPriceForDirection;
+      result.expected_value_cents = Math.round(ev * 100);
+      if (ev < MIN_EV_CENTS / 100) {
+        blockPlay(`[EV GUARDRAIL] Expected Value terlalu kecil (${result.expected_value_cents}c < ${MIN_EV_CENTS}c).`);
       }
-    } else if (evOverrideActive && upTokenPrice !== null && (upTokenPrice >= 0.62 || (downTokenPrice !== null && downTokenPrice >= 0.62))) {
-      // Scout ingin override tapi EV guardrail sudah aktif — blokir
-      result.reason = `[SCOUT OVERRIDE BLOCKED] EV guardrail aktif (EV ≤ 2 cents). Scout tidak diizinkan override. Crowd signal diabaikan.\n` + (result.reason || "");
-    } else if (isExtremeSqueeze && upTokenPrice !== null && (upTokenPrice >= 0.62 || (downTokenPrice !== null && downTokenPrice >= 0.62))) {
-      result.reason = `[SCOUT OVERRIDE CANCELLED] Terdeteksi anomali volume momentum ekstrem (Ratio: ${tickerData?.volumeRatio}x). Mengikuti murni hasil AI.\n` + (result.reason || "");
     }
-  
-    return { tickerData, liquidations: liqData, depth: depthData, pythPrice, targetPrice, evaluation: result, usage: result.usage };
+
+    // Guardrail 1: Max Entry Price Filter (Anti-Overpaying Rule)
+    if (result.recommendation === "PLAY") {
+      const targetTokenPrice = selectedDirection === "DOWN" ? downTokenPrice : upTokenPrice;
+      if (targetTokenPrice !== null && targetTokenPrice > MAX_ENTRY_PRICE) {
+        blockPlay(`[MAX ENTRY PRICE GUARDRAIL] Harga token ${selectedDirection} ($${targetTokenPrice.toFixed(2)}) melebihi batas $${MAX_ENTRY_PRICE.toFixed(2)}.`);
+      }
+    }
+
+    // Guardrail 2: Confidence Threshold (<70% -> AVOID)
+    if ((result.confidence || 0) < 70 && result.recommendation === "PLAY") {
+      blockPlay(`[CONFIDENCE GUARDRAIL] Confidence AI terlalu rendah (${result.confidence}% < 70%).`);
+    }
+
+    // Guardrail 3: Micro-Gap Noise Filter ($10 BTC / $0.75 ETH)
+    const curPrice = oraclePrice || (tickerData ? parseFloat(tickerData.currentPrice) : null);
+    if (curPrice && targetPrice && result.recommendation === "PLAY") {
+      const absGapUsd = Math.abs(curPrice - targetPrice);
+      const minGapThreshold = normalizedAsset === "ETH" ? 0.75 : normalizedAsset === "DOGE" ? 0.0005 : 10.00;
+      if (absGapUsd < minGapThreshold && (result.confidence || 0) < 85) {
+        blockPlay(`[MICRO-GAP NOISE FILTER] Jarak ke target ($${absGapUsd.toFixed(2)} < $${minGapThreshold}) terlalu kecil dan rawan noise.`);
+      }
+    }
+
+    // Crowd data can confirm a PLAY, but can never revive an AI AVOID.
+    const isExtremeSqueeze = tickerData?.volumeRatio > 2.0;
+    if (result.recommendation === "PLAY" && upTokenPrice != null && !isExtremeSqueeze) {
+      const crowdDirection = upTokenPrice >= 0.62 ? "UP" : downTokenPrice >= 0.62 ? "DOWN" : "NEUTRAL";
+      if (crowdDirection !== "NEUTRAL" && crowdDirection !== selectedDirection) {
+        blockPlay(`[CROWD CONFLICT] Harga CLOB dominan ${crowdDirection}, berlawanan dengan sinyal ${selectedDirection}.`);
+      }
+    }
+
+    // Only post-guardrail decisions enter learning memory.
+    if (result.recommendation !== "PLAY") {
+      result.direction = "NEUTRAL";
+    }
+    saveShortConditionHistory(result, marketQuestion);
+
+    return {
+      tickerData,
+      liquidations: liqData,
+      depth: depthData,
+      oraclePrice,
+      oraclePublishTime,
+      targetPrice,
+      durationType: normalizedDuration,
+      startDate: derivedStartMs != null ? new Date(derivedStartMs).toISOString() : null,
+      endDate: endTimeMs != null ? new Date(endTimeMs).toISOString() : null,
+      oracleSourceVerified,
+      evaluation: result,
+      usage: result.usage,
+      providerModel: result.providerModel,
+      fallbackFrom: result.fallbackFrom,
+    };
 }

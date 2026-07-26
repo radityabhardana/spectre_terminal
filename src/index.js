@@ -189,6 +189,50 @@ function throwIfAborted(signal) {
   }
 }
 
+function predictionFromValidatedAnalysis(analysis, score) {
+  if (!analysis || analysis.verdict !== "VALUE CANDIDATE") return "=";
+  const hardBlockers = (score?.blockers || []).filter((blocker) => blocker !== "No measured positive edge");
+  if (hardBlockers.length) return "=";
+  const confidence = Number(analysis.confidence);
+  const fairProbability = Number(analysis.estimatedFairProbability);
+  const marketProbability = Number(score?.marketProbability);
+  if (!Number.isFinite(confidence) || confidence < config.minQwenConfidence) return "=";
+  if (!Number.isFinite(fairProbability) || !Number.isFinite(marketProbability)) return "=";
+  if (fairProbability - marketProbability < 5) return "=";
+  return String(score?.primaryOutcomeLabel || "YES").toUpperCase();
+}
+
+function shortCryptoAsset(question) {
+  const text = String(question || "");
+  if (/\b(?:ethereum|eth)\b/i.test(text)) return "ETH";
+  if (/\b(?:dogecoin|doge)\b/i.test(text)) return "DOGE";
+  if (/\b(?:bitcoin|btc)\b/i.test(text)) return "BTC";
+  return null;
+}
+
+function isShortCryptoMarket(market) {
+  return Boolean(shortCryptoAsset(market?.question) && /\bup or down\b/i.test(String(market?.question || "")));
+}
+
+function scoreHasHardBlockers(score) {
+  return (score?.blockers || []).some((blocker) => blocker !== "No measured positive edge");
+}
+
+export function tradePricingForPrediction(analysis, prediction) {
+  if (!analysis || prediction === "=") return { fairProbability: null, maxEntryPrice: null };
+  const fairProbability = Number(analysis.estimatedFairProbability);
+  if (!Number.isFinite(fairProbability) || fairProbability <= 5 || fairProbability > 100) {
+    return { fairProbability: null, maxEntryPrice: null };
+  }
+  return {
+    fairProbability,
+    maxEntryPrice: Number(Math.min(
+      config.tradeMaxPrice,
+      (fairProbability - 5 - config.tradeFeeBufferCents) / 100
+    ).toFixed(4)),
+  };
+}
+
 async function resolveMarketInput(arg) {
   if (isShortMarketId(arg)) return getMarketById(arg);
 
@@ -447,7 +491,12 @@ function eventResultFromSession(session) {
 
 async function resolveEventInput(arg) {
   const session = getEventSession(arg);
-  if (session) return eventResultFromSession(session);
+  if (session) {
+    const refreshed = await Promise.all(
+      session.markets.map((market) => getMarketById(market.id, true).catch(() => null))
+    );
+    return eventResultFromSession({ ...session, markets: refreshed.filter(Boolean) });
+  }
   return resolveAnalyzeAllEventInput(arg);
 }
 
@@ -457,22 +506,26 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
   const scored = await scoreOneMarket(market);
 
   throwIfAborted(signal);
-  const isShortCryptoMarket = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below|reach|higher|lower|\$[0-9])/i.test(scored.market.question || "");
+  const shortMarket = isShortCryptoMarket(scored.market);
   let qwenResult;
   let researchContext = "";
 
-  if (isShortCryptoMarket) {
+  if (shortMarket) {
     setStep("Running Qwen SHORT MARKET Sniper pipeline");
-    const asset = /ethereum|eth/i.test(scored.market.question) ? "ETH" : /doge/i.test(scored.market.question) ? "DOGE" : "BTC";
+    const asset = shortCryptoAsset(scored.market.question);
     const shortRes = await evaluateShortMarketCondition({
       signal,
       asset,
       marketQuestion: scored.market.question,
-      marketOutcomePrice: scored.score.marketProbability / 100
+      marketOutcomePrice: scored.score.marketProbability / 100,
+      durationType: scored.market.durationType,
+      startDate: scored.market.startDate,
+      endDate: scored.market.endDate,
+      resolutionSource: scored.market.resolutionSource,
     });
     
     qwenResult = {
-      model: "Sniper V2",
+      model: shortRes.providerModel ? `Sniper V2 | ${shortRes.providerModel}` : "Sniper V2",
       usage: shortRes.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 },
       analysis: {
         verdict: shortRes.evaluation.recommendation === "PLAY" ? "VALUE CANDIDATE" : "SKIP",
@@ -480,7 +533,8 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
         estimatedFairProbability: shortRes.evaluation.estimated_fair_probability,
         expectedValueCents: shortRes.evaluation.expected_value_cents,
         targetPrice: shortRes.targetPrice,
-        pythPrice: shortRes.pythPrice,
+        oraclePrice: shortRes.oraclePrice,
+        signalDataAt: shortRes.oraclePublishTime,
         scoutDirection: shortRes.evaluation.direction,
         scoutRecommendation: shortRes.evaluation.recommendation,
         finalReason: shortRes.evaluation.reason,
@@ -519,11 +573,11 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
 
   let finalPrediction;
   
-  if (isShortCryptoMarket && qwenResult?.analysis) {
+  if (shortMarket && qwenResult?.analysis) {
     const scoutDirection = String(qwenResult.analysis.scoutDirection || "").toUpperCase();
     const scoutRec = String(qwenResult.analysis.scoutRecommendation || "").toUpperCase();
     
-    if (scoutRec === "AVOID" || scoutDirection === "NEUTRAL") {
+    if (scoutRec !== "PLAY" || scoutDirection === "NEUTRAL" || scoreHasHardBlockers(scored.score)) {
       finalPrediction = "=";
     } else if (scoutDirection === "UP" || scoutDirection === "YES") {
       finalPrediction = String(scored.score?.primaryOutcomeLabel || "UP").toUpperCase();
@@ -532,22 +586,16 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
     } else {
       finalPrediction = "=";
     }
-  } else if (qwenResult?.analysis?.verdict === "SKIP") {
-    finalPrediction = "=";
   } else {
     const confidence = Number(qwenResult?.analysis?.confidence);
-    if (!Number.isNaN(confidence) && confidence < config.minQwenConfidence) {
-      finalPrediction = "=";
-      if (qwenResult?.analysis) {
-        qwenResult.analysis.final_reason = `[OVERRIDE] Confidence terlalu rendah (${confidence}% < ${config.minQwenConfidence}%). Mencegah halusinasi AI. Alasan asli: ` + qwenResult.analysis.final_reason;
-      }
-    } else {
-      const direction = directionSignal(scored.score);
-      finalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+    finalPrediction = predictionFromValidatedAnalysis(qwenResult?.analysis, scored.score);
+    if (finalPrediction === "=" && qwenResult?.analysis && (!Number.isFinite(confidence) || confidence < config.minQwenConfidence)) {
+      qwenResult.analysis.finalReason = `[OVERRIDE] Confidence tidak valid atau terlalu rendah (${Number.isFinite(confidence) ? confidence : "n/a"}% < ${config.minQwenConfidence}%). ${qwenResult.analysis.finalReason || ""}`;
     }
   }
 
   const executionTime = ctx?.commandStartTime ? Math.round((Date.now() - ctx.commandStartTime) / 1000) : null;
+  const tradePricing = tradePricingForPrediction(qwenResult?.analysis, finalPrediction);
   const fullAnalysisMarkdown = formatAnalysis({ market: scored.market, score: scored.score, qwenResult, finalPrediction, analysisTime: executionTime });
 
   if (!signal?.aborted) {
@@ -559,7 +607,9 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
       analysis_conclusion: fullAnalysisMarkdown,
       qwen_confidence: String(qwenResult?.analysis?.confidence || ""),
       data_confidence: String(scored.score?.confidenceScore || ""),
-      execution_time: executionTime
+      execution_time: executionTime,
+      fair_probability: tradePricing.fairProbability,
+      max_entry_price: tradePricing.maxEntryPrice,
     });
   }
 
@@ -629,20 +679,24 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
 
   throwIfAborted(signal);
   
-  const isShortCryptoMarketBest = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below|reach|higher|lower|\$[0-9])/i.test(best.market.question || "");
+  const isShortCryptoMarketBest = isShortCryptoMarket(best.market);
   let bestQwen;
 
   if (isShortCryptoMarketBest) {
     setStep("Running Qwen SHORT MARKET Sniper pipeline for best candidate");
-    const asset = /ethereum|eth/i.test(best.market.question) ? "ETH" : /doge/i.test(best.market.question) ? "DOGE" : "BTC";
+    const asset = shortCryptoAsset(best.market.question);
     const shortRes = await evaluateShortMarketCondition({
       signal,
       asset,
       marketQuestion: best.market.question,
-      marketOutcomePrice: best.score.marketProbability / 100
+      marketOutcomePrice: best.score.marketProbability / 100,
+      durationType: best.market.durationType,
+      startDate: best.market.startDate,
+      endDate: best.market.endDate,
+      resolutionSource: best.market.resolutionSource,
     });
     bestQwen = {
-      model: "Sniper V2",
+      model: shortRes.providerModel ? `Sniper V2 | ${shortRes.providerModel}` : "Sniper V2",
       usage: shortRes.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 },
       analysis: {
         verdict: shortRes.evaluation.recommendation === "PLAY" ? "VALUE CANDIDATE" : "SKIP",
@@ -650,7 +704,10 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
         estimatedFairProbability: shortRes.evaluation.estimated_fair_probability,
         expectedValueCents: shortRes.evaluation.expected_value_cents,
         targetPrice: shortRes.targetPrice,
-        pythPrice: shortRes.pythPrice,
+        oraclePrice: shortRes.oraclePrice,
+        signalDataAt: shortRes.oraclePublishTime,
+        scoutDirection: shortRes.evaluation.direction,
+        scoutRecommendation: shortRes.evaluation.recommendation,
         finalReason: shortRes.evaluation.reason,
         summary: shortRes.evaluation.reason ? shortRes.evaluation.reason.substring(0, 150) + "..." : "Short Market Sniper V2",
         bullishCase: ["RSI/MACD: " + (shortRes.evaluation.key_signals?.rsi_verdict || "")],
@@ -693,34 +750,27 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
   let bestFinalPrediction;
 
   if (isShortCryptoMarketBest && bestQwen?.analysis) {
-    const fairProb = Number(bestQwen.analysis.estimatedFairProbability);
-    const primaryLabel = String(best.score?.primaryOutcomeLabel || "UP").toUpperCase();
-    const secondaryLabel = String(best.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
-    
-    if (Number.isFinite(fairProb)) {
-      if (fairProb >= 55) bestFinalPrediction = primaryLabel;
-      else if (fairProb <= 45) bestFinalPrediction = secondaryLabel;
-      else bestFinalPrediction = "=";
+    const scoutDirection = String(bestQwen.analysis.scoutDirection || "").toUpperCase();
+    const scoutRecommendation = String(bestQwen.analysis.scoutRecommendation || "").toUpperCase();
+    if (scoutRecommendation !== "PLAY" || scoutDirection === "NEUTRAL" || scoreHasHardBlockers(best.score)) {
+      bestFinalPrediction = "=";
+    } else if (scoutDirection === "UP" || scoutDirection === "YES") {
+      bestFinalPrediction = String(best.score?.primaryOutcomeLabel || "UP").toUpperCase();
+    } else if (scoutDirection === "DOWN" || scoutDirection === "NO") {
+      bestFinalPrediction = String(best.score?.secondaryOutcomeLabel || "DOWN").toUpperCase();
     } else {
-      const direction = directionSignal(best.score);
-      bestFinalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+      bestFinalPrediction = "=";
     }
-  } else if (bestQwen?.analysis?.verdict === "SKIP") {
-    bestFinalPrediction = "=";
   } else {
     const confidence = Number(bestQwen?.analysis?.confidence);
-    if (!Number.isNaN(confidence) && confidence < config.minQwenConfidence) {
-      bestFinalPrediction = "=";
-      if (bestQwen?.analysis) {
-        bestQwen.analysis.final_reason = `[OVERRIDE] Confidence terlalu rendah (${confidence}% < ${config.minQwenConfidence}%). Mencegah halusinasi AI. Alasan asli: ` + bestQwen.analysis.final_reason;
-      }
-    } else {
-      const direction = directionSignal(best.score);
-      bestFinalPrediction = direction.side === "NETRAL" ? "=" : direction.side;
+    bestFinalPrediction = predictionFromValidatedAnalysis(bestQwen?.analysis, best.score);
+    if (bestFinalPrediction === "=" && bestQwen?.analysis && (!Number.isFinite(confidence) || confidence < config.minQwenConfidence)) {
+      bestQwen.analysis.finalReason = `[OVERRIDE] Confidence tidak valid atau terlalu rendah (${Number.isFinite(confidence) ? confidence : "n/a"}% < ${config.minQwenConfidence}%). ${bestQwen.analysis.finalReason || ""}`;
     }
   }
 
   const executionTime = ctx?.commandStartTime ? Math.round((Date.now() - ctx.commandStartTime) / 1000) : null;
+  const tradePricing = tradePricingForPrediction(bestQwen?.analysis, bestFinalPrediction);
   const fullAnalysisMarkdownBest = formatAnalysis({ market: best.market, score: best.score, qwenResult: bestQwen, finalPrediction: bestFinalPrediction, analysisTime: executionTime });
 
   if (!signal?.aborted) {
@@ -732,7 +782,9 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
       analysis_conclusion: fullAnalysisMarkdownBest,
       qwen_confidence: String(bestQwen?.analysis?.confidence || ""),
       data_confidence: String(best.score?.confidenceScore || ""),
-      execution_time: executionTime
+      execution_time: executionTime,
+      fair_probability: tradePricing.fairProbability,
+      max_entry_price: tradePricing.maxEntryPrice,
     });
   }
 
@@ -852,6 +904,11 @@ export async function handleCommand(text, message, ctx) {
     return menuAnswer(formatSearchResults(markets));
   }
 
+  if (command === "/top") {
+    const mode = ["volume", "liquidity", "new", "ending"].includes(arg) ? arg : "volume";
+    return menuAnswer(formatTopMarkets(await listTopMarkets({ mode, limit: 10 })));
+  }
+
   if (command === "/book") {
     if (!arg) return menuAnswer("Pakai format: /book <tokenId, marketId, atau link Polymarket>\n\nContoh: /book 2169995");
     let tokenId = arg;
@@ -903,6 +960,42 @@ export async function handleCommand(text, message, ctx) {
       },
       { estimateSeconds: urls.length * 20, mode: "deep" }
     );
+  }
+
+  if (["/quickscan", "/top3", "/eventscan", "/eventtop"].includes(command)) {
+    if (!arg) return menuAnswer(`Pakai format: ${command} <link, slug, atau session event>`);
+    const output = await runWithProgress(ctx, arg, async (setStep) => {
+      setStep("Resolving event input");
+      const result = await resolveEventInput(arg);
+      if (!result?.markets?.length) return "Event tidak ditemukan atau tidak punya market aktif.";
+      const limit = command === "/top3" || command === "/eventtop" ? 3 : 8;
+      return quickScanEvent({ result, query: arg, setStep, ctx, limit, signal: ctx?.signal });
+    });
+    return menuAnswer(output);
+  }
+
+  if (command === "/analyzeall" || command === "/eventall") {
+    if (!arg) return menuAnswer(`Pakai format: ${command} <link, slug, atau session event>`);
+    const output = await runWithProgress(ctx, arg, async (setStep) => {
+      setStep("Resolving event input");
+      const result = await resolveEventInput(arg);
+      if (!result?.markets?.length) return "Event tidak ditemukan atau tidak punya market aktif.";
+      return analyzeAllEvent({ result, query: arg, setStep, ctx, signal: ctx?.signal });
+    });
+    return menuAnswer(output);
+  }
+
+  if (command === "/eventmarket") {
+    const [sessionId, marketId] = arg.split(/\s+/);
+    const session = getEventSession(sessionId);
+    const sessionMarket = session?.markets?.find((item) => String(item.id) === String(marketId));
+    if (!sessionMarket) return menuAnswer("Session atau market event tidak ditemukan/kedaluwarsa.");
+    const market = await getMarketById(marketId, true);
+    if (!market) return menuAnswer("Market event tidak dapat dimuat ulang.");
+    const output = await runWithProgress(ctx, market.question, (setStep) =>
+      deepAnalyzeMarket({ market, query: `${sessionId} ${marketId}`, setStep, ctx, signal: ctx?.signal })
+    );
+    return menuAnswer(output);
   }
 
   if (command === "/analyze") {
@@ -961,7 +1054,7 @@ export async function handleCommand(text, message, ctx) {
     return menuAnswer(output);
   }
 
-  if (command === "/analyzebest") {
+  if (command === "/analyzebest" || command === "/eventbest") {
     if (!arg) {
       return menuAnswer(
         "Pakai format: /analyzebest <link event atau slug event>\n\nContoh: /analyzebest colombia-presidential-election"
@@ -1028,9 +1121,24 @@ export async function handleCommand(text, message, ctx) {
   }
 
   if (command === "/shortcondition" || command === "/shortvibe") {
+    if (!isShortMarketId(arg)) {
+      return menuAnswer("Pakai format: /shortcondition <marketId>. Metadata durasi, waktu selesai, outcome, dan resolution source wajib tersedia agar analisis tidak menebak.");
+    }
     return runWithProgress(ctx, "Checking short market condition...", async (setStep) => {
-      setStep("Fetching live BTC data & Twitter sentiment");
-      const result = await evaluateShortMarketCondition({ signal: ctx?.signal, currentPriceStr: arg });
+      setStep("Fetching verified short-market metadata");
+      const market = await getMarketById(arg, true);
+      if (!isShortCryptoMarket(market)) throw new Error("Market ID bukan fixed-window crypto Up or Down market.");
+      const scored = await scoreOneMarket(market);
+      const result = await evaluateShortMarketCondition({
+        signal: ctx?.signal,
+        asset: shortCryptoAsset(market.question),
+        marketQuestion: market.question,
+        marketOutcomePrice: scored.score.marketProbability / 100,
+        durationType: market.durationType,
+        startDate: market.startDate,
+        endDate: market.endDate,
+        resolutionSource: market.resolutionSource,
+      });
       return formatShortCondition(result);
     }, { estimateSeconds: 15, mode: "quick" }).then(output => menuAnswer(output));
   }

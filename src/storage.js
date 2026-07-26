@@ -1,15 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { config } from "./config.js";
 
-const dataDir = path.resolve(process.cwd(), "data");
+const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "data");
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
 
 const dbPath = path.join(dataDir, "database.db");
 const db = new Database(dbPath);
+export const ANALYSIS_STRATEGY_VERSION = "deepseek-chainlink-guarded-v2";
 
 // Enable WAL mode for better concurrent performance
 db.pragma('journal_mode = WAL');
@@ -57,6 +59,22 @@ db.exec(`
     password TEXT,
     avatar_url TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS trade_requests (
+    idempotency_key TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS trade_executions (
+    analysis_id INTEGER PRIMARY KEY,
+    idempotency_key TEXT NOT NULL,
+    market_id TEXT NOT NULL,
+    size_usdc REAL,
+    status TEXT NOT NULL,
+    result_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `);
 
 try {
@@ -81,6 +99,26 @@ try {
 
 try {
   db.prepare("ALTER TABLE analyzed_events ADD COLUMN execution_time INTEGER").run();
+} catch (e) {}
+
+try {
+  db.prepare("ALTER TABLE analyzed_events ADD COLUMN strategy_version TEXT").run();
+} catch (e) {}
+
+try {
+  db.prepare("ALTER TABLE analyzed_events ADD COLUMN fair_probability REAL").run();
+} catch (e) {}
+
+try {
+  db.prepare("ALTER TABLE analyzed_events ADD COLUMN max_entry_price REAL").run();
+} catch (e) {}
+
+try {
+  db.prepare("ALTER TABLE analyzed_events ADD COLUMN signal_data_at TEXT").run();
+} catch (e) {}
+
+try {
+  db.prepare("ALTER TABLE trade_executions ADD COLUMN size_usdc REAL").run();
 } catch (e) {}
 
 export function getCache(key, ttlSeconds = config.cacheTtlSeconds) {
@@ -143,14 +181,54 @@ export function addAnalyzedEvent(event) {
   try {
     const createdAt = new Date().toISOString();
     const info = db.prepare(`
-      INSERT INTO analyzed_events (market_id, question, url, prediction, status, analysis_conclusion, qwen_confidence, data_confidence, execution_time, created_at)
-      VALUES (?, ?, ?, ?, 'belum selesai', ?, ?, ?, ?, ?)
-    `).run(event.market_id, event.question, event.url, event.prediction, event.analysis_conclusion, event.qwen_confidence || null, event.data_confidence || null, event.execution_time || null, createdAt);
+      INSERT INTO analyzed_events (market_id, question, url, prediction, status, analysis_conclusion, qwen_confidence, data_confidence, execution_time, strategy_version, fair_probability, max_entry_price, signal_data_at, created_at)
+      VALUES (?, ?, ?, ?, 'belum selesai', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(event.market_id, event.question, event.url, event.prediction, event.analysis_conclusion, event.qwen_confidence || null, event.data_confidence || null, event.execution_time || null, ANALYSIS_STRATEGY_VERSION, event.fair_probability ?? null, event.max_entry_price ?? null, event.signal_data_at || null, createdAt);
     return info.lastInsertRowid;
   } catch (error) {
     console.error("[Storage] addAnalyzedEvent error:", error.message);
     return null;
   }
+}
+
+export function reserveTradeExecutions(idempotencyKey, trades) {
+  const reserve = db.transaction(() => {
+    const now = new Date().toISOString();
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const existingExposure = Number(db.prepare(`
+      SELECT COALESCE(SUM(size_usdc), 0) AS total
+      FROM trade_executions
+      WHERE created_at >= ?
+    `).get(since)?.total || 0);
+    const requestedExposure = trades.reduce((sum, trade) => sum + Number(trade.sizeUsdc || 0), 0);
+    if (existingExposure + requestedExposure > config.maxDailyTradeUsdc) {
+      const error = new Error(`24-hour trade cap of ${config.maxDailyTradeUsdc} USDC exceeded`);
+      error.code = "TRADE_DAILY_CAP";
+      throw error;
+    }
+    db.prepare("INSERT INTO trade_requests (idempotency_key, created_at) VALUES (?, ?)").run(idempotencyKey, now);
+    const insert = db.prepare(`
+      INSERT INTO trade_executions (analysis_id, idempotency_key, market_id, size_usdc, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'reserved', ?, ?)
+    `);
+    for (const trade of trades) insert.run(trade.analysisId, idempotencyKey, trade.marketId, trade.sizeUsdc, now, now);
+  });
+  try {
+    reserve();
+    return true;
+  } catch (error) {
+    if (String(error.code || "").startsWith("SQLITE_CONSTRAINT")) return false;
+    throw error;
+  }
+}
+
+export function completeTradeExecution(analysisId, status, result) {
+  const info = db.prepare(`
+    UPDATE trade_executions
+    SET status = ?, result_json = ?, updated_at = ?
+    WHERE analysis_id = ? AND status = 'reserved'
+  `).run(status, JSON.stringify(result ?? null), new Date().toISOString(), analysisId);
+  return info.changes > 0;
 }
 
 export function getAnalyzedEvents(limit = 100, startDate = null, endDate = null) {
@@ -166,12 +244,12 @@ export function getAnalyzedEvents(limit = 100, startDate = null, endDate = null)
     const conditions = [];
 
     if (startDate) {
-      conditions.push(`a.created_at >= ?`);
-      params.push(`${startDate}T00:00:00.000Z`);
+      conditions.push(`substr(a.created_at, 1, 10) >= ?`);
+      params.push(startDate);
     }
     if (endDate) {
-      conditions.push(`a.created_at <= ?`);
-      params.push(`${endDate}T23:59:59.999Z`);
+      conditions.push(`substr(a.created_at, 1, 10) <= ?`);
+      params.push(endDate);
     }
 
     if (conditions.length > 0) {
@@ -190,13 +268,14 @@ export function getAnalyzedEvents(limit = 100, startDate = null, endDate = null)
 
 export function getStats() {
   try {
-    const totalRow = db.prepare('SELECT COUNT(*) as total FROM analyzed_events').get();
-    const winRow = db.prepare('SELECT COUNT(*) as wins FROM analyzed_events WHERE result = ?').get('menang');
-    const lossRow = db.prepare('SELECT COUNT(*) as losses FROM analyzed_events WHERE result = ?').get('kalah');
+    const totalRow = db.prepare('SELECT COUNT(*) as total FROM analyzed_events WHERE strategy_version = ?').get(ANALYSIS_STRATEGY_VERSION);
+    const winRow = db.prepare('SELECT COUNT(*) as wins FROM analyzed_events WHERE strategy_version = ? AND result = ?').get(ANALYSIS_STRATEGY_VERSION, 'menang');
+    const lossRow = db.prepare('SELECT COUNT(*) as losses FROM analyzed_events WHERE strategy_version = ? AND result = ?').get(ANALYSIS_STRATEGY_VERSION, 'kalah');
     return {
       totalAnalyzed: totalRow.total || 0,
       wins: winRow.wins || 0,
-      losses: lossRow.losses || 0
+      losses: lossRow.losses || 0,
+      strategyVersion: ANALYSIS_STRATEGY_VERSION,
     };
   } catch (error) {
     console.error("[Storage] getStats error:", error.message);
@@ -206,7 +285,7 @@ export function getStats() {
 
 export function getDashboardMetrics() {
   try {
-    const resolvedEvents = db.prepare("SELECT result FROM analyzed_events WHERE status = 'selesai' ORDER BY id ASC").all();
+    const resolvedEvents = db.prepare("SELECT result FROM analyzed_events WHERE strategy_version = ? AND status = 'selesai' ORDER BY id ASC").all(ANALYSIS_STRATEGY_VERSION);
     let wins = 0;
     let losses = 0;
     let currentEquity = 0;
@@ -232,12 +311,11 @@ export function getDashboardMetrics() {
 
     const totalResolved = wins + losses;
     const winRate = totalResolved > 0 ? (wins / totalResolved) : 0;
-    const lossRate = totalResolved > 0 ? (losses / totalResolved) : 0;
-    
-    const profitFactor = losses > 0 ? (wins / losses).toFixed(2) : (wins > 0 ? "∞" : "0.00");
-    const expectancy = (winRate - lossRate) * 100; // unit basis
+    // Financial metrics require fills, fees, and realized PnL, which this schema does not store yet.
+    const profitFactor = "N/A";
+    const expectancy = "N/A";
 
-    const confidences = db.prepare("SELECT qwen_confidence FROM analyzed_events WHERE qwen_confidence IS NOT NULL").all();
+    const confidences = db.prepare("SELECT qwen_confidence FROM analyzed_events WHERE strategy_version = ? AND qwen_confidence IS NOT NULL").all(ANALYSIS_STRATEGY_VERSION);
     const grades = { S: 0, A: 0, B: 0, C: 0, D: 0 };
     for (const c of confidences) {
       const confVal = parseFloat(c.qwen_confidence);
@@ -249,7 +327,7 @@ export function getDashboardMetrics() {
       else grades.D++;
     }
 
-    const latestEvent = db.prepare("SELECT question, prediction, analysis_conclusion, qwen_confidence, created_at, resolved_at, status FROM analyzed_events ORDER BY id DESC LIMIT 1").get();
+    const latestEvent = db.prepare("SELECT question, prediction, analysis_conclusion, qwen_confidence, created_at, resolved_at, status FROM analyzed_events WHERE strategy_version = ? ORDER BY id DESC LIMIT 1").get(ANALYSIS_STRATEGY_VERSION);
     
     let signalText = "-";
     let signalDir = "WAITING";
@@ -299,9 +377,11 @@ export function getDashboardMetrics() {
 
     return {
       profitFactor,
-      expectancy: expectancy.toFixed(2),
-      maxDrawdown: maxDrawdown.toFixed(1),
+      expectancy,
+      maxDrawdown: "N/A",
       winRate: (winRate * 100).toFixed(1),
+      sampleSize: totalResolved,
+      strategyVersion: ANALYSIS_STRATEGY_VERSION,
       grades,
       latestSignal: {
         asset: signalText,
@@ -321,9 +401,9 @@ export function getDashboardMetrics() {
 export function updateAnalyzedEventStatus(id, status, result, actualOutcome) {
   try {
     const resolvedAt = new Date().toISOString();
-    db.prepare('UPDATE analyzed_events SET status = ?, result = ?, actual_outcome = ?, resolved_at = ? WHERE id = ?')
+    const info = db.prepare("UPDATE analyzed_events SET status = ?, result = ?, actual_outcome = ?, resolved_at = ? WHERE id = ? AND status != 'selesai'")
       .run(status, result, actualOutcome, resolvedAt, id);
-    return true;
+    return info.changes > 0;
   } catch (error) {
     console.error("[Storage] updateAnalyzedEventStatus error:", error.message);
     return false;
@@ -379,4 +459,3 @@ export function getAllReflections() {
     return [];
   }
 }
-

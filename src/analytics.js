@@ -1,7 +1,8 @@
 import Database from "better-sqlite3";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const db = new Database(path.join(process.cwd(), "data", "database.db"));
+const db = new Database(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "data", "database.db"));
 
 export function getShadowTrades({ days = 30 } = {}) {
   try {
@@ -35,7 +36,7 @@ export function calculateKelly({
   kelly *= confidenceFactor;
   adjustments.push({ type: "confidence", multiplier: confidenceFactor, reason: `Confidence ${confidence}%` });
 
-  const resolved = recentTrades.filter(t => t.result !== null && t.status !== "belum selesai");
+  const resolved = recentTrades.filter(t => ["menang", "kalah"].includes(String(t.result || "").toLowerCase()));
   const drawdown = calculateDrawdown(resolved);
   if (drawdown > 0.05) {
     const drawdownFactor = Math.max(0.5, 1 - drawdown * 3);
@@ -61,7 +62,7 @@ export function calculateKelly({
     adjustments.push({ type: "sample_size", multiplier: sampleFactor, reason: `Hanya ${resolved.length} data historis` });
   }
 
-  kelly = Math.max(0.01, Math.min(0.25, kelly));
+  kelly = Math.max(0, Math.min(0.25, kelly));
 
   return {
     kelly: Math.round(kelly * 10000) / 10000,
@@ -99,7 +100,7 @@ export function formatKellyResult(kellyResult) {
 }
 
 function calculateDrawdown(trades) {
-  const resolved = trades.filter(t => t.status !== "belum selesai");
+  const resolved = trades.filter(t => ["menang", "kalah"].includes(String(t.result || "").toLowerCase()));
   if (!resolved.length) return 0;
 
   let capital = 1000;
@@ -117,7 +118,9 @@ function calculateDrawdown(trades) {
 }
 
 function getCurrentStreak(trades) {
-  const sorted = [...trades].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const sorted = trades
+    .filter(t => ["menang", "kalah"].includes(String(t.result || "").toLowerCase()))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   if (!sorted.length) return { type: "none", count: 0 };
 
   const first = sorted[0].result;

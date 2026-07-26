@@ -171,7 +171,8 @@ function finalVerdict(score, qwenAnalysis) {
   if (qwenVerdict === "SKIP") return "SKIP";
   if (
     qwenVerdict === "VALUE CANDIDATE" &&
-    (score.edgeScore == null || score.edgeScore < 3)
+    (score.edgeScore == null || score.edgeScore < 3) &&
+    Number(qwenAnalysis?.expectedValueCents) < 5
   ) {
     return "WATCHLIST";
   }
@@ -556,7 +557,7 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
     `Qwen Confidence: ${confidenceText(qwen.confidence)}`,
     `Kesimpulan Analisis: ${qwen.summary || "n/a"}`,
     qwen.targetPrice != null ? `Target Price: ${qwen.targetPrice}` : null,
-    qwen.pythPrice != null ? `Realtime Price: ${qwen.pythPrice}` : null,
+    qwen.oraclePrice != null ? `Realtime Chainlink Price: ${qwen.oraclePrice}` : null,
     "",
     "Disclaimer: Analisis ini bukan financial advice dan tidak menjamin hasil.",
   ]

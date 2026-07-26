@@ -143,6 +143,14 @@
 [data-mode="light"] .deck-tabs button.active { background: rgba(99, 91, 255, 0.06); }
 [data-mode="light"] textarea { background: #ffffff; }
 
+/* Spectre logo responsive light/dark mode */
+.spectre-logo { width: 32px; height: 32px; object-fit: contain; vertical-align: middle; }
+.spectre-logo-black { display: none !important; }
+.spectre-logo-white { display: block !important; }
+[data-mode="light"] .spectre-logo-white { display: none !important; }
+[data-mode="light"] .spectre-logo-black { display: block !important; }
+
+
 /* ================================================================
    RESET & BASE
    ================================================================ */

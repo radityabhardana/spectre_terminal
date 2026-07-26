@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!-- Anti-flash: apply stored color mode before any CSS renders -->
     <script>!function(){var m=localStorage.getItem('razorbot_mode')||'dark';document.documentElement.setAttribute('data-mode',m);}();</script>
-  <title>Icarus Terminal</title>
+  <title>Spectre</title>
+  <link rel="icon" type="image/png" href="/spectreputih.png" />
   <meta name="description" content="Professional Polymarket prediction market analysis terminal with real-time data, AI-powered insights, and order book analysis." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -359,16 +360,12 @@ html[data-font="inter"] {
         <div style="display:flex; align-items:center;">
 
           <div class="brand">
-            <div aria-hidden="true" style="display:flex; align-items:center; justify-content:center; color:#ffffff;">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:24px; height:24px;">
-                <!-- Left wing -->
-                <path d="M12 16c-3.5-3-7-4.5-9-8 2 1.5 5 2 7 5 0-3-1.5-6-3-9 4 2 6 6 5 12z"/>
-                <!-- Right wing -->
-                <path d="M12 16c3.5-3 7-4.5 9-8-2 1.5-5 2-7 5 0-3 1.5-6 3-9-4 2-6 6-5 12z"/>
-              </svg>
+            <div aria-hidden="true" style="display:flex; align-items:center; justify-content:center; margin-right:4px;">
+              <img src="/spectreputih.png" alt="Spectre Logo" class="spectre-logo spectre-logo-white" />
+              <img src="/spectrehitam.png" alt="Spectre Logo" class="spectre-logo spectre-logo-black" />
             </div>
             <div>
-              <h1>Icarus Terminal</h1>
+              <h1>Spectre Terminal</h1>
               <p id="versionText">Engine handshake...</p>
             </div>
           </div>
@@ -1321,7 +1318,7 @@ html[data-font="inter"] {
                     <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">5-Min Market</span>
                     <div style="display:flex; gap:8px; align-items:center;">
                       <input type="number" id="set5mMin" value="4" min="0" max="4" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
-                      <input type="number" id="set5mSec" value="30" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
+                      <input type="number" id="set5mSec" value="45" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
                     </div>
                   </div>
                   <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">

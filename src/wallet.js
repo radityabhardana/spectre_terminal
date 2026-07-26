@@ -3,7 +3,8 @@ import { config } from "./config.js";
 
 // Polygon Mainnet configuration
 const POLYGON_RPC_URL = process.env.POLYGON_RPC_URL || "https://polygon-rpc.com";
-const USDC_CONTRACT_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359";
+// Collateral token used by Polymarket's Polygon CLOB client (USDC.e).
+const USDC_CONTRACT_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
 
 // Minimal ERC-20 ABI for balanceOf and decimals
 const ERC20_ABI = [

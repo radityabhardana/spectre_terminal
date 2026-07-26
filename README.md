@@ -1,6 +1,6 @@
-ed# Polymarket Telegram Analyzer
+# Polymarket Analyzer
 
-Bot Telegram lokal untuk analisis manual market Polymarket. Versi ini tidak melakukan auto-entry, tidak menyimpan private key wallet, dan memakai Qwen multi-role saat command analisis.
+Aplikasi lokal untuk analisis market Polymarket dengan pipeline DeepSeek multi-role melalui 9Router. Live trading nonaktif secara default dan hanya dapat aktif jika autentikasi, wallet, serta batas risiko dikonfigurasi secara eksplisit.
 
 ## Cara Ambil Telegram Bot Token
 
@@ -14,17 +14,19 @@ Bot Telegram lokal untuk analisis manual market Polymarket. Versi ini tidak mela
 ## Setup
 
 ```bash
-copy .env.example .env
+cp .env.example .env
 ```
 
-4zcit `.env`, lalu isi:
+Edit `.env`, lalu isi:
 
 ```text
 TELEGRAM_BOT_TOKEN=token_dari_botfather
-QWEN_API_KEY=api_key_qwen_kamu
-QWEN_FAST_MODEL=qwen-flash
-QWEN_ANALYST_MODEL=qwen-plus
-QWEN_FINAL_MODEL=qwen-max
+NINEROUTER_API_KEY=api_key_9router_kamu
+NINEROUTER_BASE_URL=http://127.0.0.1:20128/v1
+QWEN_BULL_MODEL=alims-intl/deepseek-v4-flash
+QWEN_BEAR_MODEL=alims-intl/deepseek-v4-flash
+QWEN_RISK_MANAGER_MODEL=alims-intl/deepseek-v4-pro
+QWEN_EVALUATOR_MODEL=alims-intl/deepseek-v3.2
 QWEN_MAX_TOKENS=10000
 BINANCE_BASE_URL=https://data-api.binance.vision
 BINANCE_FUTURES_BASE_URL=https://fapi.binance.com
@@ -127,7 +129,7 @@ Mode input manual:
 `Top 3` dan `AI Best` tidak tampil sebagai tombol permanen di sidebar. Keduanya muncul sebagai tombol konteks di Event Hub setelah kamu mengirim link event multi-pilihan, atau bisa dipanggil manual lewat `/top3 <event>` dan `/analyzebest <event>`.
 Kalau hasil menampilkan tombol Event Hub, tombol itu bisa diklik langsung dari website.
 Tombol bulan di dalam textarea berfungsi sebagai `Run`; saat analisis berjalan tombol berubah menjadi `Cancel`. Setelah proses selesai atau dibatalkan, tombol masuk animasi cooldown mengikuti `COMMAND_COOLDOWN_MS` supaya anti-spam guard terasa jelas.
-Status `Qwen key loaded` hanya berarti `QWEN_API_KEY` sudah kebaca dari `.env`; Qwen baru benar-benar dipakai saat action deep seperti `Deep Analyze` atau `AI Best` dijalankan.
+Endpoint `/api/health` memeriksa koneksi read-only ke `/models` dan melaporkan apakah seluruh model 9Router yang dikonfigurasi tersedia.
 Panel `Polymarket Live` otomatis menampilkan embed Polymarket ketika URL market/event terdeteksi. Embed resmi Polymarket paling aman untuk single market; untuk event multi-pilihan, pilih salah satu market dulu agar widget-nya tepat.
 
 Anti-spam guard aktif untuk Telegram dan Website:
@@ -159,9 +161,10 @@ Tersedia mode simulasi trading otomatis (Shadow Bot) yang bisa diakses lewat tom
 ## Arsitektur & Cache
 
 ```text
-QWEN_FAST_MODEL    -> fast scout, klasifikasi event/market dan risiko awal
-QWEN_ANALYST_MODEL -> analyst reviewer, bedah rules, bull/bear, missing data
-QWEN_FINAL_MODEL   -> final judge, tentukan verdict dan alasan final
+QWEN_BULL_MODEL         -> fast scout DeepSeek
+QWEN_BEAR_MODEL         -> analyst/reviewer DeepSeek
+QWEN_RISK_MANAGER_MODEL -> final judge DeepSeek
+QWEN_EVALUATOR_MODEL    -> post-mortem/fallback DeepSeek
 QWEN_MAX_TOKENS    -> budget output dibagi per role: 10% fast, 30% analyst, 60% final
 ```
 
@@ -201,7 +204,7 @@ Alur manual yang disarankan:
 
 `/search` memakai Polymarket Gamma `/public-search`, jadi Qwen belum dipakai. Qwen dipakai saat `/analyze` dan `/analyzebest`.
 `/top` memakai Polymarket Gamma `/events` aktif, default sort `volume_24hr`, jadi cocok buat discovery market yang sedang rame.
-Output analisis akan menampilkan `Qwen pipeline` dan `Qwen usage` jika API mengembalikan data token usage.
+Output analisis menampilkan model pipeline dan token usage jika 9Router mengembalikan data penggunaan.
 Untuk market crypto, output juga menampilkan `RESEARCH CONTEXT` dari Binance, DeFiLlama, Alternative.me, dan GDELT jika coin berhasil terdeteksi.
 Untuk market live cepat seperti `Up/Down`, bot memakai CLOB/orderbook sebagai acuan utama arah live, lalu memberi warning jika harga/volume Gamma terlihat lag atau terlalu kecil.
 
@@ -225,6 +228,6 @@ npm.cmd run search -- "Colombia Presidential Election"
 ## Catatan Aman
 
 - Bot ini bukan financial advice.
-- Bot tidak melakukan order/trading.
-- Jangan taruh seed phrase, private key wallet, atau API trading permission withdraw di project ini.
+- `ENABLE_LIVE_TRADING=false` adalah default. Jangan mengaktifkannya sebelum `WEB_PASSWORD`, limit nominal, TTL sinyal, dan batas harga ditinjau.
+- Jangan commit seed phrase, private key wallet, atau kredensial CLOB. Gunakan `.env` lokal dan rotasi segera jika pernah masuk Git.
 - Kalau API key pernah terkirim di chat publik, rotate/ganti key dari dashboard provider.

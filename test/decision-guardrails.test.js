@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { calculateKelly } from "../src/analytics.js";
 import { tradePricingForPrediction } from "../src/index.js";
 import { normalizeShortAnalysis, parseOpenAiResponse } from "../src/qwen.js";
-import { chainlinkVariant } from "../src/short_condition.js";
+import { calculateTechnicalIndicators, chainlinkVariant } from "../src/short_condition.js";
 
 test("short analysis converts primary probability for DOWN EV", () => {
   const result = normalizeShortAnalysis({
@@ -106,4 +106,68 @@ test("Chainlink variants cover every listed short-market duration", () => {
 test("9Router JSON response accepts a trailing SSE done marker", () => {
   const parsed = parseOpenAiResponse('{"choices":[{"message":{"content":"OK"}}]}\ndata: [DONE]');
   assert.equal(parsed.choices[0].message.content, "OK");
+});
+
+test("technical indicators work without fabricating unavailable volume", () => {
+  const candles = Array.from({ length: 40 }, (_, index) => ({
+    time: Date.UTC(2026, 0, 1, 0, index * 5),
+    open: 100 + index,
+    high: 102 + index,
+    low: 99 + index,
+    close: 101 + index,
+    volume: null,
+  }));
+  const result = calculateTechnicalIndicators(candles);
+  assert.ok(result.atr14 > 0);
+  assert.ok(Number.isFinite(result.rsi14));
+  assert.ok(Number.isFinite(result.macd.histogram));
+  assert.equal(result.volumeAvailable, false);
+  assert.equal(result.volumeRatio, null);
+  assert.equal(result.volumeSignal, "unavailable");
+});
+
+test("neutral output is labeled as neutral band, not contradiction", () => {
+  const result = normalizeShortAnalysis({
+    condition: "CHOPPY",
+    recommendation: "AVOID",
+    direction: "NEUTRAL",
+    confidence: 70,
+    estimated_fair_probability: 51,
+  }, 50);
+  assert.equal(result.direction, "NEUTRAL");
+  assert.match(result.reason, /neutral band/);
+  assert.doesNotMatch(result.reason, /tidak konsisten/);
+  assert.equal(result.raw_recommendation, "AVOID");
+  assert.equal(result.raw_direction, "NEUTRAL");
+  assert.equal(result.raw_primary_probability, 51);
+  assert.deepEqual(result.validation_issues, ["probabilitas primer 51% berada di neutral band 46-54%"]);
+});
+
+test("non-actionable analysis keeps a valid directional forecast", () => {
+  const result = normalizeShortAnalysis({
+    condition: "TRENDING",
+    recommendation: "AVOID",
+    direction: "UP",
+    confidence: 75,
+    estimated_fair_probability: 65,
+  }, 55);
+  assert.equal(result.recommendation, "AVOID");
+  assert.equal(result.direction, "UP");
+  assert.deepEqual(result.validation_issues, []);
+});
+
+test("flat candles produce neutral RSI and MACD", () => {
+  const candles = Array.from({ length: 40 }, (_, index) => ({
+    time: Date.UTC(2026, 0, 1, 0, index * 5),
+    open: 100,
+    high: 100,
+    low: 100,
+    close: 100,
+    volume: null,
+  }));
+  const result = calculateTechnicalIndicators(candles);
+  assert.equal(result.rsi14, 50);
+  assert.equal(result.rsiSignal, "NEUTRAL");
+  assert.equal(result.macd.histogram, 0);
+  assert.equal(result.macd.trend, "NEUTRAL");
 });

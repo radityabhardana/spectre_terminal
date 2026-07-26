@@ -118,6 +118,10 @@ try {
 } catch (e) {}
 
 try {
+  db.prepare("ALTER TABLE analyzed_events ADD COLUMN actionable INTEGER NOT NULL DEFAULT 0").run();
+} catch (e) {}
+
+try {
   db.prepare("ALTER TABLE trade_executions ADD COLUMN size_usdc REAL").run();
 } catch (e) {}
 
@@ -181,9 +185,9 @@ export function addAnalyzedEvent(event) {
   try {
     const createdAt = new Date().toISOString();
     const info = db.prepare(`
-      INSERT INTO analyzed_events (market_id, question, url, prediction, status, analysis_conclusion, qwen_confidence, data_confidence, execution_time, strategy_version, fair_probability, max_entry_price, signal_data_at, created_at)
-      VALUES (?, ?, ?, ?, 'belum selesai', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(event.market_id, event.question, event.url, event.prediction, event.analysis_conclusion, event.qwen_confidence || null, event.data_confidence || null, event.execution_time || null, ANALYSIS_STRATEGY_VERSION, event.fair_probability ?? null, event.max_entry_price ?? null, event.signal_data_at || null, createdAt);
+      INSERT INTO analyzed_events (market_id, question, url, prediction, actionable, status, analysis_conclusion, qwen_confidence, data_confidence, execution_time, strategy_version, fair_probability, max_entry_price, signal_data_at, created_at)
+      VALUES (?, ?, ?, ?, ?, 'belum selesai', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(event.market_id, event.question, event.url, event.prediction, event.actionable ? 1 : 0, event.analysis_conclusion, event.qwen_confidence ?? null, event.data_confidence ?? null, event.execution_time ?? null, ANALYSIS_STRATEGY_VERSION, event.fair_probability ?? null, event.max_entry_price ?? null, event.signal_data_at || null, createdAt);
     return info.lastInsertRowid;
   } catch (error) {
     console.error("[Storage] addAnalyzedEvent error:", error.message);

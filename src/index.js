@@ -535,6 +535,13 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
         targetPrice: shortRes.targetPrice,
         oraclePrice: shortRes.oraclePrice,
         signalDataAt: shortRes.oraclePublishTime,
+        technicalSource: shortRes.evaluation.technical_source,
+        validationIssues: shortRes.evaluation.validation_issues,
+        guardrailBlockers: shortRes.evaluation.guardrail_blockers,
+        rawRecommendation: shortRes.evaluation.raw_recommendation,
+        rawDirection: shortRes.evaluation.raw_direction,
+        rawPrimaryProbability: shortRes.evaluation.raw_primary_probability,
+        rawModelOutput: shortRes.evaluation.rawText,
         scoutDirection: shortRes.evaluation.direction,
         scoutRecommendation: shortRes.evaluation.recommendation,
         finalReason: shortRes.evaluation.reason,
@@ -572,12 +579,13 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
   });
 
   let finalPrediction;
+  let actionable = false;
   
   if (shortMarket && qwenResult?.analysis) {
     const scoutDirection = String(qwenResult.analysis.scoutDirection || "").toUpperCase();
     const scoutRec = String(qwenResult.analysis.scoutRecommendation || "").toUpperCase();
     
-    if (scoutRec !== "PLAY" || scoutDirection === "NEUTRAL" || scoreHasHardBlockers(scored.score)) {
+    if (scoutDirection === "NEUTRAL") {
       finalPrediction = "=";
     } else if (scoutDirection === "UP" || scoutDirection === "YES") {
       finalPrediction = String(scored.score?.primaryOutcomeLabel || "UP").toUpperCase();
@@ -586,16 +594,18 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
     } else {
       finalPrediction = "=";
     }
+    actionable = scoutRec === "PLAY" && finalPrediction !== "=" && !scoreHasHardBlockers(scored.score);
   } else {
     const confidence = Number(qwenResult?.analysis?.confidence);
     finalPrediction = predictionFromValidatedAnalysis(qwenResult?.analysis, scored.score);
+    actionable = finalPrediction !== "=";
     if (finalPrediction === "=" && qwenResult?.analysis && (!Number.isFinite(confidence) || confidence < config.minQwenConfidence)) {
       qwenResult.analysis.finalReason = `[OVERRIDE] Confidence tidak valid atau terlalu rendah (${Number.isFinite(confidence) ? confidence : "n/a"}% < ${config.minQwenConfidence}%). ${qwenResult.analysis.finalReason || ""}`;
     }
   }
 
   const executionTime = ctx?.commandStartTime ? Math.round((Date.now() - ctx.commandStartTime) / 1000) : null;
-  const tradePricing = tradePricingForPrediction(qwenResult?.analysis, finalPrediction);
+  const tradePricing = tradePricingForPrediction(qwenResult?.analysis, actionable ? finalPrediction : "=");
   const fullAnalysisMarkdown = formatAnalysis({ market: scored.market, score: scored.score, qwenResult, finalPrediction, analysisTime: executionTime });
 
   if (!signal?.aborted) {
@@ -604,12 +614,14 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
       question: scored.market.question,
       url: scored.market.url,
       prediction: finalPrediction,
+      actionable,
       analysis_conclusion: fullAnalysisMarkdown,
-      qwen_confidence: String(qwenResult?.analysis?.confidence || ""),
-      data_confidence: String(scored.score?.confidenceScore || ""),
+      qwen_confidence: String(qwenResult?.analysis?.confidence ?? ""),
+      data_confidence: String(scored.score?.confidenceScore ?? ""),
       execution_time: executionTime,
       fair_probability: tradePricing.fairProbability,
       max_entry_price: tradePricing.maxEntryPrice,
+      signal_data_at: qwenResult?.analysis?.signalDataAt || null,
     });
   }
 
@@ -706,6 +718,13 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
         targetPrice: shortRes.targetPrice,
         oraclePrice: shortRes.oraclePrice,
         signalDataAt: shortRes.oraclePublishTime,
+        technicalSource: shortRes.evaluation.technical_source,
+        validationIssues: shortRes.evaluation.validation_issues,
+        guardrailBlockers: shortRes.evaluation.guardrail_blockers,
+        rawRecommendation: shortRes.evaluation.raw_recommendation,
+        rawDirection: shortRes.evaluation.raw_direction,
+        rawPrimaryProbability: shortRes.evaluation.raw_primary_probability,
+        rawModelOutput: shortRes.evaluation.rawText,
         scoutDirection: shortRes.evaluation.direction,
         scoutRecommendation: shortRes.evaluation.recommendation,
         finalReason: shortRes.evaluation.reason,
@@ -748,11 +767,12 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
   });
 
   let bestFinalPrediction;
+  let bestActionable = false;
 
   if (isShortCryptoMarketBest && bestQwen?.analysis) {
     const scoutDirection = String(bestQwen.analysis.scoutDirection || "").toUpperCase();
     const scoutRecommendation = String(bestQwen.analysis.scoutRecommendation || "").toUpperCase();
-    if (scoutRecommendation !== "PLAY" || scoutDirection === "NEUTRAL" || scoreHasHardBlockers(best.score)) {
+    if (scoutDirection === "NEUTRAL") {
       bestFinalPrediction = "=";
     } else if (scoutDirection === "UP" || scoutDirection === "YES") {
       bestFinalPrediction = String(best.score?.primaryOutcomeLabel || "UP").toUpperCase();
@@ -761,16 +781,18 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
     } else {
       bestFinalPrediction = "=";
     }
+    bestActionable = scoutRecommendation === "PLAY" && bestFinalPrediction !== "=" && !scoreHasHardBlockers(best.score);
   } else {
     const confidence = Number(bestQwen?.analysis?.confidence);
     bestFinalPrediction = predictionFromValidatedAnalysis(bestQwen?.analysis, best.score);
+    bestActionable = bestFinalPrediction !== "=";
     if (bestFinalPrediction === "=" && bestQwen?.analysis && (!Number.isFinite(confidence) || confidence < config.minQwenConfidence)) {
       bestQwen.analysis.finalReason = `[OVERRIDE] Confidence tidak valid atau terlalu rendah (${Number.isFinite(confidence) ? confidence : "n/a"}% < ${config.minQwenConfidence}%). ${bestQwen.analysis.finalReason || ""}`;
     }
   }
 
   const executionTime = ctx?.commandStartTime ? Math.round((Date.now() - ctx.commandStartTime) / 1000) : null;
-  const tradePricing = tradePricingForPrediction(bestQwen?.analysis, bestFinalPrediction);
+  const tradePricing = tradePricingForPrediction(bestQwen?.analysis, bestActionable ? bestFinalPrediction : "=");
   const fullAnalysisMarkdownBest = formatAnalysis({ market: best.market, score: best.score, qwenResult: bestQwen, finalPrediction: bestFinalPrediction, analysisTime: executionTime });
 
   if (!signal?.aborted) {
@@ -779,12 +801,14 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
       question: best.market.question,
       url: best.market.url,
       prediction: bestFinalPrediction,
+      actionable: bestActionable,
       analysis_conclusion: fullAnalysisMarkdownBest,
-      qwen_confidence: String(bestQwen?.analysis?.confidence || ""),
-      data_confidence: String(best.score?.confidenceScore || ""),
+      qwen_confidence: String(bestQwen?.analysis?.confidence ?? ""),
+      data_confidence: String(best.score?.confidenceScore ?? ""),
       execution_time: executionTime,
       fair_probability: tradePricing.fairProbability,
       max_entry_price: tradePricing.maxEntryPrice,
+      signal_data_at: bestQwen?.analysis?.signalDataAt || null,
     });
   }
 

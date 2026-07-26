@@ -57,6 +57,7 @@ export async function checkAiProviderConnection() {
     config.qwenBearModel,
     config.qwenRiskManagerModel,
     config.qwenEvaluatorModel,
+    config.qwenShortModel,
     config.qwenScoutModel,
     config.qwenEventAnalystModel,
     config.qwenEventFinalModel,
@@ -654,14 +655,20 @@ export function normalizeShortAnalysis(value, baseProbability = 50) {
   let recommendation = String(input.recommendation || "").trim().toUpperCase() === "PLAY" ? "PLAY" : "AVOID";
   let direction = directionValid ? modelDirection : "NEUTRAL";
   let reason = truncate(input.reason || "", 1200);
+  const validationIssues = [];
 
-  if (rawPrimaryProbability == null || !directionConsistent || direction === "NEUTRAL") {
+  if (rawPrimaryProbability == null) {
+    validationIssues.push("probabilitas primer tidak valid");
+  } else if (!directionConsistent) {
+    validationIssues.push(`arah ${modelDirection || "tidak valid"} tidak konsisten dengan probabilitas primer ${primaryProbability}% (${probabilityDirection})`);
+  } else if (direction === "NEUTRAL") {
+    validationIssues.push(`probabilitas primer ${primaryProbability}% berada di neutral band 46-54%`);
+  }
+
+  if (validationIssues.length) {
     recommendation = "AVOID";
     direction = "NEUTRAL";
-    const issue = rawPrimaryProbability == null
-      ? "probabilitas primer tidak valid"
-      : "arah AI bertentangan dengan probabilitas primer yang dikalibrasi";
-    reason = `[OUTPUT VALIDATION] ${issue}. ${reason}`.trim();
+    reason = `[OUTPUT VALIDATION] ${validationIssues.join("; ")}. ${reason}`.trim();
   }
 
   const selectedProbability = direction === "DOWN" ? 100 - primaryProbability : primaryProbability;
@@ -669,6 +676,7 @@ export function normalizeShortAnalysis(value, baseProbability = 50) {
   if (!["TRENDING", "CHOPPY"].includes(condition)) {
     recommendation = "AVOID";
     direction = "NEUTRAL";
+    validationIssues.push("kondisi market tidak valid");
     reason = `[OUTPUT VALIDATION] kondisi market tidak valid. ${reason}`.trim();
   }
   return {
@@ -685,6 +693,10 @@ export function normalizeShortAnalysis(value, baseProbability = 50) {
       flow_verdict: truncate(input.key_signals?.flow_verdict || "UNKNOWN", 80),
     },
     risk_warning: truncate(input.risk_warning || "", 300),
+    validation_issues: validationIssues,
+    raw_recommendation: String(input.recommendation || "").trim().toUpperCase() || null,
+    raw_direction: modelDirection || null,
+    raw_primary_probability: rawPrimaryProbability,
   };
 }
 
@@ -1579,7 +1591,7 @@ MARKET TARGET (PRICE TO BEAT):
 - Volatilitas/ATR-14 (Kekuatan Gerak Normal): $${td.atr14 || "N/A"}
 - Jarak Relatif (Distance/ATR): ${td.atr14 ? (Math.abs(distance) / td.atr14).toFixed(2) + "x ATR" : "N/A"}
 - Base Probability Kuantitatif (JS Mechanical): ${baseProbability}%
-- Harga Token Polymarket Saat Ini: ${marketOutcomePrice ? "$" + marketOutcomePrice : "N/A"}
+- Harga Token Polymarket Saat Ini: ${marketOutcomePrice != null ? "$" + marketOutcomePrice : "N/A"}
 `;
   }
 
@@ -1587,13 +1599,14 @@ MARKET TARGET (PRICE TO BEAT):
 ${targetContext}
 
 TECHNICAL DATA (${td.symbol || 'BTCUSDT'} / Ticker):
+Source: ${td.source || 'unknown'}
 Current Price: $${td.currentPrice}
-24h Change: ${td.priceChange24h}%
-24h High: $${td.high24h} | 24h Low: $${td.low24h}
-24h Volume: ${td.volume24h} ${(td.symbol || 'BTCUSDT').replace('USDT','')}
-${td.rsi14 ? `RSI-14: ${td.rsi14} (${td.rsiSignal})` : ''}
+${td.priceChange24h != null ? `24h Change: ${td.priceChange24h}%` : '24h Change: unavailable'}
+${td.high24h != null && td.low24h != null ? `24h High: $${td.high24h} | 24h Low: $${td.low24h}` : '24h High/Low: unavailable'}
+${td.volume24h != null ? `24h Volume: ${td.volume24h} ${(td.symbol || 'BTCUSDT').replace('USDT','')}` : '24h Volume: unavailable (bukan nol)'}
+${td.rsi14 != null ? `RSI-14: ${td.rsi14} (${td.rsiSignal})` : ''}
 ${td.macd ? `MACD: Line ${td.macd.line}, Signal ${td.macd.signal} (${td.macd.trend})` : ''}
-${td.volumeRatio ? `Volume Momentum: ${td.volumeRatio}x (${td.volumeSignal})` : ''}
+${td.volumeRatio != null ? `Volume Momentum: ${td.volumeRatio}x (${td.volumeSignal})` : ''}
 
 FUTURES POSITIONING (Binance):
 ${longShort ? `Long/Short Ratio: ${longShort.ratio} (Long: ${longShort.longPct}% | Short: ${longShort.shortPct}%) → ${longShort.bias}` : 'Long/Short data: unavailable'}
@@ -1632,6 +1645,8 @@ ${historyContext}`.trim();
   - JANGAN mencoba menghitung Expected Value (EV). Tugasmu HANYA menganalisis kondisi dan menentukan 'estimated_fair_probability'. Sistem akan menghitung EV-nya.
   - Jika harga token Polymarket (MarketOutcomePrice) tidak tersedia/N/A, abaikan, dan fokus murni pada penentuan 'estimated_fair_probability' berdasarkan Distance vs ATR.
   - Jika Liquidasi besar searah dengan target, itu sangat menambah 'estimated_fair_probability'.
+  - KONSISTENSI WAJIB: PLAY + UP hanya jika estimated_fair_probability >= 55. PLAY + DOWN hanya jika estimated_fair_probability <= 45.
+  - Jika estimated_fair_probability berada di 46-54, recommendation WAJIB AVOID dan direction WAJIB NEUTRAL.
 
 Format JSON wajib:
 {
@@ -1652,7 +1667,7 @@ Format JSON wajib:
 
   const finalApiKey = config.qwenApiKey;
   const finalBaseUrl = config.qwenBaseUrl;
-  const finalModel = config.qwenRiskManagerModel;
+  const finalModel = config.qwenShortModel;
 
   const payload = {
     model: finalModel, // Menggunakan model tercerdas untuk analisis mendalam
@@ -1661,12 +1676,18 @@ Format JSON wajib:
       { role: "user", content: `${context}\n\n${prompt}` }
     ],
     temperature: 0,
-    max_tokens: 1200,
+    max_tokens: config.qwenShortMaxTokens,
     response_format: { type: "json_object" }
   };
 
   const json = await callRoleQwenJson(payload, config.qwenEvaluatorModel, finalBaseUrl, finalApiKey, signal);
   const parsed = parseJsonOr(json.text, null);
   const result = normalizeShortAnalysis(parsed, baseProbability);
-  return { ...result, usage: json.usage, providerModel: json.model, fallbackFrom: json.fallbackFrom || null };
+  return {
+    ...result,
+    rawText: truncate(json.text, 8000),
+    usage: json.usage,
+    providerModel: json.model,
+    fallbackFrom: json.fallbackFrom || null,
+  };
 }

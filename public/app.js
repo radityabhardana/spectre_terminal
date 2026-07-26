@@ -58,6 +58,7 @@ let qwenCommandCooldownMs = 45000;
 let duplicateCommandCooldownMs = 3000;
 const outputTabs = new Map();
 let activeTabId = "";
+let marketSummaryClosed = false;
 
 // Smart input state
 let selectedAction = "analyze"; // default action
@@ -548,7 +549,7 @@ function setBusy(nextBusy) {
   runButton.setAttribute("aria-label", busy ? "Cancel" : "Run analysis");
 
   if (busy) {
-    localStorage.removeItem("market_summary_closed");
+    marketSummaryClosed = false;
   }
 
   // Disable action chips while busy
@@ -943,7 +944,7 @@ function appendMessageElement(message) {
     if (staticPanel && staticBody) {
       if (html.includes('class="dash-agent-analysis"')) {
         // Real Qwen analysis result - show in static panel
-        if (localStorage.getItem("market_summary_closed") === "true") {
+        if (marketSummaryClosed) {
           return wrapper; // Skip rendering if user closed it
         }
         
@@ -1447,6 +1448,9 @@ setInterval(async () => {
 function addMessage(message, tabId = activeTabId) {
   const tab = ensureTab(tabId ? outputTabs.get(tabId) || { id: tabId, label: "Console" } : { id: "console", label: "Console" });
   if (!activeTabId) activeTabId = tab.id;
+  if (message.role === "assistant" && message.text?.includes("MARKET SUMMARY")) {
+    marketSummaryClosed = false;
+  }
   tab.messages.push(message);
   renderTabs();
 
@@ -3314,7 +3318,7 @@ if (document.getElementById("btnResetHistoryFilters")) {
   document.getElementById("btnResetHistoryFilters").addEventListener("click", () => {
     document.getElementById("historyStartDate").value = "";
     document.getElementById("historyEndDate").value = "";
-    document.getElementById("historyLimit").value = "100";
+    document.getElementById("historyLimit").value = "1000";
     currentHistoryAsset = "all";
     currentHistoryDuration = "all";
     document.querySelectorAll(".history-asset-btn").forEach(b => b.classList.toggle("active", b.dataset.asset === "all"));
@@ -3580,7 +3584,7 @@ window.showHistoryChat = function(eventId) {
   const staticBody = document.getElementById("staticResultBody");
   if (staticPanel) {
     staticPanel.style.display = "flex";
-    localStorage.setItem("market_summary_closed", "false"); // Ensure it stays open
+    marketSummaryClosed = false;
   }
   
   if (staticBody && typeof buildBentoGrid === "function") {
@@ -3595,10 +3599,10 @@ window.showHistoryChat = function(eventId) {
 
 function renderHistoryEvents(events) {
   const limitInput = document.getElementById('historyLimit');
-  const limit = limitInput ? (parseInt(limitInput.value) || 10) : 100;
+  const limit = limitInput ? (parseInt(limitInput.value) || 1000) : 1000;
   const displayEvents = events.slice(0, limit);
 
-  const statsEvents = events.filter((event) => event.strategy_version === "deepseek-chainlink-guarded-v2");
+  const statsEvents = events;
   let total = statsEvents.length;
   let wins = 0;
   let losses = 0;
@@ -5555,7 +5559,7 @@ window.addEventListener('load', () => {
 function closeStaticPanel() {
   const panel = document.getElementById('staticResultPanel');
   if (panel) {
-    localStorage.setItem("market_summary_closed", "true");
+    marketSummaryClosed = true;
     panel.style.display = 'none';
   }
 }
@@ -6102,16 +6106,16 @@ async function populateTradePanel() {
       
       if (historyMatch && historyMatch.prediction) {
         const pred = historyMatch.prediction.toUpperCase();
-        if (pred === "YES" || pred === "UP") {
+        if ((pred === "YES" || pred === "UP") && historyMatch.actionable === 1) {
           predictionText = pred;
           predictionColor = "var(--neon-green)";
           canTrade = true;
-        } else if (pred === "NO" || pred === "DOWN") {
+        } else if ((pred === "NO" || pred === "DOWN") && historyMatch.actionable === 1) {
           predictionText = pred;
           predictionColor = "var(--neon-red)";
           canTrade = true;
         } else {
-          predictionText = "NETRAL / SKIP";
+          predictionText = ["YES", "UP", "NO", "DOWN"].includes(pred) ? `${pred} / SKIP ENTRY` : "NETRAL / SKIP";
         }
       } else {
         predictionText = item.status === "DONE" ? "WAITING FOR SYNC" : item.status;
@@ -6223,150 +6227,244 @@ window.executeBulkTrade = async function() {
   }
 };
 
-window.triggerMarketPulse = async (asset) => {
-  if (typeof injectMspStyles === "function") injectMspStyles();
+let selectedPulseAsset = "BTC";
+let selectedPulseTimeframe = "5m";
+let marketPulseState = null;
+let marketPulseStream = null;
 
-  const panel = document.getElementById("staticResultPanel");
-  const body = document.getElementById("staticResultBody");
-  if (!panel || !body) return;
-  
-  panel.style.display = "flex"; // Show panel
-  
-  // Custom Loading UI for Pulse
-  body.innerHTML = `
-      <div style="min-height:220px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; position:relative;">
-        <span class="msp-link" onclick="closeStaticPanel()" style="position:absolute; top:-4px; right:-4px; cursor:pointer; color:rgba(255,255,255,0.3); display:flex; align-items:center; gap:4px; font-size:10px; font-weight:bold; text-transform:uppercase;"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
-        <div style="width:32px; height:32px; border:3px solid rgba(6,182,212,0.2); border-top-color:var(--neon-cyan); border-radius:50%; animation:spin 1s linear infinite; margin:0 auto 16px;"></div>
-        <div style="font-family:var(--font-primary); font-size:14px; font-weight:800; color:var(--neon-cyan); letter-spacing:0.2em; text-transform:uppercase;">Scanning Pulse</div>
-        <div style="font-family:var(--font-secondary); font-size:10px; color:rgba(255,255,255,0.4); margin-top:8px; text-transform:uppercase; letter-spacing:1px;">Evaluating ${asset} momentum...</div>
-      </div>
-  `;
+function escapePulseHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function setMarketPulseOpen(isOpen) {
+  const drawer = document.getElementById("marketPulseDrawer");
+  const backdrop = document.getElementById("marketPulseBackdrop");
+  const trigger = document.getElementById("marketPulseTrigger");
+  if (!drawer || !backdrop) return;
+
+  drawer.classList.toggle("is-open", isOpen);
+  backdrop.classList.toggle("is-open", isOpen);
+  drawer.setAttribute("aria-hidden", String(!isOpen));
+  backdrop.setAttribute("aria-hidden", String(!isOpen));
+  trigger?.setAttribute("aria-expanded", String(isOpen));
+  if (isOpen) document.getElementById("marketPulseClose")?.focus();
+  else trigger?.focus();
+}
+
+function selectPulseAsset(asset) {
+  selectedPulseAsset = String(asset || "BTC").toUpperCase();
+  document.querySelectorAll(".market-pulse-asset").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.pulseAsset === selectedPulseAsset);
+  });
+}
+
+function selectPulseTimeframe(timeframe) {
+  selectedPulseTimeframe = String(timeframe || "5m").toLowerCase();
+  document.querySelectorAll(".market-pulse-timeframe").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.pulseTimeframe === selectedPulseTimeframe);
+  });
+}
+
+function pulseMetric(label, value, note) {
+  return `<div class="market-pulse-metric"><span class="market-pulse-metric-label">${escapePulseHtml(label)}</span><strong>${escapePulseHtml(value)}</strong><small>${escapePulseHtml(note)}</small></div>`;
+}
+
+function formatPulsePrice(value, asset) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `$${number.toLocaleString(undefined, { minimumFractionDigits: asset === "DOGE" ? 4 : 2, maximumFractionDigits: asset === "DOGE" ? 5 : 2 })}`;
+}
+
+function formatPulseClock(value) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "-";
+}
+
+function updatePulseCountdown() {
+  const element = document.getElementById("marketPulseNextScan");
+  if (!element) return;
+  const next = new Date(element.dataset.next || "").getTime();
+  if (!Number.isFinite(next)) {
+    element.textContent = "Paused";
+    return;
+  }
+  const seconds = Math.max(0, Math.ceil((next - Date.now()) / 1000));
+  element.textContent = `Next ${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+function renderMarketPulseState(nextState) {
+  const content = document.getElementById("marketPulseContent");
+  const runButton = document.getElementById("marketPulseRun");
+  const runCopy = runButton?.querySelector("strong");
+  const stopButton = document.getElementById("marketPulseStop");
+  const refreshSelect = document.getElementById("marketPulseRefreshSelect");
+  if (!content || !runButton || !stopButton || !refreshSelect) return;
+
+  const firstState = marketPulseState == null;
+  marketPulseState = nextState || {};
+  if (marketPulseState.active || firstState) {
+    selectPulseAsset(marketPulseState.config?.asset || selectedPulseAsset);
+    selectPulseTimeframe(marketPulseState.config?.timeframe || selectedPulseTimeframe);
+    refreshSelect.value = String(marketPulseState.config?.refreshSeconds || 30);
+  }
+
+  runButton.disabled = Boolean(marketPulseState.scanning);
+  if (runCopy) runCopy.textContent = marketPulseState.active ? "Update monitor" : "Start monitor";
+  stopButton.hidden = !marketPulseState.active;
+
+  if (marketPulseState.scanning && !marketPulseState.reading) {
+    content.innerHTML = `<div class="market-pulse-loading"><span class="market-pulse-loading-mark"><i data-lucide="loader-circle"></i></span><strong>Reading market regime</strong><p>Mengambil closed candles dan menghitung struktur ${escapePulseHtml(selectedPulseAsset)} ${escapePulseHtml(selectedPulseTimeframe)}.</p></div>`;
+  } else if (marketPulseState.error && !marketPulseState.reading) {
+    content.innerHTML = `<div class="market-pulse-error"><span class="market-pulse-error-mark"><i data-lucide="wifi-off"></i></span><strong>Market data unavailable</strong><p>${escapePulseHtml(marketPulseState.error)}</p></div>`;
+  } else if (!marketPulseState.reading) {
+    content.innerHTML = `<div class="market-pulse-empty"><span class="market-pulse-empty-mark"><i data-lucide="activity"></i></span><strong>Monitor belum berjalan</strong><p>Pilih asset dan timeframe untuk mendeteksi kondisi market saat ini.</p></div>`;
+  } else {
+    const reading = marketPulseState.reading;
+    const regime = reading.regime || {};
+    const metrics = reading.metrics || {};
+    const directionClass = regime.direction === "UP" ? "is-up" : regime.direction === "DOWN" ? "is-down" : "is-neutral";
+    const changeClass = Number(reading.windowChange) >= 0 ? "is-positive" : "is-negative";
+    const modifiers = (reading.modifiers || []).map((modifier) => `<span class="market-pulse-modifier">${escapePulseHtml(modifier)}</span>`).join("");
+    const adxNote = Number(metrics.adx) >= 25 ? "trend strength" : "weak trend";
+    const chopNote = Number(metrics.choppiness) >= 61.8 ? "choppy" : Number(metrics.choppiness) <= 38.2 ? "directional" : "mixed";
+    const atrNote = `percentile ${metrics.atrPercentile ?? "-"}`;
+    const bbNote = `percentile ${metrics.bbWidthPercentile ?? "-"}`;
+    const volumeNote = Number(metrics.volumeRatio) >= 1.5 ? "spike" : Number(metrics.volumeRatio) < 0.7 ? "low" : "normal";
+    const rsiNote = Number(metrics.rsi) >= 70 ? "overbought" : Number(metrics.rsi) <= 30 ? "oversold" : "balanced";
+    const errorBanner = marketPulseState.error ? `<p class="market-pulse-market-source">Last refresh failed: ${escapePulseHtml(marketPulseState.error)}</p>` : "";
+
+    content.innerHTML = `
+      <section class="market-pulse-result ${directionClass}">
+        <div class="market-pulse-result-meta">
+          <span>${marketPulseState.active ? "Live regime" : "Last reading"}</span>
+          <strong>${escapePulseHtml(reading.asset)} / ${escapePulseHtml(String(reading.timeframe).toUpperCase())}</strong>
+        </div>
+        <div class="market-pulse-result-hero">
+          <div class="market-pulse-verdict">
+            <span class="market-pulse-verdict-label">Current condition</span>
+            <strong class="market-pulse-verdict-value">${escapePulseHtml(regime.label || "UNKNOWN")}</strong>
+            <span class="market-pulse-change">${escapePulseHtml(regime.confidence ?? "-")}% confidence</span>
+          </div>
+          <div class="market-pulse-price-stack">
+            <span class="market-pulse-price-label">Last candle close</span>
+            <strong class="market-pulse-price-value">${formatPulsePrice(reading.price, reading.asset)}</strong>
+            <span class="market-pulse-change ${changeClass}">${Number(reading.windowChange) > 0 ? "+" : ""}${escapePulseHtml(reading.windowChange)}% / 5 candles</span>
+          </div>
+        </div>
+        <div class="market-pulse-recommendation">
+          <span class="market-pulse-recommendation-label">Market structure</span>
+          <strong>${escapePulseHtml(regime.description || "Kondisi belum dapat ditentukan.")}</strong>
+          <p class="market-pulse-market-source">Range ${formatPulsePrice(reading.range?.low, reading.asset)} - ${formatPulsePrice(reading.range?.high, reading.asset)} · position ${escapePulseHtml(reading.range?.position ?? "-")}%</p>
+        </div>
+        <div class="market-pulse-metrics">
+          ${pulseMetric("ADX", metrics.adx ?? "-", adxNote)}
+          ${pulseMetric("CHOP", metrics.choppiness ?? "-", chopNote)}
+          ${pulseMetric("ATR", `${metrics.atrPercent ?? "-"}%`, atrNote)}
+          ${pulseMetric("BB WIDTH", `${metrics.bbWidth ?? "-"}%`, bbNote)}
+          ${pulseMetric("VOLUME", `${metrics.volumeRatio ?? "-"}x`, volumeNote)}
+          ${pulseMetric("RSI 14", metrics.rsi ?? "-", rsiNote)}
+        </div>
+        <div class="market-pulse-modifiers">${modifiers}</div>
+        ${errorBanner}
+        <div class="market-pulse-monitor-meta">
+          <span>Last ${escapePulseHtml(formatPulseClock(marketPulseState.lastScanAt))}</span>
+          <span id="marketPulseNextScan" data-next="${escapePulseHtml(marketPulseState.nextScanAt || "")}"></span>
+        </div>
+      </section>`;
+  }
+  if (window.lucide) window.lucide.createIcons({ root: content });
+  updatePulseCountdown();
+}
+
+async function loadMarketPulseState() {
+  try {
+    const response = await fetch("/api/market-pulse");
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || "Gagal memuat Market Pulse");
+    renderMarketPulseState(payload.data);
+  } catch (error) {
+    const content = document.getElementById("marketPulseContent");
+    if (content) content.innerHTML = `<div class="market-pulse-error"><span class="market-pulse-error-mark"><i data-lucide="wifi-off"></i></span><strong>Market Pulse unavailable</strong><p>${escapePulseHtml(error.message)}</p></div>`;
+  }
+}
+
+function connectMarketPulseStream() {
+  if (marketPulseStream) return;
+  marketPulseStream = new EventSource("/api/market-pulse/stream");
+  marketPulseStream.onmessage = (event) => {
+    try { renderMarketPulseState(JSON.parse(event.data)); } catch { /* ignore malformed event */ }
+  };
+}
+
+async function runMarketPulse() {
+  const content = document.getElementById("marketPulseContent");
+  const runButton = document.getElementById("marketPulseRun");
+  const refreshSelect = document.getElementById("marketPulseRefreshSelect");
+  if (!content || !runButton || !refreshSelect) return;
+
+  runButton.disabled = true;
+  content.innerHTML = `
+    <div class="market-pulse-loading">
+      <span class="market-pulse-loading-mark"><i data-lucide="loader-circle"></i></span>
+      <strong>Reading market regime</strong>
+      <p>Mengambil closed candles ${escapePulseHtml(selectedPulseAsset)} ${escapePulseHtml(selectedPulseTimeframe)}.</p>
+    </div>`;
+  if (window.lucide) window.lucide.createIcons({ root: content });
 
   try {
-    const symbol = asset + "USDT";
-    const tf = (window.iccCharts && window.iccCharts[symbol] && window.iccCharts[symbol].currentTf) ? window.iccCharts[symbol].currentTf : "15m";
-
-    const res = await fetch("/api/market-pulse", {
+    const response = await fetch("/api/market-pulse", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ asset, tf })
+      body: JSON.stringify({ asset: selectedPulseAsset, timeframe: selectedPulseTimeframe, refreshSeconds: Number(refreshSelect.value) }),
     });
-    
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Server Error (${res.status}): ${errText}`);
-    }
-    
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error || "Failed to fetch pulse");
-
-    const pulse = data.data;
-    const ticker = pulse.tickerData || {};
-    const ev = pulse.evaluation || {};
-    const dir = ev.direction || "UNKNOWN";
-    const dirColor = dir === "UP" ? "var(--neon-green)" : dir === "DOWN" ? "var(--neon-red)" : "var(--neon-amber)";
-
-    // Render Custom Pulse UI
-    body.innerHTML = `
-        <div class="msp-top-row">
-           <div class="msp-eyebrow" style="display:flex; align-items:center; gap:6px;">
-             <i data-lucide="activity" style="width:12px; height:12px; color:var(--neon-cyan);"></i>
-             <span style="color:var(--neon-cyan); font-weight:800; letter-spacing:0.25em;">NEURAL MARKET PULSE</span>
-           </div>
-           <div style="display:flex; gap:12px; align-items:center;">
-             <span style="font-family:var(--font-secondary); font-size:10px; color:var(--text-secondary); font-weight:700;">${asset} USDT-M</span>
-             <span class="msp-link" onclick="closeStaticPanel()" style="cursor:pointer; color:var(--neon-red); margin-left:8px; display:flex; align-items:center; gap:4px; text-transform:uppercase; font-size:10px; font-weight:800;" title="Tutup Panel"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
-           </div>
-        </div>
-        
-        <div class="msp-hero-row">
-          <div class="msp-signal-block">
-            <div class="msp-signal-pill" style="background:${dirColor}15; border:1px solid ${dirColor}40; color:${dirColor};">
-              <span class="msp-signal-text">${dir}</span>
-            </div>
-            <span class="msp-field-label">AI Verdict</span>
-          </div>
-          <div class="msp-vline"></div>
-          
-          <div style="flex:2.2; display:flex; flex-direction:column; justify-content:center; padding:0 12px;">
-             <div style="display:flex; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 14px; margin-bottom:12px; align-items:center; justify-content:space-between; box-shadow:inset 0 2px 10px rgba(0,0,0,0.4);">
-                <div style="display:flex; flex-direction:column; gap:4px;">
-                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.1em;">Current Price</span>
-                   <div style="font-family:var(--font-primary); font-size:18px; font-weight:800; color:var(--text-primary); text-shadow:0 0 12px rgba(255,255,255,0.15); line-height:1;">
-                      $${ticker.currentPrice || '-'}
-                   </div>
-                </div>
-                
-                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 12px;">
-                   <div style="width:1px; height:8px; background:rgba(255,255,255,0.1); margin-bottom:4px;"></div>
-                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:800; color:rgba(255,255,255,0.2); font-style:italic;">CHG</span>
-                   <div style="width:1px; height:8px; background:rgba(255,255,255,0.1); margin-top:4px;"></div>
-                </div>
-                
-                <div style="display:flex; flex-direction:column; gap:4px; text-align:right;">
-                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:${parseFloat(ticker.priceChange24h) >= 0 ? 'var(--neon-green)' : 'var(--neon-red)'}; text-transform:uppercase; letter-spacing:0.1em; opacity:0.8;">24h Change</span>
-                   <div style="font-family:var(--font-primary); font-size:18px; font-weight:800; color:${parseFloat(ticker.priceChange24h) >= 0 ? 'var(--neon-green)' : 'var(--neon-red)'}; line-height:1;">
-                      ${parseFloat(ticker.priceChange24h) > 0 ? '+' : ''}${ticker.priceChange24h || 0}%
-                   </div>
-                </div>
-             </div>
-             
-             <!-- Recommendation Snippet -->
-             <div style="border-left:2px solid ${dirColor}; padding-left:12px; margin-left:2px; display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:rgba(255,255,255,0.3); text-transform:uppercase; margin-bottom:4px; letter-spacing:0.1em; display:block;">Recommendation</span>
-                   <p style="margin:0; font-family:var(--font-secondary); font-size:11px; font-weight:600; color:var(--text-primary); text-transform:uppercase;">${ev.recommendation || 'N/A'}</p>
-                </div>
-                <button onclick="window.showPulseReason()" style="background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; padding:6px 12px; color:var(--neon-cyan); font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:1px; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(6,182,212,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.05)'">View Logic</button>
-             </div>
-          </div>
-        </div>
-        
-        <div class="msp-hline"></div>
-        <div class="msp-strip">
-          <div class="msp-strip-item">
-            <span class="msp-strip-label">RSI (14)</span>
-            <span class="msp-strip-val" style="color:var(--text-primary); font-size:12px;">${ticker.rsi14 ?? '-'}</span>
-            <span style="font-size:8px; font-weight:700; color:var(--neon-amber); margin-top:2px;">${ticker.rsiSignal || 'NEUTRAL'}</span>
-          </div>
-          <div class="msp-strip-sep"></div>
-          <div class="msp-strip-item">
-            <span class="msp-strip-label">VOL MOMENTUM</span>
-            <span class="msp-strip-val" style="color:var(--neon-cyan); font-size:12px;">${ticker.volumeRatio ?? '-'}x</span>
-            <span style="font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); margin-top:2px;">${ticker.volumeSignal || 'NORMAL'}</span>
-          </div>
-          <div class="msp-strip-sep"></div>
-          <div class="msp-strip-item">
-            <span class="msp-strip-label">MACD TREND</span>
-            <span class="msp-strip-val" style="color:${ticker.macd && ticker.macd.trend === 'BULLISH' ? 'var(--neon-green)' : (ticker.macd && ticker.macd.trend === 'BEARISH' ? 'var(--neon-red)' : 'var(--neon-amber)')}; font-size:12px;">${ticker.macd ? ticker.macd.histogram : '-'}</span>
-            <span style="font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); margin-top:2px;">${ticker.macd ? ticker.macd.trend : 'NEUTRAL'}</span>
-          </div>
-        </div>
-    `;
-
-    // Bind function to global scope to be called by onclick
-    window.currentPulseReasonHTML = `
-      <div style="font-family:var(--font-primary);">
-        <h3 style="color:${dirColor}; font-size:18px; font-weight:800; text-transform:uppercase; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">Qwen Engine Reasoning (${asset} ${dir})</h3>
-        <div style="font-size:14px; color:var(--text-secondary); line-height:1.8;">
-          ${(ev.reason || "Menunggu hasil analisa...").replace(/\n/g, '<br/>')}
-        </div>
-      </div>
-    `;
-    window.showPulseReason = function() {
-      document.getElementById('summaryModalContent').innerHTML = window.currentPulseReasonHTML;
-      document.getElementById('summaryModal').style.display = 'flex';
-    };
-    
-  } catch(err) {
-    body.innerHTML = `
-      <div style="align-items:center; text-align:center; padding:12px; position:relative;">
-        <span class="msp-link" onclick="closeStaticPanel()" style="position:absolute; top:-4px; right:-4px; cursor:pointer; color:var(--neon-red); display:flex; align-items:center; gap:4px; font-size:10px; font-weight:bold; text-transform:uppercase;"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
-        <i data-lucide="alert-triangle" style="width:32px; height:32px; margin-bottom:12px; color:var(--neon-red);"></i>
-        <div style="font-family:var(--font-primary); font-size:14px; font-weight:900; color:var(--neon-red); letter-spacing:1px; text-transform:uppercase; margin-bottom:12px;">Pulse Check Failed</div>
-        <div style="font-family:var(--font-secondary); font-size:11px; color:rgba(255,255,255,0.6); line-height:1.6; background:rgba(0,0,0,0.3); padding:12px 16px; border-radius:8px; max-width:400px; text-align:left; margin:0 auto;">${err.message}</div>
-      </div>
-    `;
-    if(window.lucide) window.lucide.createIcons({root: body});
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || "Pulse monitor gagal dimulai");
+    renderMarketPulseState(payload.data);
+  } catch (error) {
+    content.innerHTML = `<div class="market-pulse-error"><span class="market-pulse-error-mark"><i data-lucide="triangle-alert"></i></span><strong>Pulse monitor gagal</strong><p>${escapePulseHtml(error.message)}</p></div>`;
+    if (window.lucide) window.lucide.createIcons({ root: content });
+  } finally {
+    runButton.disabled = false;
   }
+}
+
+window.openMarketPulse = async function(asset = selectedPulseAsset) {
+  setMarketPulseOpen(true);
+  selectPulseAsset(asset);
+  connectMarketPulseStream();
+  await loadMarketPulseState();
 };
+window.closeMarketPulse = () => setMarketPulseOpen(false);
+window.triggerMarketPulse = async function(asset = selectedPulseAsset) {
+  setMarketPulseOpen(true);
+  selectPulseAsset(asset);
+  connectMarketPulseStream();
+  await loadMarketPulseState();
+};
+
+document.getElementById("marketPulseTrigger")?.addEventListener("click", () => window.openMarketPulse());
+document.getElementById("marketPulseClose")?.addEventListener("click", window.closeMarketPulse);
+document.getElementById("marketPulseBackdrop")?.addEventListener("click", window.closeMarketPulse);
+document.getElementById("marketPulseRun")?.addEventListener("click", () => runMarketPulse());
+document.getElementById("marketPulseStop")?.addEventListener("click", async () => {
+  const response = await fetch("/api/market-pulse", { method: "DELETE" });
+  const payload = await response.json();
+  if (payload?.data) renderMarketPulseState(payload.data);
+});
+document.querySelectorAll(".market-pulse-asset").forEach((button) => {
+  button.addEventListener("click", () => selectPulseAsset(button.dataset.pulseAsset));
+});
+document.querySelectorAll(".market-pulse-timeframe").forEach((button) => {
+  button.addEventListener("click", () => selectPulseTimeframe(button.dataset.pulseTimeframe));
+});
+setInterval(updatePulseCountdown, 1000);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && document.getElementById("marketPulseDrawer")?.classList.contains("is-open")) {
+    window.closeMarketPulse();
+  }
+});

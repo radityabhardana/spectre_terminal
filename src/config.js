@@ -102,6 +102,7 @@ export const config = {
 
   // Model Role for Learning/Post-Mortem
   qwenEvaluatorModel: process.env.QWEN_EVALUATOR_MODEL || process.env.QWEN_FINAL_MODEL || process.env.QWEN_MODEL || defaultModels.evaluator,
+  qwenShortModel: process.env.QWEN_SHORT_MODEL || process.env.QWEN_BULL_MODEL || process.env.QWEN_FAST_MODEL || defaultModels.fast,
 
   // Model Roles for Multi-Market Event Analysis
   qwenScoutModel: process.env.QWEN_SCOUT_MODEL || process.env.QWEN_FAST_MODEL || defaultModels.fast,
@@ -126,6 +127,7 @@ export const config = {
     process.env.GDELT_DOC_URL || "https://api.gdeltproject.org/api/v2/doc/doc",
   maxQwenInputChars: positiveInt(process.env.MAX_QWEN_INPUT_CHARS, 7000),
   qwenMaxTokens: positiveInt(process.env.QWEN_MAX_TOKENS, 10000),
+  qwenShortMaxTokens: positiveInt(process.env.QWEN_SHORT_MAX_TOKENS, 2400),
   qwenRequestTimeoutMs: positiveInt(process.env.QWEN_REQUEST_TIMEOUT_MS, 90000),
   polymarketRequestTimeoutMs: positiveInt(process.env.POLYMARKET_REQUEST_TIMEOUT_MS, 10000),
   cacheTtlSeconds: positiveInt(process.env.CACHE_TTL_SECONDS, 60),
@@ -170,7 +172,7 @@ export function assertQwenConfig() {
   if (!config.qwenApiKey) {
     throw new Error("Missing AI provider key. Configure NINEROUTER_API_KEY, OPENROUTER_API_KEY, or QWEN_API_KEY.");
   }
-  const models = [config.qwenBullModel, config.qwenBearModel, config.qwenRiskManagerModel, config.qwenEvaluatorModel, config.qwenScoutModel, config.qwenEventAnalystModel, config.qwenEventFinalModel];
+  const models = [config.qwenBullModel, config.qwenBearModel, config.qwenRiskManagerModel, config.qwenEvaluatorModel, config.qwenShortModel, config.qwenScoutModel, config.qwenEventAnalystModel, config.qwenEventFinalModel];
   if (models.some((model) => !String(model || "").trim())) {
     throw new Error("All AI role model IDs must be configured for the selected provider.");
   }

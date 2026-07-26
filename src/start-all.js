@@ -22,12 +22,13 @@ function shutdown(exitCode = 0) {
   console.log("Shutting down gracefully...");
   stopBinanceLiquidationStream();
   stopBinanceDepthStream();
+  const code = typeof exitCode === "number" ? exitCode : 0;
   if (webServer.listening) {
-    webServer.close(() => process.exit(exitCode));
+    webServer.close(() => process.exit(code));
   } else {
-    process.exit(exitCode);
+    process.exit(code);
   }
-  setTimeout(() => process.exit(exitCode || 1), 5000).unref();
+  setTimeout(() => process.exit(code || 1), 5000).unref();
 }
 
 process.on("SIGINT", shutdown);

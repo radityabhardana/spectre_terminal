@@ -460,7 +460,6 @@ export function formatBook(book) {
 export function formatAnalysis({ market, score, qwenResult, finalPrediction, analysisTime }) {
   const qwen = qwenResult?.analysis || {};
   const verdict = finalVerdict(score, qwen);
-  const blockers = score.blockers?.length ? score.blockers.join("; ") : "Tidak ada hard blocker";
   const direction = directionSignal(score);
   const strength = directionStrength(direction);
 
@@ -469,6 +468,15 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
   const isCryptoMarket = researchType === "crypto";
   const isUfcMarket = researchType === "sports_ufc";
   const isShortCrypto = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below)/i.test(market.question || "");
+  const mechanicalBlockers = (score.blockers || []).filter((blocker) =>
+    !isShortCrypto || blocker !== "No measured positive edge"
+  );
+  const decisionBlockers = [
+    ...mechanicalBlockers,
+    ...(qwen.validationIssues || []).map((issue) => `[OUTPUT VALIDATION] ${issue}`),
+    ...(qwen.guardrailBlockers || []),
+  ];
+  const blockers = decisionBlockers.length ? decisionBlockers.join("; ") : "Tidak ada hard blocker";
 
   // For short crypto markets, derive shown direction from Qwen fairProb (same logic as index.js)
   let shownDirection = direction.side;
@@ -529,6 +537,10 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
     "CONFIDENCE & RISK",
     `Data confidence: ${confidenceText(score.confidenceScore)} | Qwen confidence: ${confidenceText(qwen.confidence)}`,
     `Risks: liquidity ${score.liquidityRisk}, spread ${score.spreadRisk}, resolution ${score.resolutionRisk}`,
+    qwen.technicalSource ? `Technical source: ${qwen.technicalSource}` : null,
+    qwen.rawRecommendation || qwen.rawDirection
+      ? `Raw AI: ${qwen.rawRecommendation || "n/a"} / ${qwen.rawDirection || "n/a"} / primary probability ${qwen.rawPrimaryProbability ?? "n/a"}%`
+      : null,
     score.dataWarnings?.length ? `Data warning: ${score.dataWarnings.join("; ")}` : null,
     `Guardrail: ${blockers}`,
     "",
@@ -551,7 +563,6 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
     usageLine(qwenResult),
     "",
     "KESIMPULAN AKHIR",
-    isShortCrypto && shownDirection !== 'NETRAL' ? `⚡ Mode Short Market: Sinyal arah diprioritaskan (mengabaikan vonis Netral/SKIP).` : null,
     `Hasil Arah: ${shownDirection === 'NETRAL' ? '=' : shownDirection}`,
     `Data Confidence: ${confidenceText(score.confidenceScore)}`,
     `Qwen Confidence: ${confidenceText(qwen.confidence)}`,

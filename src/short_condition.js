@@ -53,14 +53,37 @@ async function fetchChainlinkOpeningPrice(asset, startTimeMs, endTimeMs, duratio
   url.searchParams.set("eventStartTime", new Date(startTimeMs).toISOString());
   url.searchParams.set("variant", variant);
   url.searchParams.set("endDate", new Date(endTimeMs).toISOString());
-  const requestSignal = signal
-    ? AbortSignal.any([signal, AbortSignal.timeout(5000)])
-    : AbortSignal.timeout(5000);
-  const response = await fetch(url, { signal: requestSignal });
-  if (!response.ok) return null;
-  const payload = await response.json();
-  const price = Number(payload?.openPrice);
-  return Number.isFinite(price) && price > 0 ? price : null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const requestSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(5000)])
+        : AbortSignal.timeout(5000);
+      const response = await fetch(url, { signal: requestSignal });
+      if (response.ok) {
+        const payload = await response.json();
+        const price = Number(payload?.openPrice);
+        if (Number.isFinite(price) && price > 0) return price;
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+    }
+    if (attempt < 2) {
+      await new Promise((resolve, reject) => {
+        const onAbort = () => {
+          clearTimeout(timer);
+          const error = new Error("Chainlink opening-price request aborted");
+          error.name = "AbortError";
+          reject(error);
+        };
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, 2000);
+        signal?.addEventListener("abort", onAbort, { once: true });
+      });
+    }
+  }
+  return null;
 }
 
 function fetchChainlinkLivePrice(asset, signal) {
@@ -129,10 +152,157 @@ async function fetchWithFallback(endpoints, path, options = {}) {
   throw new Error("All endpoints failed");
 }
 
+function emaSeries(data, period) {
+  if (data.length < period) return [];
+  const multiplier = 2 / (period + 1);
+  let value = data.slice(0, period).reduce((sum, item) => sum + item, 0) / period;
+  const result = [value];
+  for (let index = period; index < data.length; index++) {
+    value = data[index] * multiplier + value * (1 - multiplier);
+    result.push(value);
+  }
+  return result;
+}
+
+export function calculateTechnicalIndicators(candles) {
+  const valid = (Array.isArray(candles) ? candles : [])
+    .map((candle) => ({
+      time: Number(candle.time),
+      open: Number(candle.open),
+      high: Number(candle.high),
+      low: Number(candle.low),
+      close: Number(candle.close),
+      volume: candle.volume == null ? null : Number(candle.volume),
+    }))
+    .filter((candle) => [candle.time, candle.open, candle.high, candle.low, candle.close].every(Number.isFinite))
+    .sort((a, b) => a.time - b.time);
+  if (valid.length < 35) throw new Error("Not enough closed candles for technical indicators");
+
+  const closes = valid.map((candle) => candle.close);
+  let gains = 0;
+  let losses = 0;
+  for (let index = 1; index <= 14; index++) {
+    const difference = closes[index] - closes[index - 1];
+    if (difference >= 0) gains += difference;
+    else losses += Math.abs(difference);
+  }
+  let averageGain = gains / 14;
+  let averageLoss = losses / 14;
+  for (let index = 15; index < closes.length; index++) {
+    const difference = closes[index] - closes[index - 1];
+    const gain = Math.max(difference, 0);
+    const loss = Math.max(-difference, 0);
+    averageGain = ((averageGain * 13) + gain) / 14;
+    averageLoss = ((averageLoss * 13) + loss) / 14;
+  }
+  const rsi = averageGain === 0 && averageLoss === 0
+    ? 50
+    : averageLoss === 0
+      ? 100
+      : Math.round(100 - (100 / (1 + averageGain / averageLoss)));
+
+  const ema12 = emaSeries(closes, 12);
+  const ema26 = emaSeries(closes, 26);
+  const macdValues = ema26.map((ema26Value, index) => ema12[index + 14] - ema26Value);
+  const signalValues = emaSeries(macdValues, 9);
+  const macdLine = Number(macdValues.at(-1).toFixed(2));
+  const macdSignal = Number(signalValues.at(-1).toFixed(2));
+  const macdHistogram = Number((macdLine - macdSignal).toFixed(2));
+
+  const trueRanges = [];
+  for (let index = valid.length - 14; index < valid.length; index++) {
+    const candle = valid[index];
+    const previousClose = valid[index - 1]?.close ?? candle.open;
+    trueRanges.push(Math.max(
+      candle.high - candle.low,
+      Math.abs(candle.high - previousClose),
+      Math.abs(candle.low - previousClose)
+    ));
+  }
+  const atr14 = trueRanges.reduce((sum, value) => sum + value, 0) / trueRanges.length;
+
+  const recentVolumes = valid.slice(-10).map((candle) => candle.volume);
+  const volumeAvailable = recentVolumes.every((volume) => Number.isFinite(volume));
+  let volumeRatio = null;
+  if (volumeAvailable) {
+    const previousAverage = recentVolumes.slice(0, -1).reduce((sum, value) => sum + value, 0) / 9;
+    volumeRatio = previousAverage > 0 ? Number((recentVolumes.at(-1) / previousAverage).toFixed(2)) : null;
+  }
+
+  return {
+    currentPrice: valid.at(-1).close,
+    atr14: Number(atr14.toFixed(2)),
+    rsi14: rsi,
+    rsiSignal: rsi > 70 ? "OVERBOUGHT" : rsi < 30 ? "OVERSOLD" : rsi > 55 ? "BULLISH ZONE" : rsi < 45 ? "BEARISH ZONE" : "NEUTRAL",
+    macd: {
+      line: macdLine,
+      signal: macdSignal,
+      histogram: macdHistogram,
+      trend: macdHistogram > 0 ? "BULLISH" : macdHistogram < 0 ? "BEARISH" : "NEUTRAL",
+    },
+    volumeRatio,
+    volumeSignal: volumeRatio == null ? "unavailable" : volumeRatio > 1.5 ? "HIGH (strong momentum)" : volumeRatio < 0.7 ? "LOW (weak)" : "NORMAL",
+    volumeAvailable,
+    recentCandles: valid.slice(-5).map((candle) => ({
+      time: new Date(candle.time).toISOString().slice(11, 16),
+      open: candle.open.toFixed(2),
+      close: candle.close.toFixed(2),
+      direction: candle.close >= candle.open ? "UP" : "DOWN",
+      vol: candle.volume == null ? null : candle.volume.toFixed(1),
+    })),
+  };
+}
+
+async function fetchChainlinkCandlePage(asset, interval, endTime, signal) {
+  const url = new URL("https://polymarket.com/api/chainlink-candles");
+  url.searchParams.set("symbol", asset);
+  url.searchParams.set("interval", interval);
+  url.searchParams.set("limit", "30");
+  if (endTime != null) url.searchParams.set("endTime", String(endTime));
+  const requestSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+    : AbortSignal.timeout(8000);
+  const response = await fetch(url, { signal: requestSignal });
+  if (!response.ok) throw new Error(`Chainlink candles HTTP ${response.status}`);
+  const payload = await response.json();
+  return Array.isArray(payload?.candles) ? payload.candles : [];
+}
+
+export async function fetchChainlinkTechData(asset, durationType, signal = null) {
+  try {
+    const interval = DURATION_MS[durationType] ? durationType : "5m";
+    const latest = await fetchChainlinkCandlePage(asset, interval, null, signal);
+    if (!latest.length) throw new Error("No Chainlink candles");
+    const earliestMs = Number(latest[0].time) * 1000;
+    const previous = await fetchChainlinkCandlePage(asset, interval, earliestMs - 1, signal);
+    const unique = new Map([...previous, ...latest].map((candle) => [Number(candle.time), candle]));
+    const intervalMs = DURATION_MS[interval] || DURATION_MS["5m"];
+    const closed = [...unique.values()].filter((candle) => Number(candle.time) * 1000 + intervalMs <= Date.now());
+    const indicators = calculateTechnicalIndicators(closed.map((candle) => ({
+      ...candle,
+      time: Number(candle.time) * 1000,
+      volume: null,
+    })));
+    return {
+      symbol: `${asset}USD`,
+      interval,
+      source: "chainlink",
+      currentPrice: indicators.currentPrice.toFixed(2),
+      priceChange24h: null,
+      high24h: null,
+      low24h: null,
+      volume24h: null,
+      ...indicators,
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
 // Fetch 24h ticker + klines + RSI/MACD dari Binance
 async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5, signal = null) {
   try {
-    const interval = intervalMinutes <= 5 ? "5m" : intervalMinutes <= 15 ? "15m" : intervalMinutes <= 60 ? "1h" : "4h";
+    const interval = intervalMinutes <= 5 ? "5m" : intervalMinutes <= 15 ? "15m" : intervalMinutes <= 60 ? "1h" : intervalMinutes <= 240 ? "4h" : "1d";
     const klinePath = `/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=60`;
     const tickerPath = `/fapi/v1/ticker/24hr?symbol=${symbol}`;
 
@@ -149,83 +319,23 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5, sig
       : [];
     if (klines.length < 35) throw new Error("Not enough closed Binance candles");
 
-    const closes  = klines.map(k => parseFloat(k[4]));
-    const volumes = klines.map(k => parseFloat(k[5]));
-
-    // RSI-14
-    const rsiPeriod = 14;
-    let gains = 0, losses = 0;
-    for (let i = closes.length - rsiPeriod; i < closes.length; i++) {
-      const diff = closes[i] - closes[i - 1];
-      if (diff >= 0) gains += diff; else losses += Math.abs(diff);
-    }
-    const avgGain = gains / rsiPeriod;
-    const avgLoss = losses / rsiPeriod;
-    const rs  = avgLoss === 0 ? 100 : avgGain / avgLoss;
-    const rsi = Math.round(100 - (100 / (1 + rs)));
-
-    // EMA helper
-    const emaSeries = (data, period) => {
-      if (data.length < period) return [];
-      const k = 2 / (period + 1);
-      let val = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
-      const result = [val];
-      for (let i = period; i < data.length; i++) {
-        val = data[i] * k + val * (1 - k);
-        result.push(val);
-      }
-      return result;
-    };
-
-    // MACD (12, 26, 9)
-    const ema12 = emaSeries(closes, 12);
-    const ema26 = emaSeries(closes, 26);
-    const macdValues = ema26.map((ema26Value, index) => ema12[index + 14] - ema26Value);
-    const signalValues = emaSeries(macdValues, 9);
-    const macdLine = parseFloat(macdValues.at(-1).toFixed(2));
-    const macdSignal = parseFloat(signalValues.at(-1).toFixed(2));
-    const macdHistogram = parseFloat((macdLine - macdSignal).toFixed(2));
-
-    // Volume ratio: last vs 10-candle avg
-    const avgVol10 = volumes.slice(-10, -1).reduce((a, b) => a + b, 0) / 9;
-    const lastVol  = volumes[volumes.length - 1];
-    const volRatio = avgVol10 > 0 ? parseFloat((lastVol / avgVol10).toFixed(2)) : 1;
-
-    // ATR-14 (Average True Range)
-    const atrPeriod = 14;
-    let trs = [];
-    for (let i = klines.length - atrPeriod; i < klines.length; i++) {
-      const high = parseFloat(klines[i][2]);
-      const low = parseFloat(klines[i][3]);
-      const prevClose = i > 0 ? parseFloat(klines[i-1][4]) : parseFloat(klines[i][1]);
-      const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
-      trs.push(tr);
-    }
-    const atr14 = trs.reduce((a, b) => a + b, 0) / atrPeriod;
-
-    // Recent 5 candles
-    const recentCandles = klines.slice(-5).map(k => ({
-      time:      new Date(k[0]).toISOString().slice(11, 16),
-      open:      parseFloat(k[1]).toFixed(2),
-      close:     parseFloat(k[4]).toFixed(2),
-      direction: parseFloat(k[4]) >= parseFloat(k[1]) ? 'UP' : 'DOWN',
-      vol:       parseFloat(k[5]).toFixed(1),
-    }));
+    const indicators = calculateTechnicalIndicators(klines.map((kline) => ({
+      time: Number(kline[0]),
+      open: Number(kline[1]),
+      high: Number(kline[2]),
+      low: Number(kline[3]),
+      close: Number(kline[4]),
+      volume: Number(kline[5]),
+    })));
 
     return {
-      symbol, interval,
+      symbol, interval, source: "binance",
       currentPrice:   parseFloat(ticker.lastPrice).toFixed(2),
       priceChange24h: parseFloat(ticker.priceChangePercent).toFixed(2),
       high24h:        parseFloat(ticker.highPrice).toFixed(2),
       low24h:         parseFloat(ticker.lowPrice).toFixed(2),
       volume24h:      parseFloat(ticker.volume).toFixed(2),
-      atr14:          parseFloat(atr14.toFixed(2)),
-      rsi14:          rsi,
-      rsiSignal:      rsi > 70 ? 'OVERBOUGHT' : rsi < 30 ? 'OVERSOLD' : rsi > 55 ? 'BULLISH ZONE' : rsi < 45 ? 'BEARISH ZONE' : 'NEUTRAL',
-      macd:           { line: macdLine, signal: macdSignal, histogram: macdHistogram, trend: macdHistogram > 0 ? 'BULLISH' : 'BEARISH' },
-      volumeRatio:    volRatio,
-      volumeSignal:   volRatio > 1.5 ? 'HIGH (strong momentum)' : volRatio < 0.7 ? 'LOW (weak)' : 'NORMAL',
-      recentCandles,
+      ...indicators,
     };
   } catch (err) {
     // Silent catch due to frequent ISP blocking
@@ -249,6 +359,13 @@ function saveShortConditionHistory(result, marketQuestion) {
       primaryOutcomeProbability: result.primary_outcome_probability,
       selectedOutcomeProbability: result.estimated_fair_probability,
       expectedValueCents: result.expected_value_cents ?? null,
+      validationIssues: result.validation_issues || [],
+      guardrailBlockers: result.guardrail_blockers || [],
+      rawRecommendation: result.raw_recommendation || null,
+      rawDirection: result.raw_direction || null,
+      rawPrimaryProbability: result.raw_primary_probability ?? null,
+      rawModelOutput: result.rawText || null,
+      technicalSource: result.technical_source || null,
       reason: result.reason,
     });
     fs.writeFileSync(histPath, JSON.stringify(history.slice(-50), null, 2));
@@ -357,23 +474,26 @@ export async function evaluateShortMarketCondition({
 
   const intervalMinutes = durationMs ? durationMs / 60_000 : 5;
 
-  let tickerData = await fetchBinanceTechData(symbol, intervalMinutes, signal);
+  let tickerData = await fetchChainlinkTechData(normalizedAsset, normalizedDuration, signal);
+  if (!tickerData) tickerData = await fetchBinanceTechData(symbol, intervalMinutes, signal);
   
   if (!tickerData) {
     if (oraclePrice) {
       tickerData = {
         symbol,
         interval: 'n/a',
+        source: 'chainlink-live-only',
         currentPrice: oraclePrice.toFixed(2),
-        priceChange24h: '0.00',
-        high24h: oraclePrice.toFixed(2),
-        low24h: oraclePrice.toFixed(2),
-        volume24h: '0.00',
+        priceChange24h: null,
+        high24h: null,
+        low24h: null,
+        volume24h: null,
         rsi14: null,
         rsiSignal: 'unavailable',
         macd: null,
         volumeRatio: null,
         volumeSignal: 'unavailable',
+        volumeAvailable: false,
         recentCandles: null,
         fallback: true
       };
@@ -452,11 +572,11 @@ export async function evaluateShortMarketCondition({
       }
     }
     if (tickerData.macd) {
-      const isBullish = tickerData.macd.trend === 'BULLISH';
-      if (isAboveMarket) {
-        trendAdjustment += isBullish ? 5 : -5;
-      } else if (isBelowMarket) {
-        trendAdjustment += isBullish ? -5 : 5;
+      const macdTrend = tickerData.macd.trend;
+      if (macdTrend !== "NEUTRAL") {
+        const isBullish = macdTrend === 'BULLISH';
+        if (isAboveMarket) trendAdjustment += isBullish ? 5 : -5;
+        else if (isBelowMarket) trendAdjustment += isBullish ? -5 : 5;
       }
     }
 
@@ -513,71 +633,81 @@ export async function evaluateShortMarketCondition({
     const selectedDirection = result.direction;
     const selectedFairProbability = Number(result.estimated_fair_probability);
 
-    const blockPlay = (message) => {
-      if (result.recommendation !== "PLAY") return;
-      result.recommendation = "AVOID";
-      result.reason = `${message}\nAsli: ${result.reason || ""}`;
+    const guardrailBlockers = [];
+    const addGuardrailBlocker = (condition, message) => {
+      if (!condition) return;
+      guardrailBlockers.push(message);
+      if (result.recommendation === "PLAY") result.recommendation = "AVOID";
     };
 
-    if (!normalizedDuration || derivedStartMs == null || endTimeMs == null || endTimeMs <= Date.now()) {
-      blockPlay("[TIME GUARDRAIL] Durasi serta waktu mulai/selesai market tidak dapat diverifikasi atau market sudah berakhir.");
-    }
-
-    if (!oracleSourceVerified) {
-      blockPlay("[ORACLE GUARDRAIL] Resolution source market tidak cocok dengan Chainlink stream untuk aset ini.");
-    }
-
-    if (!targetPrice || !oraclePrice || !oraclePublishTime || !tickerData?.atr14) {
-      blockPlay("[DATA GUARDRAIL] Target, harga oracle, atau ATR tidak lengkap; edge tidak dapat diverifikasi.");
-    }
+    addGuardrailBlocker(
+      !normalizedDuration || derivedStartMs == null || endTimeMs == null || endTimeMs <= Date.now(),
+      "[TIME GUARDRAIL] Durasi serta waktu mulai/selesai market tidak dapat diverifikasi atau market sudah berakhir."
+    );
+    addGuardrailBlocker(
+      !oracleSourceVerified,
+      "[ORACLE GUARDRAIL] Resolution source market tidak cocok dengan Chainlink stream untuk aset ini."
+    );
+    addGuardrailBlocker(!targetPrice, "[DATA GUARDRAIL] Opening price/target Chainlink belum tersedia.");
+    addGuardrailBlocker(!oraclePrice || !oraclePublishTime, "[DATA GUARDRAIL] Harga live Chainlink tidak tersedia atau stale.");
+    addGuardrailBlocker(!tickerData?.atr14, "[DATA GUARDRAIL] ATR tidak tersedia; edge tidak dapat diverifikasi.");
 
     if (upTokenPrice == null || !Number.isFinite(selectedFairProbability)) {
-      blockPlay("[EV GUARDRAIL] Harga token atau fair probability tidak valid; EV tidak dapat dihitung.");
+      addGuardrailBlocker(true, "[EV GUARDRAIL] Harga token atau fair probability tidak valid; EV tidak dapat dihitung.");
     } else {
       const tokenPriceForDirection = selectedDirection === "DOWN" ? downTokenPrice : upTokenPrice;
       const ev = (selectedFairProbability / 100) - tokenPriceForDirection;
       result.expected_value_cents = Math.round(ev * 100);
-      if (ev < MIN_EV_CENTS / 100) {
-        blockPlay(`[EV GUARDRAIL] Expected Value terlalu kecil (${result.expected_value_cents}c < ${MIN_EV_CENTS}c).`);
-      }
+      addGuardrailBlocker(
+        ev < MIN_EV_CENTS / 100,
+        `[EV GUARDRAIL] Expected Value terlalu kecil (${result.expected_value_cents}c < ${MIN_EV_CENTS}c).`
+      );
     }
 
     // Guardrail 1: Max Entry Price Filter (Anti-Overpaying Rule)
-    if (result.recommendation === "PLAY") {
+    if (["UP", "DOWN"].includes(selectedDirection)) {
       const targetTokenPrice = selectedDirection === "DOWN" ? downTokenPrice : upTokenPrice;
-      if (targetTokenPrice !== null && targetTokenPrice > MAX_ENTRY_PRICE) {
-        blockPlay(`[MAX ENTRY PRICE GUARDRAIL] Harga token ${selectedDirection} ($${targetTokenPrice.toFixed(2)}) melebihi batas $${MAX_ENTRY_PRICE.toFixed(2)}.`);
-      }
+      addGuardrailBlocker(
+        targetTokenPrice !== null && targetTokenPrice > MAX_ENTRY_PRICE,
+        targetTokenPrice !== null
+          ? `[MAX ENTRY PRICE GUARDRAIL] Harga token ${selectedDirection} ($${targetTokenPrice.toFixed(2)}) melebihi batas $${MAX_ENTRY_PRICE.toFixed(2)}.`
+          : ""
+      );
     }
 
     // Guardrail 2: Confidence Threshold (<70% -> AVOID)
-    if ((result.confidence || 0) < 70 && result.recommendation === "PLAY") {
-      blockPlay(`[CONFIDENCE GUARDRAIL] Confidence AI terlalu rendah (${result.confidence}% < 70%).`);
-    }
+    addGuardrailBlocker(
+      (result.confidence || 0) < 70,
+      `[CONFIDENCE GUARDRAIL] Confidence AI terlalu rendah (${result.confidence}% < 70%).`
+    );
 
     // Guardrail 3: Micro-Gap Noise Filter ($10 BTC / $0.75 ETH)
     const curPrice = oraclePrice || (tickerData ? parseFloat(tickerData.currentPrice) : null);
-    if (curPrice && targetPrice && result.recommendation === "PLAY") {
+    if (curPrice && targetPrice) {
       const absGapUsd = Math.abs(curPrice - targetPrice);
       const minGapThreshold = normalizedAsset === "ETH" ? 0.75 : normalizedAsset === "DOGE" ? 0.0005 : 10.00;
-      if (absGapUsd < minGapThreshold && (result.confidence || 0) < 85) {
-        blockPlay(`[MICRO-GAP NOISE FILTER] Jarak ke target ($${absGapUsd.toFixed(2)} < $${minGapThreshold}) terlalu kecil dan rawan noise.`);
-      }
+      addGuardrailBlocker(
+        absGapUsd < minGapThreshold && (result.confidence || 0) < 85,
+        `[MICRO-GAP NOISE FILTER] Jarak ke target ($${absGapUsd.toFixed(2)} < $${minGapThreshold}) terlalu kecil dan rawan noise.`
+      );
     }
 
     // Crowd data can confirm a PLAY, but can never revive an AI AVOID.
     const isExtremeSqueeze = tickerData?.volumeRatio > 2.0;
-    if (result.recommendation === "PLAY" && upTokenPrice != null && !isExtremeSqueeze) {
+    if (["UP", "DOWN"].includes(selectedDirection) && upTokenPrice != null && !isExtremeSqueeze) {
       const crowdDirection = upTokenPrice >= 0.62 ? "UP" : downTokenPrice >= 0.62 ? "DOWN" : "NEUTRAL";
-      if (crowdDirection !== "NEUTRAL" && crowdDirection !== selectedDirection) {
-        blockPlay(`[CROWD CONFLICT] Harga CLOB dominan ${crowdDirection}, berlawanan dengan sinyal ${selectedDirection}.`);
-      }
+      addGuardrailBlocker(
+        crowdDirection !== "NEUTRAL" && crowdDirection !== selectedDirection,
+        `[CROWD CONFLICT] Harga CLOB dominan ${crowdDirection}, berlawanan dengan sinyal ${selectedDirection}.`
+      );
     }
 
-    // Only post-guardrail decisions enter learning memory.
-    if (result.recommendation !== "PLAY") {
-      result.direction = "NEUTRAL";
+    result.guardrail_blockers = guardrailBlockers;
+    result.technical_source = tickerData?.source || "unknown";
+    if (guardrailBlockers.length) {
+      result.reason = `${guardrailBlockers.join("\n")}\n${result.reason || ""}`.trim();
     }
+
     saveShortConditionHistory(result, marketQuestion);
 
     return {

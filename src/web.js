@@ -14,6 +14,7 @@ import { getShortMemoryEnabled, runWithAiLanguage, setShortMemoryEnabled } from 
 import { getSnifferWsStatus, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig, setAggressiveMode, getAggressiveMode } from "./sniffer.js";
 import { initWallet, getWalletBalances } from "./wallet.js";
 import { initTradeModule } from "./trade.js";
+import { getMarketPulseState, initializeMarketPulseMonitor, startMarketPulseMonitor, stopMarketPulseMonitor, subscribeMarketPulse } from "./market-pulse.js";
 
 // Initialize wallet and trade module
 const walletReady = config.enableLiveTrading ? initWallet() : false;
@@ -326,6 +327,7 @@ function checkAuth(req, res) {
 export function startWebServer(options = {}) {
   const webPort = Number(options.port || port);
   const webHost = options.host || host;
+  initializeMarketPulseMonitor();
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -692,7 +694,7 @@ export function startWebServer(options = {}) {
             }
             const storedPrediction = String(stored.prediction || "").trim().toUpperCase();
             const requestedPrediction = String(trade.prediction || "").trim().toUpperCase();
-            if (!["YES", "UP", "NO", "DOWN"].includes(storedPrediction) || requestedPrediction !== storedPrediction) {
+            if (stored.actionable !== 1 || !["YES", "UP", "NO", "DOWN"].includes(storedPrediction) || requestedPrediction !== storedPrediction) {
               throw new Error(`${marketId}: prediction is not actionable or does not match`);
             }
             const { yesTokenId, noTokenId } = pickYesNoTokens(market);
@@ -725,32 +727,36 @@ export function startWebServer(options = {}) {
         return;
       }
 
+      if (req.url === "/api/market-pulse/stream" && req.method === "GET") {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+        });
+        const sendState = (pulseState) => res.write(`data: ${JSON.stringify(pulseState)}\n\n`);
+        sendState(getMarketPulseState());
+        const unsubscribe = subscribeMarketPulse(sendState);
+        req.on("close", unsubscribe);
+        return;
+      }
+
+      if (req.url === "/api/market-pulse" && req.method === "GET") {
+        return sendJson(res, 200, { ok: true, data: getMarketPulseState() });
+      }
+
       if (req.url === "/api/market-pulse" && req.method === "POST") {
         try {
           const body = await readBody(req);
-          const marketId = String(body.marketId || "").trim();
-          if (!marketId) return sendJson(res, 400, { ok: false, error: "marketId is required for a verifiable market pulse" });
-          const market = await getMarketById(marketId, true);
-          const question = String(market?.question || "");
-          const asset = /\b(?:ethereum|eth)\b/i.test(question) ? "ETH" : /\b(?:dogecoin|doge)\b/i.test(question) ? "DOGE" : "BTC";
-          const { evaluateShortMarketCondition } = await import('./short_condition.js');
-
-          const result = await runGuardedAiCommand("/shortcondition", marketId, () =>
-            evaluateShortMarketCondition({
-              asset,
-              marketQuestion: question,
-              marketOutcomePrice: market.outcomePrices?.[0],
-              durationType: market.durationType,
-              startDate: market.startDate,
-              endDate: market.endDate,
-              resolutionSource: market.resolutionSource,
-            })
-          );
-          return sendJson(res, 200, { ok: true, data: result });
-        } catch (e) {
-          console.error("Market pulse error:", e);
-          return sendJson(res, e.status || 500, { ok: false, error: e.message });
+          const pulseState = await startMarketPulseMonitor(body);
+          return sendJson(res, 200, { ok: true, data: pulseState });
+        } catch (error) {
+          console.error("Market pulse error:", error);
+          return sendJson(res, 500, { ok: false, error: error.message });
         }
+      }
+
+      if (req.url === "/api/market-pulse" && req.method === "DELETE") {
+        return sendJson(res, 200, { ok: true, data: stopMarketPulseMonitor() });
       }
 
       if (req.url === "/api/sniffer-status" && req.method === "GET") {

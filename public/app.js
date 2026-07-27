@@ -3172,6 +3172,7 @@ const btnEvaluateAllHistory = document.querySelector("#btnEvaluateAllHistory");
 let allHistoryEvents = [];
 let currentHistoryAsset = "all";
 let currentHistoryDuration = "all";
+let currentHistoryNetral = "all";
 const excludeNeutralBtn = document.querySelector("#excludeNeutralBtn");
 if (excludeNeutralBtn) {
   // Checkbox is removed from UI, but handle if it still exists in some cache
@@ -3314,6 +3315,23 @@ document.querySelectorAll(".history-asset-btn").forEach(btn => {
   });
 });
 
+document.querySelectorAll(".history-netral-btn").forEach(btn => {
+  btn.addEventListener("click", (e) => {
+    document.querySelectorAll(".history-netral-btn").forEach(b => {
+      b.classList.remove("active");
+      b.style.background = "transparent";
+      b.style.color = "var(--text-secondary)";
+    });
+    const target = e.currentTarget;
+    target.classList.add("active");
+    target.style.background = "var(--neon-amber)";
+    target.style.color = "#000";
+
+    currentHistoryNetral = target.getAttribute("data-netral");
+    applyHistoryFilter();
+  });
+});
+
 // Event Listeners for filters
 if (document.getElementById("btnFilterHistoryDate")) {
   document.getElementById("btnFilterHistoryDate").addEventListener("click", fetchHistoryEvents);
@@ -3325,8 +3343,10 @@ if (document.getElementById("btnResetHistoryFilters")) {
     document.getElementById("historyLimit").value = "1000";
     currentHistoryAsset = "all";
     currentHistoryDuration = "all";
+    currentHistoryNetral = "all";
     document.querySelectorAll(".history-asset-btn").forEach(b => b.classList.toggle("active", b.dataset.asset === "all"));
     document.querySelectorAll(".history-duration-btn").forEach(b => b.classList.toggle("active", b.dataset.duration === "all"));
+    document.querySelectorAll(".history-netral-btn").forEach(b => b.classList.toggle("active", b.dataset.netral === "all"));
     fetchHistoryEvents();
   });
 }
@@ -3357,8 +3377,8 @@ document.querySelectorAll(".history-duration-btn").forEach(btn => {
   });
 });
 
-function applyHistoryFilter() {
-  let filtered = allHistoryEvents;
+function getFilteredHistoryEvents() {
+  let filtered = allHistoryEvents || [];
   
   // 1. Filter by Asset
   if (currentHistoryAsset !== "all") {
@@ -3372,7 +3392,17 @@ function applyHistoryFilter() {
     });
   }
 
-  // 2. Filter by Duration
+  // 2. Filter by Netral
+  if (currentHistoryNetral === "hide") {
+    filtered = filtered.filter(e => {
+      const r = (e.result || "").toLowerCase();
+      const p = (e.prediction || "").trim().toUpperCase();
+      const isNeutral = r === "netral" || p === "=" || p === "SKIP" || p === "NETRAL" || p === "WATCHLIST";
+      return !isNeutral;
+    });
+  }
+
+  // 3. Filter by Duration
   if (currentHistoryDuration !== "all") {
     filtered = filtered.filter(e => {
       const q = (e.question || "").toLowerCase();
@@ -3384,7 +3414,7 @@ function applyHistoryFilter() {
     });
   }
 
-  // 3. Client-side Date Filter fallback
+  // 4. Client-side Date Filter fallback
   const startDate = document.getElementById("historyStartDate")?.value || document.getElementById("archiveFilterDate")?.value;
   const endDate = document.getElementById("historyEndDate")?.value || document.getElementById("archiveFilterDate")?.value;
   if (startDate) {
@@ -3394,6 +3424,11 @@ function applyHistoryFilter() {
     filtered = filtered.filter(e => (e.created_at || "").slice(0, 10) <= endDate);
   }
   
+  return filtered;
+}
+
+function applyHistoryFilter() {
+  const filtered = getFilteredHistoryEvents();
   renderHistoryEvents(filtered);
   renderHistoryListPanel(filtered);
 }
@@ -3506,6 +3541,19 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       currentHistoryDuration = "all";
       
+      // Reset Netral Filter to 'all'
+      document.querySelectorAll(".history-netral-btn").forEach(b => {
+        b.classList.remove("active");
+        b.style.background = "transparent";
+        b.style.color = "var(--text-secondary)";
+        if (b.getAttribute("data-netral") === "all") {
+          b.classList.add("active");
+          b.style.background = "var(--neon-amber)";
+          b.style.color = "#000";
+        }
+      });
+      currentHistoryNetral = "all";
+      
       fetchHistoryEvents();
     });
   }
@@ -3616,9 +3664,13 @@ function renderHistoryEvents(events) {
 
   let html = "";
   for (const event of statsEvents) {
+    const r = (event.result || "").toLowerCase();
+    const p = (event.prediction || "").trim().toUpperCase();
+    const isNeutral = r === 'netral' || p === '=' || p === 'SKIP' || p === 'NETRAL' || p === 'WATCHLIST';
+
     if (event.result === 'menang') wins++;
     else if (event.result === 'kalah') losses++;
-    else if (event.result === 'netral') neutrals++;
+    else if (isNeutral) neutrals++;
     else pending++;
   }
 
@@ -3683,6 +3735,10 @@ function renderHistoryEvents(events) {
   document.querySelector("#historyWins").textContent = wins;
   document.querySelector("#historyLosses").textContent = losses;
   document.querySelector("#historyNeutral").textContent = neutrals;
+  const neutralContainer = document.querySelector("#historyNeutralContainer");
+  if (neutralContainer) {
+    neutralContainer.style.display = currentHistoryNetral === "hide" ? "none" : "block";
+  }
   document.querySelector("#historyPending").textContent = pending;
 
   const resolved = wins + losses;
@@ -5516,7 +5572,7 @@ if (agentConclusionBox && agentModal && closeAgentModal) {
 }
 
 /* --- Dashboard Drag and Drop Logic --- */
-window.addEventListener('load', () => {
+function initDashboardDragDrop() {
   const centerDashboard = document.getElementById("centerDashboard");
   if (!centerDashboard) return;
 
@@ -5525,32 +5581,10 @@ window.addEventListener('load', () => {
     return;
   }
 
-  Sortable.create(centerDashboard, {
-    animation: 200,
-    easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
-    handle: '.card-drag-strip',  // full-width bar — much easier to grab than icon alone
-    filter: '#staticResultPanel', // exclude bento grid panel from being dragged
-    draggable: '.dash-bottom-card', // only drag the 3 uniform cards
-    forceFallback: true,
-    fallbackTolerance: 4,
-    ghostClass: "sortable-ghost",
-    chosenClass: "sortable-chosen",
-    fallbackClass: "sortable-drag",
-    onStart: function (evt) {
-      evt.item.style.opacity = '0.9';
-    },
-    onEnd: function (evt) {
-      evt.item.style.opacity = '';
-      const cards = Array.from(centerDashboard.querySelectorAll('.dash-bottom-card'));
-      const newOrder = cards.map(c => c.id).filter(Boolean);
-      localStorage.setItem("dashboardCardOrder", JSON.stringify(newOrder));
-    }
-  });
-
-  // Restore saved card order
+  // Restore saved card order first before creating Sortable instance
   try {
     const savedOrder = JSON.parse(localStorage.getItem("dashboardCardOrder"));
-    if (savedOrder && savedOrder.length) {
+    if (savedOrder && Array.isArray(savedOrder) && savedOrder.length) {
       savedOrder.forEach(id => {
         const el = document.getElementById(id);
         if (el && el.classList.contains('dash-bottom-card')) {
@@ -5559,7 +5593,37 @@ window.addEventListener('load', () => {
       });
     }
   } catch(e) {}
-});
+
+  if (!centerDashboard._sortableInited) {
+    centerDashboard._sortableInited = true;
+    Sortable.create(centerDashboard, {
+      animation: 200,
+      easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
+      handle: '.card-drag-strip',  // full-width bar — much easier to grab than icon alone
+      draggable: '.dash-bottom-card', // only drag the 3 uniform cards
+      forceFallback: true,
+      fallbackTolerance: 3,
+      ghostClass: "sortable-ghost",
+      chosenClass: "sortable-chosen",
+      fallbackClass: "sortable-drag",
+      onStart: function (evt) {
+        evt.item.style.opacity = '0.9';
+      },
+      onEnd: function (evt) {
+        evt.item.style.opacity = '';
+        const cards = Array.from(centerDashboard.querySelectorAll('.dash-bottom-card'));
+        const newOrder = cards.map(c => c.id).filter(Boolean);
+        localStorage.setItem("dashboardCardOrder", JSON.stringify(newOrder));
+      }
+    });
+  }
+}
+
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+  initDashboardDragDrop();
+}
+document.addEventListener('DOMContentLoaded', initDashboardDragDrop);
+window.addEventListener('load', initDashboardDragDrop);
 
 function closeStaticPanel() {
   const panel = document.getElementById('staticResultPanel');

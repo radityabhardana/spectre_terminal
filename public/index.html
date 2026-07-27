@@ -570,7 +570,24 @@ html[data-font="inter"] {
             </div>
 
             <!-- === IDLE COMMAND CENTER - Live Charts (Lightweight Charts + Binance) === -->
-            <div id="idleCommandCenter" style="position:fixed; top:442px; left:440px; right:20px; bottom:330px; z-index:80; display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; background:#0a0a0e; border:1px solid rgba(255,255,255,0.05); border-radius:12px; overflow:hidden;">
+            <!-- === STATIC RESULT PANEL (Bento Grid Market Summary Overlay) === -->
+            <div id="staticResultPanel" style="display:none; position:fixed; top:72px; left:440px; right:380px; bottom:335px; z-index:95; background:var(--bg-surface, #0b0b10); border:1px solid var(--border-bright, rgba(255,255,255,0.12)); border-radius:14px; box-shadow:0 16px 48px rgba(0,0,0,0.8); backdrop-filter:blur(10px); flex-direction:column; overflow:hidden;">
+              <div style="padding:10px 16px; border-bottom:1px solid var(--border, rgba(255,255,255,0.06)); display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4);">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <i data-lucide="cpu" style="width:16px; height:16px; color:var(--neon-green);"></i>
+                  <span style="font-family:'JetBrains Mono', monospace; font-size:11px; font-weight:bold; color:var(--neon-green); text-transform:uppercase; letter-spacing:1px;">QWEN ANALYSIS RESULT</span>
+                </div>
+                <button onclick="closeStaticPanel()" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer; padding:4px;" title="Tutup Summary">
+                  <i data-lucide="x" style="width:16px; height:16px;"></i>
+                </button>
+              </div>
+              <div id="staticResultBody" style="flex:1; overflow-y:auto; padding:16px; background:var(--bg-surface, #0b0b10);">
+                <!-- Bento Grid injected via JS -->
+              </div>
+            </div>
+
+            <!-- === IDLE COMMAND CENTER - Live Charts (Lightweight Charts + Binance) === -->
+            <div id="idleCommandCenter" style="position:fixed; top:72px; left:440px; right:380px; bottom:335px; z-index:80; display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; background:#0a0a0e; border:1px solid rgba(255,255,255,0.05); border-radius:12px; overflow:hidden;">
               <!-- BTC Chart -->
               <div id="chart-col-btc" style="position:relative; border-right:1px solid rgba(255,255,255,0.07); display:flex; flex-direction:column; height:100%; overflow:hidden; background:#0a0a0e;">
                 <div id="icc-header-btc" style="display:flex; align-items:center; gap:8px; padding:7px 14px 6px; background:rgba(0,0,0,0.5); border-bottom:1px solid rgba(255,255,255,0.05); flex-shrink:0; height:30px;">
@@ -630,7 +647,7 @@ html[data-font="inter"] {
               @keyframes chartPulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
             </style>
             <!-- === CENTER DASHBOARD (Live Readiness & Agent) === -->
-            <div id="centerDashboard" class="center-dashboard" style="position:fixed; bottom:40px; left:440px; right:20px; height:280px; display:flex; gap:16px; padding:0; z-index:90;">
+            <div id="centerDashboard" class="center-dashboard" style="position:fixed; bottom:40px; left:440px; right:20px; height:280px; display:flex; gap:16px; padding:0; z-index:90; pointer-events:none;">
 
 
 
@@ -1016,59 +1033,77 @@ html[data-font="inter"] {
             </div>
           </div>
           
-          <div style="padding:12px 20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.2); display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:flex-end;">
-            <!-- Asset filter -->
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Koin Aset</div>
-              <div style="display:flex; gap:2px; background:rgba(0,0,0,0.4); padding:2px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
-                <button class="history-asset-btn active" data-asset="all" style="padding:4px 12px; border-radius:4px; background:var(--neon-amber); color:#000; font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">All Assets</button>
-                <button class="history-asset-btn" data-asset="btc" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">BTC</button>
-                <button class="history-asset-btn" data-asset="eth" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">ETH</button>
-                <button class="history-asset-btn" data-asset="doge" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">DOGE</button>
-              </div>
-            </div>
-
-            <!-- Date filter -->
-              <div style="display:flex; align-items:center; gap:8px; ">
-                <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Tanggal</div>
-                <div style="display:flex; gap:2px; align-items:center; background:rgba(0,0,0,0.4); padding:2px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
-                  <input type="date" id="historyStartDate" style="padding:4px 8px; border-radius:4px; background:var(--bg-input, transparent); border:1px solid var(--border); color:var(--text-primary, #fff); font-size:10px; font-family:inherit;">
-                  <span style="color:var(--text-tertiary); font-size:10px;">s/d</span>
-                  <input type="date" id="historyEndDate" style="padding:4px 8px; border-radius:4px; background:var(--bg-input, transparent); border:1px solid var(--border); color:var(--text-primary, #fff); font-size:10px; font-family:inherit;">
-                  <button id="btnFilterHistoryDate" style="padding:6px 12px; border-radius:4px; background:rgba(168,85,247,0.1); color:var(--neon-purple); border:1px solid rgba(168,85,247,0.3); cursor:pointer; font-size:10px; font-weight:bold; margin-left:4px;">Filter</button>
-                  <button id="btnResetHistoryFilters" style="padding:6px 12px; border-radius:4px; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3); cursor:pointer; font-size:10px; font-weight:bold; margin-left:4px; display:flex; align-items:center; gap:4px; transition:all 0.2s;">
-                    <i data-lucide="rotate-ccw" style="width:12px; height:12px;"></i> Reset
-                  </button>
-                </div>
-              </div>
-              
-              <!-- Limit filter -->
+          <div style="padding:14px 20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.25); display:flex; flex-direction:column; gap:12px;">
+            <!-- Top Row: Preset Filters (Asset, Duration, Netral) -->
+            <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:flex-start;">
+              <!-- Asset filter -->
               <div style="display:flex; align-items:center; gap:8px;">
-                <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Batas Tampil</div>
-                <div style="display:flex; gap:2px; align-items:center; background:rgba(0,0,0,0.4); padding:2px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
-                  <input type="number" id="historyLimit" value="1000" min="1" max="2000" style="padding:4px 8px; border-radius:4px; background:var(--bg-input, transparent); border:1px solid var(--border); color:var(--text-primary, #fff); font-size:10px; font-family:inherit; width:60px; text-align:center;">
-                  <button id="btnSetHistoryLimit" style="padding:6px 10px; border-radius:4px; background:rgba(59,130,246,0.1); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); cursor:pointer; font-size:10px; font-weight:bold; margin-left:4px;">Set</button>
+                <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Koin Aset</div>
+                <div style="display:flex; gap:2px; background:rgba(0,0,0,0.4); padding:2px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+                  <button class="history-asset-btn active" data-asset="all" style="padding:4px 12px; border-radius:4px; background:var(--neon-amber); color:#000; font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">All Assets</button>
+                  <button class="history-asset-btn" data-asset="btc" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">BTC</button>
+                  <button class="history-asset-btn" data-asset="eth" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">ETH</button>
+                  <button class="history-asset-btn" data-asset="doge" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">DOGE</button>
                 </div>
               </div>
 
               <!-- Duration filter -->
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Durasi</div>
-              <div style="display:flex; gap:2px; background:rgba(0,0,0,0.4); padding:2px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
-                <button class="history-duration-btn active" data-duration="all" style="padding:4px 12px; border-radius:4px; background:var(--neon-purple); color:#fff; font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">Semua Waktu</button>
-                <button class="history-duration-btn" data-duration="5m" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">5-Min</button>
-                <button class="history-duration-btn" data-duration="15m" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">15-Min</button>
-                <button class="history-duration-btn" data-duration="1h" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">1-Hour</button>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Durasi</div>
+                <div style="display:flex; gap:2px; background:rgba(0,0,0,0.4); padding:2px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+                  <button class="history-duration-btn active" data-duration="all" style="padding:4px 12px; border-radius:4px; background:var(--neon-purple); color:#fff; font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">Semua Waktu</button>
+                  <button class="history-duration-btn" data-duration="5m" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">5-Min</button>
+                  <button class="history-duration-btn" data-duration="15m" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">15-Min</button>
+                  <button class="history-duration-btn" data-duration="1h" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">1-Hour</button>
+                </div>
+              </div>
+
+              <!-- Netral filter -->
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Netral</div>
+                <div style="display:flex; gap:2px; background:rgba(0,0,0,0.4); padding:2px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+                  <button class="history-netral-btn active" data-netral="all" style="padding:4px 12px; border-radius:4px; background:var(--neon-amber); color:#000; font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">Semua</button>
+                  <button class="history-netral-btn" data-netral="hide" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">Tanpa Netral</button>
+                </div>
               </div>
             </div>
-          
+
+            <!-- Bottom Row: Date Range, Limit, Reset -->
+            <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:space-between;">
+              <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:center;">
+                <!-- Date filter -->
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Tanggal</div>
+                  <div style="display:flex; gap:4px; align-items:center; background:rgba(0,0,0,0.4); padding:3px 6px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+                    <input type="date" id="historyStartDate" style="padding:4px 8px; border-radius:4px; background:var(--bg-input, transparent); border:1px solid var(--border); color:var(--text-primary, #fff); font-size:10px; font-family:inherit;">
+                    <span style="color:var(--text-tertiary); font-size:10px;">s/d</span>
+                    <input type="date" id="historyEndDate" style="padding:4px 8px; border-radius:4px; background:var(--bg-input, transparent); border:1px solid var(--border); color:var(--text-primary, #fff); font-size:10px; font-family:inherit;">
+                    <button id="btnFilterHistoryDate" style="padding:4px 10px; border-radius:4px; background:rgba(168,85,247,0.15); color:var(--neon-purple); border:1px solid rgba(168,85,247,0.3); cursor:pointer; font-size:10px; font-weight:bold; margin-left:4px; transition:all 0.2s;">Filter</button>
+                  </div>
+                </div>
+                
+                <!-- Limit filter -->
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Batas Tampil</div>
+                  <div style="display:flex; gap:4px; align-items:center; background:rgba(0,0,0,0.4); padding:3px 6px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+                    <input type="number" id="historyLimit" value="1000" min="1" max="2000" style="padding:4px 8px; border-radius:4px; background:var(--bg-input, transparent); border:1px solid var(--border); color:var(--text-primary, #fff); font-size:10px; font-family:inherit; width:60px; text-align:center;">
+                    <button id="btnSetHistoryLimit" style="padding:4px 10px; border-radius:4px; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); cursor:pointer; font-size:10px; font-weight:bold; transition:all 0.2s;">Set</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Reset Button -->
+              <button id="btnResetHistoryFilters" style="padding:5px 14px; border-radius:6px; background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.3); cursor:pointer; font-size:10px; font-weight:bold; display:flex; align-items:center; gap:6px; transition:all 0.2s;">
+                <i data-lucide="rotate-ccw" style="width:12px; height:12px;"></i> Reset
+              </button>
+            </div>
           </div>
           <div style="padding:16px 20px; display:flex; gap:20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.3);">
             <div>Win Rate Analisis: <span id="historyWinRate" style="color:var(--neon-green); font-weight:bold; font-size:16px;">0%</span></div>
             <div>Total Analisis: <span id="historyTotal">0</span></div>
             <div>Menang: <span id="historyWins" style="color:var(--neon-green);">0</span></div>
             <div>Kalah: <span id="historyLosses" style="color:var(--neon-red);">0</span></div>
-            <div title="Netral tidak dihitung sebagai menang atau kalah dalam kalkulasi win rate." style="cursor:help;">Netral: <span id="historyNeutral" style="color:var(--neon-amber);">0</span></div>
+            <div id="historyNeutralContainer" title="Netral tidak dihitung sebagai menang atau kalah dalam kalkulasi win rate." style="cursor:help;">Netral: <span id="historyNeutral" style="color:var(--neon-amber);">0</span></div>
             <div>Belum Selesai: <span id="historyPending" style="color:var(--text-tertiary);">0</span></div>
           </div>
           <div style="overflow-y:auto; flex:1;">

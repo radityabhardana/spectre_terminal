@@ -576,6 +576,7 @@ function setBusy(nextBusy) {
       
       if (staticPanel && staticBody) {
         staticPanel.style.display = "flex";
+        staticBody.style.overflowY = "hidden";
         staticBody.innerHTML = `
           <div class="empty-dashboard-state" style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 240px; gap: 20px;">
             <div class="spinner" style="width:40px; height:40px; border-width:2px; border-radius:50%; border-color:rgba(16,185,129,0.15); border-top-color:var(--neon-green);"></div>
@@ -950,12 +951,14 @@ function appendMessageElement(message) {
         
         if (message.text && message.text.includes("MARKET SUMMARY")) {
           const bentoHtml = typeof buildBentoGrid === "function" ? buildBentoGrid(message.text) : html;
+          staticBody.style.overflowY = "hidden";
           staticBody.innerHTML = bentoHtml;
           // Store the report HTML globally so openFullReportModal() can access it
           window._currentReportHtml = html;
           // Handler is now inline onclick="openFullReportModal()" on the span itself
 
         } else {
+          staticBody.style.overflowY = "auto";
           staticBody.innerHTML = html;
         }
         
@@ -964,6 +967,7 @@ function appendMessageElement(message) {
         wrapper.style.display = "none";
       } else {
         // Raw text / errors: also show them in the static panel if the console feed is hidden
+        staticBody.style.overflowY = "auto";
         staticBody.innerHTML = `<div style="display:flex; flex-direction:column; justify-content:center; padding: 24px; background:var(--bg-elevated); border-radius:12px; border:1px solid rgba(255,255,255,0.05); position:relative;">\n          <button onclick="closeStaticPanel()" style="position:absolute; top:12px; right:12px; background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:16px;height:16px;"></i></button>\n          ${html}\n        </div>`;
         staticPanel.style.display = "flex";
         if (window.lucide) window.lucide.createIcons({ root: staticBody });
@@ -3589,6 +3593,7 @@ window.showHistoryChat = function(eventId) {
   
   if (staticBody && typeof buildBentoGrid === "function") {
     const aiText = event.analysis_conclusion || "";
+    staticBody.style.overflowY = "hidden";
     staticBody.innerHTML = buildBentoGrid(aiText, true);
     if (window.lucide) window.lucide.createIcons({ root: staticBody });
     
@@ -5849,7 +5854,7 @@ function injectMspStyles() {
 .msp-eyebrow { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.18em; }
 .msp-link { font-family: var(--font-secondary); font-size: 10px; font-weight: 500; color: rgba(16,185,129,0.55); letter-spacing: 0.02em; cursor: pointer; transition: color 0.2s ease; }
 .msp-link:hover { color: var(--neon-green); }
-.msp-hero-row { display: flex; align-items: center; flex: 1; margin: 10px 0; }
+.msp-hero-row { display: flex; align-items: center; flex: 1; margin: 6px 0; }
 .msp-signal-block { flex: 1; display: flex; flex-direction: column; gap: 6px; }
 .msp-signal-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px 6px 12px; border-radius: 8px; width: fit-content; }
 .msp-signal-arrow { font-size: 18px; font-weight: 900; line-height: 1; }
@@ -5859,13 +5864,13 @@ function injectMspStyles() {
 .msp-entry-val { font-family: var(--font-primary); font-size: 18px; font-weight: 800; letter-spacing: 0.04em; line-height: 1; }
 .msp-field-label { font-family: var(--font-secondary); font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
 .msp-hline { height: 1px; background: rgba(255,255,255,0.08); margin: 0 -20px; }
-.msp-strip { display: flex; align-items: stretch; padding: 12px 0; }
+.msp-strip { display: flex; align-items: stretch; padding: 8px 0; }
 .msp-strip-item { flex: 1; display: flex; flex-direction: column; gap: 5px; padding: 2px 0; }
 .msp-strip-item--wide { flex: 1.6; }
 .msp-strip-sep { width: 1px; background: rgba(255,255,255,0.08); margin: 0 14px; flex-shrink: 0; }
 .msp-strip-label { font-family: var(--font-secondary); font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
 .msp-strip-val { font-family: var(--font-primary); font-size: 13px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
-.msp-depth { padding-top: 14px; }
+.msp-depth { padding-top: 8px; }
 .msp-depth-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .msp-depth-bid-txt { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: var(--neon-green); text-transform: uppercase; letter-spacing: 0.07em; }
 .msp-depth-center-txt { font-family: var(--font-secondary); font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.28); text-transform: uppercase; letter-spacing: 0.12em; }
@@ -5968,7 +5973,7 @@ function buildBentoGrid(text, isHistory = false) {
           <div style="flex:2.2; display:flex; flex-direction:column; justify-content:center; padding:0 12px;">
              
              <!-- Premium Price Ticker -->
-             <div style="display:flex; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:10px 14px; margin-bottom:12px; align-items:center; justify-content:space-between; box-shadow:inset 0 2px 10px rgba(0,0,0,0.4);">
+              <div style="display:flex; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:8px 14px; margin-bottom:8px; align-items:center; justify-content:space-between; box-shadow:inset 0 2px 10px rgba(0,0,0,0.4);">
                 <div style="display:flex; flex-direction:column; gap:4px;">
                    <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.1em;">Realtime (Pyth)</span>
                    <div style="font-family:var(--font-primary); font-size:18px; font-weight:800; color:var(--text-primary); text-shadow:0 0 12px rgba(255,255,255,0.15); line-height:1;">

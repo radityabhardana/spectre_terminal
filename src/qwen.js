@@ -557,16 +557,20 @@ async function callQwenJson(payload, baseUrl, apiKey, signal = null, deadlineAt 
 
 async function callRoleQwenJson(payload, fallbackModel = "", baseUrl, apiKey, signal = null) {
   const deadlineAt = Date.now() + config.qwenRequestTimeoutMs;
+  const expectsJson = payload.response_format?.type === "json_object";
   try {
-    return await callQwenJson(payload, baseUrl, apiKey, signal, deadlineAt);
+    const result = await callQwenJson(payload, baseUrl, apiKey, signal, deadlineAt);
+    if (expectsJson) extractJsonObject(result.text);
+    return result;
   } catch (error) {
     if (error.name === "AbortError") throw error;
     if ([401, 403, 408, 429].includes(error.status) || error.status >= 500 || error.name === "TimeoutError") throw error;
     if (!fallbackModel || payload.model === fallbackModel) throw error;
     const modelSpecificFailure = [400, 404, 422].includes(error.status)
-      || /invalid JSON|missing choices|response_format/i.test(String(error.message));
+      || /JSON|missing choices|response_format/i.test(String(error.message));
     if (!modelSpecificFailure) throw error;
     const fallback = await callQwenJson({ ...payload, model: fallbackModel }, baseUrl, apiKey, signal, deadlineAt);
+    if (expectsJson) extractJsonObject(fallback.text);
     return { ...fallback, fallbackFrom: payload.model };
   }
 }
@@ -1637,7 +1641,7 @@ ${historyContext}`.trim();
   3. [Crowd Wisdom / Market Probability] Berapa harga token Polymarket saat ini? (Contoh $0.76 = Crowd yakin 76% UP).
   4. [Momentum Follow] Jangan melawan tren! Jika Crowd Probability tinggi (> 60%) dan tidak ada tembok yang memblokir, asumsikan Crowd BENAR. Jangan coba-coba menebak reversal.
   5. [Base Probability Calibration] Perhatikan angka "Base Probability Kuantitatif (JS Mechanical)" sebesar ${baseProbability}% yang dihitung di backend. Jangan mengarang probabilitas acak dari nol.
-  6. [Heuristic Adjustment] Lakukan BUFF (+1% s.d. +15%) atau NERF (-1% s.d. -15%) terhadap base probability. "estimated_fair_probability" SELALU berarti probabilitas outcome primer/UP/YES menang, termasuk saat direction adalah DOWN.
+  6. [Heuristic Adjustment] Lakukan BUFF (+1% s.d. +15%) atau NERF (-1% s.d. -15%) terhadap base probability.
   
   ATURAN MUTLAK:
   - BERSIKAPLAH DINGIN DAN TEPAT. Jangan pernah overthink atau menggunakan kalimat ragu-ragu dalam "reason" kamu.
@@ -1645,6 +1649,9 @@ ${historyContext}`.trim();
   - JANGAN mencoba menghitung Expected Value (EV). Tugasmu HANYA menganalisis kondisi dan menentukan 'estimated_fair_probability'. Sistem akan menghitung EV-nya.
   - Jika harga token Polymarket (MarketOutcomePrice) tidak tersedia/N/A, abaikan, dan fokus murni pada penentuan 'estimated_fair_probability' berdasarkan Distance vs ATR.
   - Jika Liquidasi besar searah dengan target, itu sangat menambah 'estimated_fair_probability'.
+  - DEFINISI WAJIB: Base Probability dan "estimated_fair_probability" SELALU berarti probabilitas outcome primer UP/YES menang, BUKAN probabilitas direction yang dipilih.
+  - "estimated_fair_probability" WAJIB berada maksimal 15 poin dari Base Probability. Jangan membalik 85% menjadi 15% untuk memilih DOWN.
+  - Tentukan direction secara mekanis dari estimated_fair_probability: >=55 berarti UP, <=45 berarti DOWN, dan 46-54 berarti NEUTRAL.
   - KONSISTENSI WAJIB: PLAY + UP hanya jika estimated_fair_probability >= 55. PLAY + DOWN hanya jika estimated_fair_probability <= 45.
   - Jika estimated_fair_probability berada di 46-54, recommendation WAJIB AVOID dan direction WAJIB NEUTRAL.
 

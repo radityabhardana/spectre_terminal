@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { calculateKelly } from "../src/analytics.js";
 import { tradePricingForPrediction } from "../src/index.js";
-import { normalizeShortAnalysis, parseOpenAiResponse } from "../src/qwen.js";
+import { normalizeShortAnalysis, parseOpenAiResponse, requestAiText } from "../src/qwen.js";
 import { calculateTechnicalIndicators, chainlinkVariant } from "../src/short_condition.js";
 
 test("short analysis converts primary probability for DOWN EV", () => {
@@ -106,6 +106,44 @@ test("Chainlink variants cover every listed short-market duration", () => {
 test("9Router JSON response accepts a trailing SSE done marker", () => {
   const parsed = parseOpenAiResponse('{"choices":[{"message":{"content":"OK"}}]}\ndata: [DONE]');
   assert.equal(parsed.choices[0].message.content, "OK");
+});
+
+test("plain-text AI requests do not require JSON output", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({
+    model: "plain-model",
+    choices: [{ message: { content: "Post-mortem text" } }],
+  }), { status: 200, headers: { "content-type": "application/json" } }));
+
+  const result = await requestAiText({
+    model: "plain-model",
+    messages: [{ role: "user", content: "Evaluate" }],
+  });
+
+  assert.equal(result.text, "Post-mortem text");
+});
+
+test("malformed JSON output falls back to the evaluator model", async (t) => {
+  const responses = [
+    { model: "short-model", content: '{"condition":' },
+    { model: "evaluator-model", content: '{"condition":"CHOPPY"}' },
+  ];
+  t.mock.method(globalThis, "fetch", async () => {
+    const response = responses.shift();
+    return new Response(JSON.stringify({
+      model: response.model,
+      choices: [{ message: { content: response.content } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const result = await requestAiText({
+    model: "short-model",
+    messages: [{ role: "user", content: "Analyze" }],
+    response_format: { type: "json_object" },
+  }, { fallbackModel: "evaluator-model" });
+
+  assert.equal(result.text, '{"condition":"CHOPPY"}');
+  assert.equal(result.fallbackFrom, "short-model");
+  assert.equal(responses.length, 0);
 });
 
 test("technical indicators work without fabricating unavailable volume", () => {

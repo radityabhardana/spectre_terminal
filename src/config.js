@@ -127,7 +127,7 @@ export const config = {
     process.env.GDELT_DOC_URL || "https://api.gdeltproject.org/api/v2/doc/doc",
   maxQwenInputChars: positiveInt(process.env.MAX_QWEN_INPUT_CHARS, 7000),
   qwenMaxTokens: positiveInt(process.env.QWEN_MAX_TOKENS, 10000),
-  qwenShortMaxTokens: positiveInt(process.env.QWEN_SHORT_MAX_TOKENS, 2400),
+  qwenShortMaxTokens: positiveInt(process.env.QWEN_SHORT_MAX_TOKENS, 4000),
   qwenRequestTimeoutMs: positiveInt(process.env.QWEN_REQUEST_TIMEOUT_MS, 90000),
   polymarketRequestTimeoutMs: positiveInt(process.env.POLYMARKET_REQUEST_TIMEOUT_MS, 10000),
   cacheTtlSeconds: positiveInt(process.env.CACHE_TTL_SECONDS, 60),

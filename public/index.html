@@ -570,24 +570,8 @@ html[data-font="inter"] {
             </div>
 
             <!-- === IDLE COMMAND CENTER - Live Charts (Lightweight Charts + Binance) === -->
-            <!-- === STATIC RESULT PANEL (Bento Grid Market Summary Overlay) === -->
-            <div id="staticResultPanel" style="display:none; position:fixed; top:72px; left:440px; right:380px; bottom:335px; z-index:95; background:var(--bg-surface, #0b0b10); border:1px solid var(--border-bright, rgba(255,255,255,0.12)); border-radius:14px; box-shadow:0 16px 48px rgba(0,0,0,0.8); backdrop-filter:blur(10px); flex-direction:column; overflow:hidden;">
-              <div style="padding:10px 16px; border-bottom:1px solid var(--border, rgba(255,255,255,0.06)); display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4);">
-                <div style="display:flex; align-items:center; gap:8px;">
-                  <i data-lucide="cpu" style="width:16px; height:16px; color:var(--neon-green);"></i>
-                  <span style="font-family:'JetBrains Mono', monospace; font-size:11px; font-weight:bold; color:var(--neon-green); text-transform:uppercase; letter-spacing:1px;">QWEN ANALYSIS RESULT</span>
-                </div>
-                <button onclick="closeStaticPanel()" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer; padding:4px;" title="Tutup Summary">
-                  <i data-lucide="x" style="width:16px; height:16px;"></i>
-                </button>
-              </div>
-              <div id="staticResultBody" style="flex:1; overflow-y:auto; padding:16px; background:var(--bg-surface, #0b0b10);">
-                <!-- Bento Grid injected via JS -->
-              </div>
-            </div>
-
             <!-- === IDLE COMMAND CENTER - Live Charts (Lightweight Charts + Binance) === -->
-            <div id="idleCommandCenter" style="position:fixed; top:72px; left:440px; right:380px; bottom:335px; z-index:80; display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; background:#0a0a0e; border:1px solid rgba(255,255,255,0.05); border-radius:12px; overflow:hidden;">
+            <div id="idleCommandCenter" style="position:fixed; top:442px; left:440px; right:20px; bottom:330px; z-index:80; display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; background:#0a0a0e; border:1px solid rgba(255,255,255,0.05); border-radius:12px; overflow:hidden;">
               <!-- BTC Chart -->
               <div id="chart-col-btc" style="position:relative; border-right:1px solid rgba(255,255,255,0.07); display:flex; flex-direction:column; height:100%; overflow:hidden; background:#0a0a0e;">
                 <div id="icc-header-btc" style="display:flex; align-items:center; gap:8px; padding:7px 14px 6px; background:rgba(0,0,0,0.5); border-bottom:1px solid rgba(255,255,255,0.05); flex-shrink:0; height:30px;">
@@ -646,8 +630,18 @@ html[data-font="inter"] {
             <style>
               @keyframes chartPulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
             </style>
+            <!-- Bento Grid Result Panel (shows when analysis runs) -->
+            <div id="staticResultPanel" style="position:fixed; top:72px; left:440px; width:820px; height:360px; z-index:90; overflow-y:auto; padding:16px 20px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:28px; box-shadow:0 24px 64px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.05);">
+              <div id="staticResultBody" class="ms-container" style="max-width:800px; margin:0; height:100%;">
+                <div style="height:100%; display:flex; flex-direction:column; justify-content:center; align-items:center; color:var(--text-tertiary); font-family:var(--font-secondary); font-size:11px;">
+                  <i data-lucide="bar-chart-2" style="width:24px; height:24px; margin-bottom:12px; opacity:0.5;"></i>
+                  <span>Pilih event atau jalankan analisis untuk melihat Market Summary</span>
+                </div>
+              </div>
+            </div>
+
             <!-- === CENTER DASHBOARD (Live Readiness & Agent) === -->
-            <div id="centerDashboard" class="center-dashboard" style="position:fixed; bottom:40px; left:440px; right:20px; height:280px; display:flex; gap:16px; padding:0; z-index:90; pointer-events:none;">
+            <div id="centerDashboard" class="center-dashboard" style="position:fixed; bottom:40px; left:440px; right:20px; height:280px; display:flex; gap:10px; padding:0; z-index:90; pointer-events:none;">
 
 
 

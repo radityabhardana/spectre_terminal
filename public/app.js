@@ -5597,17 +5597,13 @@ function initDashboardDragDrop() {
   if (!centerDashboard._sortableInited) {
     centerDashboard._sortableInited = true;
     Sortable.create(centerDashboard, {
-      animation: 200,
-      easing: 'cubic-bezier(0.25, 1, 0.5, 1)',
-      handle: '.card-drag-strip',  // full-width bar — much easier to grab than icon alone
-      draggable: '.dash-bottom-card', // only drag the 3 uniform cards
-      forceFallback: true,
-      fallbackTolerance: 3,
+      animation: 150,
+      handle: '.card-drag-strip',
+      draggable: '.dash-bottom-card',
       ghostClass: "sortable-ghost",
       chosenClass: "sortable-chosen",
-      fallbackClass: "sortable-drag",
       onStart: function (evt) {
-        evt.item.style.opacity = '0.9';
+        evt.item.style.opacity = '0.8';
       },
       onEnd: function (evt) {
         evt.item.style.opacity = '';

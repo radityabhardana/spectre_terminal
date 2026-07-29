@@ -129,6 +129,7 @@ export const config = {
   qwenMaxTokens: positiveInt(process.env.QWEN_MAX_TOKENS, 10000),
   qwenShortMaxTokens: positiveInt(process.env.QWEN_SHORT_MAX_TOKENS, 4000),
   qwenRequestTimeoutMs: positiveInt(process.env.QWEN_REQUEST_TIMEOUT_MS, 90000),
+  shortAiTimeoutMs: positiveInt(process.env.SHORT_AI_TIMEOUT_MS, 15000),
   polymarketRequestTimeoutMs: positiveInt(process.env.POLYMARKET_REQUEST_TIMEOUT_MS, 10000),
   cacheTtlSeconds: positiveInt(process.env.CACHE_TTL_SECONDS, 60),
   cryptoCacheTtlSeconds: positiveInt(process.env.CRYPTO_CACHE_TTL_SECONDS, 10),

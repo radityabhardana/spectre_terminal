@@ -79,19 +79,24 @@ function listLines(items) {
 
 function usageLine(qwenResult) {
   const usage = qwenResult?.usage;
-  if (!usage) return "Qwen usage: API tidak mengembalikan token usage";
+  if (!usage) {
+    const status = qwenResult?.aiExplanationStatus;
+    return status
+      ? `AI usage: unavailable (${String(status).replaceAll("_", " ")})`
+      : "AI usage: provider tidak mengembalikan token usage";
+  }
 
   const prompt = usage.prompt_tokens ?? usage.input_tokens;
   const completion = usage.completion_tokens ?? usage.output_tokens;
   const total = usage.total_tokens ?? usage.totalTokens;
 
   if (total != null) {
-    return `Qwen usage: ${total} tokens (input ${prompt ?? "n/a"}, output ${
+    return `AI usage: ${total} tokens (input ${prompt ?? "n/a"}, output ${
       completion ?? "n/a"
     })`;
   }
 
-  return `Qwen usage: ${JSON.stringify(usage)}`;
+  return `AI usage: ${JSON.stringify(usage)}`;
 }
 
 function modelLine(qwenResult) {
@@ -495,6 +500,22 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
   if (finalPrediction) {
     shownDirection = finalPrediction === "=" ? "NETRAL" : finalPrediction;
   }
+  const usage = qwenResult?.usage;
+  const rawTokenTotal = usage?.total_tokens ?? usage?.total ?? (
+    usage && (usage.prompt_tokens != null || usage.completion_tokens != null)
+      ? Number(usage.prompt_tokens || 0) + Number(usage.completion_tokens || 0)
+      : null
+  );
+  const tokenTotal = Number.isFinite(Number(rawTokenTotal)) && Number(rawTokenTotal) > 0
+    ? Number(rawTokenTotal)
+    : null;
+  const aiExplanationStatus = String(qwenResult?.aiExplanationStatus || "unknown").replaceAll("_", " ");
+  const aiModel = qwenResult?.aiModel || "configured AI model";
+  const aiExplanationLine = isTerminalShortCrypto
+    ? qwenResult?.aiExplanationStatus === "used"
+      ? `AI explanation (${aiModel}): USED`
+      : `WARNING: AI explanation (${aiModel}): ${aiExplanationStatus.toUpperCase()}; deterministic fallback used.`
+    : null;
 
   return [
     "MARKET SUMMARY",
@@ -506,7 +527,7 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
     `Market ID: ${market.id || "n/a"}`,
     `Waktu Analisis: ${formatDateWib(new Date())} WIB`,
     analysisTime != null ? `Durasi Analisis: ${analysisTime} detik` : null,
-    qwenResult?.usage ? `Tokens: ${qwenResult.usage.total_tokens || qwenResult.usage.total || ((qwenResult.usage.prompt_tokens || 0) + (qwenResult.usage.completion_tokens || 0)) || "0"}` : null,
+    tokenTotal != null ? `AI Tokens: ${tokenTotal}` : isTerminalShortCrypto ? `AI Tokens: unavailable (${aiExplanationStatus})` : null,
     `Status: ${statusLabel(market)}`,
     market.groupItemTitle ? `Variant: ${market.groupItemTitle}` : null,
     `API close/resolution: ${formatDateWib(market.endDate)} WIB`,
@@ -542,6 +563,7 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
     `Data confidence: ${confidenceText(score.confidenceScore)} | ${isTerminalShortCrypto ? "Deterministic confidence" : "Qwen confidence"}: ${confidenceText(qwen.confidence)}`,
     `Risks: liquidity ${score.liquidityRisk}, spread ${score.spreadRisk}, resolution ${score.resolutionRisk}`,
     qwen.technicalSource ? `Technical source: ${qwen.technicalSource}` : null,
+    aiExplanationLine,
     qwen.rawRecommendation || qwen.rawDirection
       ? isTerminalShortCrypto
         ? `Deterministic diagnostic: ${qwen.rawRecommendation || "n/a"} / forecast ${qwen.rawDirection || "n/a"} / terminal UP probability ${qwen.rawPrimaryProbability ?? "n/a"}%`
@@ -564,14 +586,14 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
     "",
     "ENTRY VERDICT",
     entryVerdictMeaning(verdict),
-    isTerminalShortCrypto ? `Deterministic entry: ${qwen.verdict || "SKIP"}` : `Mechanical: ${score.verdict} | Qwen: ${qwen.verdict || "n/a"}`,
+    isTerminalShortCrypto ? `Deterministic entry: ${qwen.verdict || "SKIP"}` : `Mechanical: ${score.verdict} | AI: ${qwen.verdict || "n/a"}`,
     modelLine(qwenResult),
     usageLine(qwenResult),
     "",
     "KESIMPULAN AKHIR",
     `Hasil Arah: ${shownDirection === 'NETRAL' ? '=' : shownDirection}`,
     `Data Confidence: ${confidenceText(score.confidenceScore)}`,
-    `${isTerminalShortCrypto ? "Deterministic Confidence" : "Qwen Confidence"}: ${confidenceText(qwen.confidence)}`,
+    `${isTerminalShortCrypto ? "Deterministic Confidence" : "AI Confidence"}: ${confidenceText(qwen.confidence)}`,
     `Kesimpulan Analisis: ${qwen.summary || "n/a"}`,
     qwen.targetPrice != null ? `Target Price: ${qwen.targetPrice}` : null,
     qwen.oraclePrice != null ? `Realtime Chainlink Price: ${qwen.oraclePrice}` : null,

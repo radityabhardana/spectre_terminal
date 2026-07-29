@@ -19,7 +19,6 @@ const DURATION_MS = {
 };
 
 const CHAINLINK_MAX_AGE_MS = 15_000;
-const SHORT_AI_TIMEOUT_MS = 4_000;
 const MIN_DIRECTIONAL_PROBABILITY = 55;
 const MIN_NET_EV_CENTS = 5;
 // Brownian high-low range is about 1.596 standard deviations on average.
@@ -595,6 +594,11 @@ function saveShortConditionHistory(result, marketQuestion) {
       rawDirection: result.raw_direction || null,
       rawPrimaryProbability: result.raw_primary_probability ?? null,
       rawModelOutput: result.rawText || null,
+      aiExplanationStatus: result.ai_explanation_status || "unknown",
+      aiExplanationUsed: result.ai_explanation_used === true,
+      aiExplanationError: result.ai_explanation_error || null,
+      aiModel: result.providerModel || config.qwenShortModel,
+      aiUsage: result.usage || null,
       technicalSource: result.technical_source || null,
       deterministicSnapshot: result.deterministic_snapshot || null,
       reason: result.reason,
@@ -681,14 +685,24 @@ function deterministicExplanation(decision) {
   };
 }
 
-function snapshotChanged(initial, final) {
-  if (initial.currentPrice !== final.currentPrice || initial.priceToBeat !== final.priceToBeat) return true;
-  if (initial.upAsk !== final.upAsk || initial.downAsk !== final.downAsk) return true;
+export function snapshotChanged(initial, final) {
+  if (initial.priceToBeat !== final.priceToBeat) return true;
   if (initial.decision.recommendation !== final.decision.recommendation || initial.decision.direction !== final.decision.direction) return true;
   const initialProbability = initial.decision.primary_outcome_probability;
   const finalProbability = final.decision.primary_outcome_probability;
   if (initialProbability == null || finalProbability == null) return initialProbability !== finalProbability;
-  return Math.abs(initialProbability - finalProbability) >= 0.01;
+  if (Math.abs(initialProbability - finalProbability) >= 1) return true;
+  const initialAsk = initial.decision.selected_ask;
+  const finalAsk = final.decision.selected_ask;
+  if (initialAsk == null || finalAsk == null) {
+    if (initialAsk !== finalAsk) return true;
+  } else if (Math.abs(initialAsk - finalAsk) >= 0.01) {
+    return true;
+  }
+  const initialEv = initial.decision.expected_value_cents;
+  const finalEv = final.decision.expected_value_cents;
+  if (initialEv == null || finalEv == null) return initialEv !== finalEv;
+  return Math.abs(initialEv - finalEv) >= 1;
 }
 
 export async function evaluateShortMarketCondition({
@@ -797,11 +811,14 @@ export async function evaluateShortMarketCondition({
     decision: initialDecision,
   };
   let aiExplanation = null;
+  let aiExplanationStatus = "not_requested";
+  let aiExplanationError = null;
   let aiMetadata = {};
   if (initialDecision.primary_outcome_probability != null) {
+    aiExplanationStatus = "pending";
     const aiSignal = signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_AI_TIMEOUT_MS)])
-      : AbortSignal.timeout(SHORT_AI_TIMEOUT_MS);
+      ? AbortSignal.any([signal, AbortSignal.timeout(config.shortAiTimeoutMs)])
+      : AbortSignal.timeout(config.shortAiTimeoutMs);
     try {
       const aiResult = await askQwenShortCondition({
         tickerData,
@@ -817,6 +834,7 @@ export async function evaluateShortMarketCondition({
         marketPrices: initialMarketPrices,
       });
       aiExplanation = aiResult;
+      aiExplanationStatus = aiResult?.reason ? "received" : "invalid";
       aiMetadata = {
         rawText: aiResult.rawText,
         usage: aiResult.usage,
@@ -825,6 +843,9 @@ export async function evaluateShortMarketCondition({
       };
     } catch (error) {
       if (signal?.aborted) throw error;
+      aiExplanationStatus = error?.name === "TimeoutError" || aiSignal.aborted ? "timeout" : "error";
+      aiExplanationError = String(error?.message || error || "Unknown AI provider error").slice(0, 300);
+      console.warn(`[Short Condition] ${config.qwenShortModel} explanation ${aiExplanationStatus}: ${aiExplanationError}`);
     }
   }
 
@@ -898,7 +919,9 @@ export async function evaluateShortMarketCondition({
     downAsk: finalSnapshot.downAsk,
     decision: finalDecision,
   });
-  const explanation = aiExplanation?.reason && !changed
+  const aiExplanationUsed = Boolean(aiExplanation?.reason && !changed);
+  if (aiExplanation?.reason) aiExplanationStatus = changed ? "discarded_stale" : "used";
+  const explanation = aiExplanationUsed
     ? {
         reason: aiExplanation.reason,
         key_signals: aiExplanation.key_signals,
@@ -914,7 +937,9 @@ export async function evaluateShortMarketCondition({
     raw_primary_probability: finalDecision.primary_outcome_probability,
     technical_source: tickerData?.source || "unknown",
     deterministic_snapshot: finalSnapshot,
-    ai_explanation_used: Boolean(aiExplanation?.reason && !changed),
+    ai_explanation_used: aiExplanationUsed,
+    ai_explanation_status: aiExplanationStatus,
+    ai_explanation_error: aiExplanationError,
     ...aiMetadata,
   };
 
@@ -938,5 +963,7 @@ export async function evaluateShortMarketCondition({
     usage: result.usage,
     providerModel: result.providerModel,
     fallbackFrom: result.fallbackFrom,
+    aiExplanationStatus: result.ai_explanation_status,
+    aiExplanationError: result.ai_explanation_error,
   };
 }

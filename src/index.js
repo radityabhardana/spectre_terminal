@@ -544,11 +544,16 @@ function eventResultFromSession(session) {
   };
 }
 
-function qwenResultFromShortEvaluation(shortRes) {
+export function qwenResultFromShortEvaluation(shortRes) {
   const evaluation = shortRes.evaluation;
+  const aiExplanationStatus = shortRes.aiExplanationStatus || evaluation.ai_explanation_status || "unknown";
+  const aiModel = shortRes.providerModel || config.qwenShortModel;
   return {
-    model: shortRes.providerModel ? `Terminal Chainlink | ${shortRes.providerModel}` : "Terminal Chainlink",
-    usage: shortRes.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 },
+    model: `Terminal Chainlink | ${aiModel}${aiExplanationStatus === "used" ? "" : ` [${aiExplanationStatus}]`}`,
+    aiModel,
+    aiExplanationStatus,
+    aiExplanationError: shortRes.aiExplanationError || evaluation.ai_explanation_error || null,
+    usage: shortRes.usage || null,
     analysis: {
       verdict: evaluation.recommendation === "PLAY" ? "VALUE CANDIDATE" : "SKIP",
       confidence: evaluation.confidence,
@@ -569,6 +574,8 @@ function qwenResultFromShortEvaluation(shortRes) {
       scoutRecommendation: evaluation.recommendation,
       forecastDirection: evaluation.forecast_direction,
       deterministicSnapshot: evaluation.deterministic_snapshot,
+      aiExplanationStatus,
+      aiExplanationError: shortRes.aiExplanationError || evaluation.ai_explanation_error || null,
       tradePricing: evaluation.trade_pricing,
       finalReason: evaluation.reason,
       summary: evaluation.reason || "Deterministic terminal-price evaluation unavailable.",
@@ -600,7 +607,7 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
   let researchContext = "";
 
   if (shortMarket) {
-    setStep("Running Qwen SHORT MARKET Sniper pipeline");
+    setStep(`Running ${config.qwenShortModel} short-market explanation pipeline`);
     const asset = shortCryptoAsset(scored.market.question);
     const shortRes = await evaluateShortMarketCondition({
       signal,
@@ -766,7 +773,7 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
   let bestQwen;
 
   if (isShortCryptoMarketBest) {
-    setStep("Running Qwen SHORT MARKET Sniper pipeline for best candidate");
+    setStep(`Running ${config.qwenShortModel} short-market explanation pipeline for best candidate`);
     const asset = shortCryptoAsset(best.market.question);
     const shortRes = await evaluateShortMarketCondition({
       signal,

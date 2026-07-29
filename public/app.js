@@ -5790,7 +5790,7 @@ function buildBentoGrid(text, isHistory = false) {
 
   const data = {
      arah: "-", entry: "-", liquidity: "-", gammaVol: "-", orderbook: "-", conf: "-", qwenScore: "-", risk: "-",
-     deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-", realtimeSource: "Reference", scoreLabel: "QWEN", analysisTime: null, url: null, tokens: null
+     deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-", realtimeSource: "Reference", scoreLabel: "AI", analysisTime: null, url: null, tokens: null
   };
   const lines = text.split("\n");
   for (let line of lines) {
@@ -5818,6 +5818,7 @@ function buildBentoGrid(text, isHistory = false) {
     if (line.includes("Durasi Analisis:")) data.analysisTime = line.split("Durasi Analisis:")[1].trim().replace(" detik", "");
     if (line.startsWith("URL:")) data.url = line.split("URL:")[1].trim();
     if (line.startsWith("Tokens:")) data.tokens = line.split("Tokens:")[1].trim();
+    if (line.startsWith("AI Tokens:")) data.tokens = line.split("AI Tokens:")[1].trim();
   }
   
   // Fallback extraction from summary if backend explicit fields are missing
@@ -5858,6 +5859,7 @@ function buildBentoGrid(text, isHistory = false) {
   const headerText = isHistory ? "HISTORY ARCHIVE" : "MARKET SUMMARY";
   const headerIcon = isHistory ? "archive" : "zap";
   const headerColor = isHistory ? "var(--neon-purple)" : "var(--neon-amber)";
+  const tokenDisplay = /^\d+$/.test(data.tokens || "") ? `${data.tokens} tkns` : data.tokens;
 
   return `
         <div class="msp-top-row">
@@ -5867,7 +5869,7 @@ function buildBentoGrid(text, isHistory = false) {
            </div>
            <div style="display:flex; gap:12px; align-items:center;">
              ${data.analysisTime ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="timer" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.analysisTime}s</span>` : ""}
-             ${data.tokens ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;" title="Qwen Token Usage"><i data-lucide="cpu" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.tokens} tkns</span>` : ""}
+              ${tokenDisplay ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;" title="AI Token Usage"><i data-lucide="cpu" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${tokenDisplay}</span>` : ""}
              ${data.deadline !== "-" ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="clock" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.deadline}</span>` : ""}
              ${data.url ? `<a href="${data.url}" target="_blank" class="msp-link" style="color:var(--neon-cyan); text-decoration:none; display:flex; align-items:center; gap:2px;"><i data-lucide="external-link" style="width:12px;height:12px;"></i> Polymarket</a>` : ""}
              <span class="msp-link" id="bentoKesimpulanBox" onclick="openFullReportModal()" style="cursor:pointer;">View full report →</span>

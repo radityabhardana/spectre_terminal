@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { calculateKelly } from "../src/analytics.js";
-import { tradePricingForPrediction } from "../src/index.js";
+import { qwenResultFromShortEvaluation, tradePricingForPrediction } from "../src/index.js";
+import { formatAnalysis } from "../src/format.js";
 import { normalizeShortAnalysis, parseOpenAiResponse, requestAiText } from "../src/qwen.js";
 import {
   calculateTechnicalIndicators,
@@ -10,6 +11,7 @@ import {
   estimateTerminalUpProbability,
   evaluateDeterministicShortSnapshot,
   selectShortMarketSide,
+  snapshotChanged,
 } from "../src/short_condition.js";
 import { ANALYSIS_STRATEGY_VERSION, summarizePlayStats } from "../src/storage.js";
 
@@ -101,6 +103,142 @@ test("Chainlink variants cover every listed short-market duration", () => {
   assert.equal(chainlinkVariant("1h"), "hourly");
   assert.equal(chainlinkVariant("4h"), "fourhour");
   assert.equal(chainlinkVariant("1d"), "daily");
+});
+
+function shortEvaluationResult(overrides = {}) {
+  const { evaluation: evaluationOverrides = {}, ...shortOverrides } = overrides;
+  return qwenResultFromShortEvaluation({
+    targetPrice: 63_776.63,
+    oraclePrice: 63_753.48,
+    oraclePublishTime: "2026-07-29T02:25:12.000Z",
+    evaluation: {
+      recommendation: "PLAY",
+      confidence: 63,
+      estimated_fair_probability: 63.38,
+      primary_outcome_probability: 36.62,
+      expected_value_cents: 9.38,
+      technical_source: "chainlink",
+      validation_issues: [],
+      guardrail_blockers: [],
+      raw_recommendation: "PLAY",
+      raw_direction: "DOWN",
+      raw_primary_probability: 36.62,
+      direction: "DOWN",
+      forecast_direction: "DOWN",
+      deterministic_snapshot: { upAsk: 0.51, downAsk: 0.5, upMidpoint: 0.505, downMidpoint: 0.495 },
+      trade_pricing: {},
+      reason: "Deterministic fallback reason.",
+      ...evaluationOverrides,
+    },
+    ...shortOverrides,
+  });
+}
+
+function formatShortResult(qwenResult) {
+  return formatAnalysis({
+    market: {
+      id: "3143210",
+      question: "Bitcoin Up or Down - July 28, 10:25PM-10:30PM ET",
+      outcomes: ["Up", "Down"],
+      outcomePrices: [0.505, 0.495],
+      liquidity: 17_793,
+      volume: 31,
+      active: true,
+      closed: false,
+      acceptingOrders: true,
+      endDate: "2026-07-29T02:30:00.000Z",
+    },
+    score: {
+      marketProbability: 50.5,
+      primaryOutcomeLabel: "Up",
+      secondaryOutcomeLabel: "Down",
+      primaryTokenId: "up-token",
+      secondaryTokenId: "down-token",
+      bestBid: 0.49,
+      bestAsk: 0.51,
+      spreadPercent: 2,
+      confidenceScore: 82,
+      underdogScore: 3.1,
+      liquidityRisk: "Low",
+      spreadRisk: "Low",
+      resolutionRisk: "Medium",
+      dataWarnings: [],
+      shortBookPrices: {
+        up: { bestAsk: 0.51, midpoint: 0.505 },
+        down: { bestAsk: 0.5, midpoint: 0.495 },
+      },
+    },
+    qwenResult,
+    finalPrediction: "DOWN",
+    analysisTime: 9,
+  });
+}
+
+test("short AI timeout keeps deterministic PLAY but never fabricates zero token usage", () => {
+  const qwenResult = shortEvaluationResult({
+    aiExplanationStatus: "timeout",
+    aiExplanationError: "The operation was aborted",
+    evaluation: { ai_explanation_status: "timeout" },
+  });
+  const output = formatShortResult(qwenResult);
+
+  assert.equal(qwenResult.usage, null);
+  assert.match(qwenResult.model, /deepseek-v4-flash.*timeout/i);
+  assert.match(output, /AI Tokens: unavailable \(timeout\)/);
+  assert.match(output, /WARNING: AI explanation .*TIMEOUT; deterministic fallback used\./);
+  assert.doesNotMatch(output, /Tokens: 0/);
+});
+
+test("successful short AI explanation reports real provider token usage", () => {
+  const usage = { prompt_tokens: 240, completion_tokens: 60, total_tokens: 300 };
+  const qwenResult = shortEvaluationResult({
+    providerModel: "alims-intl/deepseek-v4-flash",
+    aiExplanationStatus: "used",
+    usage,
+    evaluation: { ai_explanation_status: "used" },
+  });
+  const output = formatShortResult(qwenResult);
+
+  assert.equal(qwenResult.usage, usage);
+  assert.match(output, /AI Tokens: 300/);
+  assert.match(output, /AI explanation \(alims-intl\/deepseek-v4-flash\): USED/);
+  assert.doesNotMatch(output, /deterministic fallback used/);
+});
+
+test("short AI explanation is discarded only when the refreshed trade decision changes materially", () => {
+  const initial = {
+    currentPrice: 100,
+    priceToBeat: 99,
+    upAsk: 0.5,
+    downAsk: 0.5,
+    decision: {
+      recommendation: "PLAY",
+      direction: "UP",
+      primary_outcome_probability: 60,
+      selected_ask: 0.5,
+      expected_value_cents: 6,
+    },
+  };
+  const immaterialRefresh = {
+    currentPrice: 100.1,
+    priceToBeat: 99,
+    upAsk: 0.505,
+    downAsk: 0.495,
+    decision: {
+      recommendation: "PLAY",
+      direction: "UP",
+      primary_outcome_probability: 60.4,
+      selected_ask: 0.505,
+      expected_value_cents: 5.6,
+    },
+  };
+  const changedDecision = {
+    ...immaterialRefresh,
+    decision: { ...immaterialRefresh.decision, recommendation: "AVOID", direction: "NEUTRAL" },
+  };
+
+  assert.equal(snapshotChanged(initial, immaterialRefresh), false);
+  assert.equal(snapshotChanged(initial, changedDecision), true);
 });
 
 test("9Router JSON response accepts a trailing SSE done marker", () => {

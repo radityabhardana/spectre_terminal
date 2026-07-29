@@ -174,6 +174,20 @@ function formatShortResult(qwenResult) {
   });
 }
 
+test("short forecast direction stays visible when trade guardrails say AVOID", () => {
+  const qwenResult = shortEvaluationResult({
+    evaluation: {
+      recommendation: "AVOID",
+      direction: "NEUTRAL",
+      forecast_direction: "DOWN",
+      guardrail_blockers: ["[MAX ENTRY PRICE GUARDRAIL]"],
+    },
+  });
+
+  assert.equal(qwenResult.analysis.scoutDirection, "DOWN");
+  assert.equal(qwenResult.analysis.scoutRecommendation, "AVOID");
+});
+
 test("short AI timeout keeps deterministic PLAY but never fabricates zero token usage", () => {
   const qwenResult = shortEvaluationResult({
     aiExplanationStatus: "timeout",

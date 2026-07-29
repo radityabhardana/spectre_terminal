@@ -141,8 +141,8 @@ function slugLike(value) {
   return /^[a-z0-9-]{5,}$/.test(String(value || "").trim());
 }
 
-function menuAnswer(text) {
-  return { text, options: menuKeyboard() };
+function menuAnswer(text, result = null) {
+  return { text, options: menuKeyboard(), result };
 }
 
 function normalizeButtonText(text) {
@@ -509,7 +509,7 @@ async function runWithProgress(ctx, query, task, options = {}) {
   try {
     const result = await task((nextStep) => {
       step = nextStep;
-    });
+    }, ctx?.signal);
 
     if (progressMessage?.message_id) {
       await ctx.deleteMessage(progressMessage.message_id).catch(() => {});
@@ -570,7 +570,7 @@ export function qwenResultFromShortEvaluation(shortRes) {
       rawDirection: evaluation.raw_direction,
       rawPrimaryProbability: evaluation.raw_primary_probability,
       rawModelOutput: evaluation.rawText,
-      scoutDirection: evaluation.direction,
+      scoutDirection: evaluation.forecast_direction || evaluation.direction,
       scoutRecommendation: evaluation.recommendation,
       forecastDirection: evaluation.forecast_direction,
       deterministicSnapshot: evaluation.deterministic_snapshot,
@@ -672,7 +672,6 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
       finalPrediction = "=";
     }
     actionable = scoutRec === "PLAY" && finalPrediction !== "=";
-    if (!actionable) finalPrediction = "=";
   } else {
     const confidence = Number(qwenResult?.analysis?.confidence);
     finalPrediction = predictionFromValidatedAnalysis(qwenResult?.analysis, scored.score);
@@ -687,7 +686,7 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
   const fullAnalysisMarkdown = formatAnalysis({ market: scored.market, score: scored.score, qwenResult, finalPrediction, analysisTime: executionTime });
 
   if (!signal?.aborted) {
-    addAnalyzedEvent({
+    const analyzedEventId = addAnalyzedEvent({
       market_id: scored.market.id,
       question: scored.market.question,
       url: scored.market.url,
@@ -701,6 +700,7 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
       max_entry_price: tradePricing.maxEntryPrice,
       signal_data_at: qwenResult?.analysis?.signalDataAt || null,
     });
+    if (analyzedEventId == null) throw new Error("Hasil analisis gagal disimpan ke history.");
   }
 
   return fullAnalysisMarkdown;
@@ -939,7 +939,7 @@ export async function handleCommand(text, message, ctx) {
   if (ctx) ctx.commandStartTime = Date.now();
   const { command, arg } = parseCommand(text);
   const guard = enterCommandGuard({ command, arg, message, ctx });
-  if (!guard.allowed) return menuAnswer(guard.message);
+  if (!guard.allowed) return menuAnswer(guard.message, { status: "rejected", reason: "rate_limit" });
 
   try {
   if (command === "/start" || command === "/help") {
@@ -1016,35 +1016,48 @@ export async function handleCommand(text, message, ctx) {
     const urls = arg.split(",").map(s => s.trim()).filter(Boolean);
     if (!urls.length) return menuAnswer("Tidak ada URL/ID market yang dikirim.");
 
-    return runWithProgress(
+    const queueResults = [];
+    const output = await runWithProgress(
       ctx,
       `Menganalisis ${urls.length} market dari antrian`,
       async (setStep, signal) => {
-        let results = [];
+        const results = [];
         for (let i = 0; i < urls.length; i++) {
           throwIfAborted(signal);
           const url = urls[i];
-          setStep(`[Queue ${i + 1}/${urls.length}] Resolving market...`);
-          try {
-            const target = await resolveAnalyzeInput(url);
-            if (target.kind === "market" && !target.market) throw new Error("Market tidak ditemukan.");
-            
-            setStep(`[Queue ${i + 1}/${urls.length}] Analyzing: ${target.market.question}`);
-            const markdown = await deepAnalyzeMarket({ market: target.market, query: url, setStep, ctx, signal });
-            
-            if (markdown && ctx && typeof ctx.sendMessage === "function") {
-              await ctx.sendMessage(markdown, menuKeyboard());
+          let lastError = null;
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            setStep(`[Queue ${i + 1}/${urls.length}] Resolving market${attempt > 1 ? " (retry)" : ""}...`);
+            try {
+              const target = await resolveAnalyzeInput(url);
+              if (target.kind === "market" && !target.market) throw new Error("Market tidak ditemukan.");
+
+              setStep(`[Queue ${i + 1}/${urls.length}] Analyzing: ${target.market.question}`);
+              const markdown = await deepAnalyzeMarket({ market: target.market, query: url, setStep, ctx, signal });
+
+              if (markdown && ctx && typeof ctx.sendMessage === "function") {
+                await ctx.sendMessage(markdown, menuKeyboard()).catch(() => {});
+              }
+
+              queueResults.push({ input: url, marketId: String(target.market.id), status: "success", attempts: attempt });
+              results.push(`✅ Selesai: ${target.market.question}`);
+              lastError = null;
+              break;
+            } catch (err) {
+              if (signal?.aborted) throw err;
+              lastError = err;
             }
-            
-            results.push(`✅ Selesai: ${target.market.question}`);
-          } catch (err) {
-            results.push(`❌ Gagal (${url.slice(-15)}...): ${err.message}`);
+          }
+          if (lastError) {
+            queueResults.push({ input: url, status: "error", attempts: 2, error: lastError.message || String(lastError) });
+            results.push(`❌ Gagal (${url.slice(-15)}...): ${lastError.message}`);
           }
         }
         return `✅ Antrian Selesai Diproses!\n\n${results.join("\\n")}`;
       },
       { estimateSeconds: urls.length * 20, mode: "deep" }
     );
+    return menuAnswer(output, { status: "completed", type: "analysis_queue", items: queueResults });
   }
 
   if (["/quickscan", "/top3", "/eventscan", "/eventtop"].includes(command)) {

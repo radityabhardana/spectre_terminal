@@ -44,7 +44,7 @@ const btnTop3 = document.querySelector("#btnTop3");
 const btnAnalyzeBest = document.querySelector("#btnAnalyzeBest");
 const btnAnalyzeAll = document.querySelector("#btnAnalyzeAll");
 
-const CLIENT_VERSION = "public-search-v2-event-wide-analysis-v14-top-market-discovery";
+const CLIENT_VERSION = "public-search-v2-event-wide-analysis-v15-reliable-queue";
 let busy = false;
 let timerId = null;
 let startedAt = 0;
@@ -1553,7 +1553,7 @@ function syncRateLimit(data = {}) {
 
 function isQwenCommand(commandText) {
   const lower = String(commandText || "").trim().toLowerCase();
-  const QWEN_COMMANDS = ["/analyze", "/analyzebest", "/analyzeall", "/eventmarket", "/eventbest", "/eventall"];
+  const QWEN_COMMANDS = ["/analyze", "/analyzebest", "/analyzeall", "/analyzequeue", "/eventmarket", "/eventbest", "/eventall"];
   const [cmdName, ...args] = lower.split(/\s+/);
   return QWEN_COMMANDS.includes(cmdName) && args.length > 0;
 }
@@ -1576,16 +1576,16 @@ function markQueueItemsFailed(cmdText) {
 }
 
 async function executeCommand(commandText, isBackground = false) {
-  if (busy) return;
+  if (busy) return { ok: false, deferred: true };
   const text = String(commandText || "").trim();
-  if (!text) return;
+  if (!text) return { ok: false, deferred: false };
 
   const remMs = getCooldownRemaining(text);
   if (remMs > 0) {
     const tabInfo = tabInfoForCommand(text, "auto");
     if (!isBackground) setActiveTab(tabInfo);
-    addError(`ANTI-SPAM: Command ini masih dalam cooldown ${Math.ceil(remMs / 1000)} detik lagi.`, tabInfo.id);
-    return;
+    if (!isBackground) addError(`ANTI-SPAM: Command ini masih dalam cooldown ${Math.ceil(remMs / 1000)} detik lagi.`, tabInfo.id);
+    return { ok: false, deferred: true };
   }
 
   const tabInfo = tabInfoForCommand(text, "auto");
@@ -1626,11 +1626,15 @@ async function executeCommand(commandText, isBackground = false) {
     if (!data.ok) {
       addError(data.error || "Request gagal.", tabInfo.id);
       for (const msg of data.messages || []) addMessage(msg, tabInfo.id);
-      markQueueItemsFailed(text);
-      return;
+      if (!isBackground) markQueueItemsFailed(text);
+      return { ok: false, deferred: false, data };
     }
 
+    if (data.result?.status === "rejected") {
+      return { ok: false, deferred: true, data };
+    }
     for (const msg of data.messages || []) addMessage(msg, tabInfo.id);
+    return { ok: true, deferred: false, data };
   } catch (error) {
     if (error.name === "AbortError") {
       addError("Prompt dibatalkan.", tabInfo.id);
@@ -1640,8 +1644,9 @@ async function executeCommand(commandText, isBackground = false) {
         errorMsg = "❌ Failed to fetch: Gagal menghubungi server backend.\n\nKemungkinan penyebab:\n1. Server backend mati (pastikan 'npm start' sedang berjalan)\n2. Port backend berubah atau tidak ter-expose\n3. Jaringan internet atau lokal terputus\n4. Ekstensi browser (adblocker/cors) memblokir request";
       }
       addError(errorMsg, tabInfo.id);
-      markQueueItemsFailed(text);
+      if (!isBackground) markQueueItemsFailed(text);
     }
+    return { ok: false, deferred: false, error };
   } finally {
     activeRequest = null;
     // Refresh history so that recent analysis is shown in the History tab
@@ -2407,7 +2412,7 @@ window.addCardToQueue = function(card) {
 function renderQueue() {
   if (!queueDropzone || !queueEmpty) return;
   
-  const completed = analysisQueue.filter(m => m.snipeFired).length;
+  const completed = analysisQueue.filter(m => m.analysisCompleted || m.isFailed || m.isTooLate).length;
   const queueProgressText = document.querySelector("#queueProgressText");
   const queuePanelContent = document.querySelector("#queuePanelContent");
   
@@ -2458,16 +2463,20 @@ function renderQueue() {
     let sniperStatus = "";
     if (m.isFailed) {
       sniperStatus = `<span title="Analisis Gagal" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="alert-triangle" style="width:8px; height:8px; margin-right:4px;"></i> Failed</span>`;
-    } else if (!m.snipeFired && !m.isTooLate) {
-      const targetColor = isSniperActive ? 'var(--neon-amber)' : 'var(--text-tertiary)';
-      sniperStatus = `<span title="Sniper akan menganalisis saat hitung mundur ${targetLabel}" style="color:${targetColor}; font-size:9px; border:1px solid ${targetColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Target ${targetLabel}</span>`;
     } else if (m.isTooLate) {
       sniperStatus = `<span title="Terlewat (Sisa < 1m30s)" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="x-circle" style="width:8px; height:8px; margin-right:4px;"></i> Skipped${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
-    } else if (m.snipeFired) {
+    } else if (m.analysisCompleted) {
+      sniperStatus = `<span title="Analisis selesai" style="color:var(--neon-green); font-size:9px; border:1px solid var(--neon-green); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Done</span>`;
+    } else if (m.isAnalyzing) {
+      sniperStatus = `<span title="Sedang dianalisis" style="color:var(--neon-cyan); font-size:9px; border:1px solid var(--neon-cyan); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Analyzing</span>`;
+    } else if (!m.snipeFired) {
+      const targetColor = isSniperActive ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+      sniperStatus = `<span title="Sniper akan menganalisis saat hitung mundur ${targetLabel}" style="color:${targetColor}; font-size:9px; border:1px solid ${targetColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Target ${targetLabel}</span>`;
+    } else {
       if (m.isLateFired) {
-        sniperStatus = `<span title="Target ${targetLabel}; ditembak terlambat" style="color:var(--neon-cyan); font-size:9px; border:1px solid var(--neon-cyan); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="clock-4" style="width:8px; height:8px; margin-right:4px;"></i> Fired${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
+        sniperStatus = `<span title="Target ${targetLabel}; menunggu giliran setelah terlambat" style="color:var(--neon-cyan); font-size:9px; border:1px solid var(--neon-cyan); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="clock-4" style="width:8px; height:8px; margin-right:4px;"></i> Queued${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
       } else {
-        sniperStatus = `<span title="Target ${targetLabel}" style="color:var(--text-tertiary); font-size:9px; border:1px solid var(--border-bright); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Fired${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
+        sniperStatus = `<span title="Menunggu giliran analisis" style="color:var(--text-tertiary); font-size:9px; border:1px solid var(--border-bright); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Queued${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
       }
     }
 
@@ -2513,12 +2522,14 @@ function renderQueue() {
 
 window.removeFromQueue = function(id) {
   analysisQueue = analysisQueue.filter(m => String(m.id) !== String(id));
+  sniperExecutionQueue = sniperExecutionQueue.filter(queuedId => queuedId !== String(id));
   renderQueue();
 };
 
 if (btnClearQueue) {
   btnClearQueue.addEventListener("click", () => {
     analysisQueue = [];
+    sniperExecutionQueue = [];
     if (isSniperActive) toggleSniper();
     renderQueue();
   });
@@ -2550,6 +2561,60 @@ if (queueResizer && queuePanel) {
 }
 
 let sniperExecutionQueue = [];
+let sniperBatchInFlight = false;
+const MAX_SNIPER_ATTEMPTS = 3;
+
+async function processSniperExecutionQueue() {
+  if (sniperBatchInFlight || busy || sniperExecutionQueue.length === 0) return;
+
+  const ids = sniperExecutionQueue.slice(0, 10);
+  const items = ids.map(id => analysisQueue.find(m => String(m.id) === id)).filter(Boolean);
+  if (items.length === 0) {
+    sniperExecutionQueue.splice(0, ids.length);
+    return;
+  }
+
+  sniperBatchInFlight = true;
+  items.forEach(item => { item.isAnalyzing = true; });
+  renderQueue();
+
+  const command = "/analyzequeue " + ids.join(",");
+  const outcome = await executeCommand(command, true);
+
+  items.forEach(item => { item.isAnalyzing = false; });
+  if (outcome?.deferred) {
+    sniperBatchInFlight = false;
+    renderQueue();
+    return;
+  }
+
+  sniperExecutionQueue.splice(0, ids.length);
+  const resultItems = outcome?.data?.result?.type === "analysis_queue"
+    ? outcome.data.result.items || []
+    : [];
+
+  for (const item of items) {
+    const itemResult = resultItems.find(result =>
+      String(result.input) === String(item.id) || String(result.marketId) === String(item.id)
+    );
+    if (outcome?.ok && itemResult?.status === "success") {
+      item.analysisCompleted = true;
+      item.isFailed = false;
+      continue;
+    }
+
+    item.queueAttempts = (item.queueAttempts || 0) + 1;
+    if (item.queueAttempts < MAX_SNIPER_ATTEMPTS && analysisQueue.includes(item)) {
+      sniperExecutionQueue.push(String(item.id));
+    } else {
+      item.isFailed = true;
+      item.queueError = itemResult?.error || outcome?.error?.message || "Request analisis gagal.";
+    }
+  }
+
+  sniperBatchInFlight = false;
+  renderQueue();
+}
 
 const btnSniperSettings = document.querySelector("#btnSniperSettings");
 const sniperSettingsPanel = document.querySelector("#sniperSettingsPanel");
@@ -2622,20 +2687,12 @@ function startSniper() {
     if (triggered) renderQueue();
 
     // 2. Eksekusi tembakan jika UI tidak sedang sibuk
-    if (!busy && sniperExecutionQueue.length > 0) {
-      // Ambil maksimal 10 tembakan sekaligus
-      const urlsToShoot = sniperExecutionQueue.splice(0, 10);
-      const commandStr = urlsToShoot.length === 1 
-        ? "/analyze " + urlsToShoot[0]
-        : "/analyzequeue " + urlsToShoot.join(",");
-        
-      executeCommand(commandStr, true); // Eksekusi di background, jangan paksa pindah tab
-    }
+    if (!busy && sniperExecutionQueue.length > 0) processSniperExecutionQueue();
     
     // 3. Auto-stop jika semua market di antrean sudah ditembak & dieksekusi
     if (isSniperActive && analysisQueue.length > 0) {
-      const allFired = analysisQueue.every(m => m.snipeFired);
-      if (allFired && sniperExecutionQueue.length === 0 && !busy) {
+      const allFinished = analysisQueue.every(m => m.analysisCompleted || m.isFailed || m.isTooLate);
+      if (allFinished && sniperExecutionQueue.length === 0 && !busy && !sniperBatchInFlight) {
         toggleSniper();
       }
     }
@@ -3719,10 +3776,10 @@ function renderHistoryEvents(events) {
   for (const event of statsEvents) {
     const r = (event.result || "").toLowerCase();
     const p = (event.prediction || "").trim().toUpperCase();
-    const isNeutral = event.actionable !== 1 || r === 'netral' || p === '=' || p === 'SKIP' || p === 'NETRAL' || p === 'WATCHLIST';
+    const isNeutral = r === 'netral' || p === '=' || p === 'SKIP' || p === 'NETRAL' || p === 'WATCHLIST';
 
-    if (event.actionable === 1 && event.result === 'menang') wins++;
-    else if (event.actionable === 1 && event.result === 'kalah') losses++;
+    if (event.result === 'menang') wins++;
+    else if (event.result === 'kalah') losses++;
     else if (isNeutral) neutrals++;
     else pending++;
   }

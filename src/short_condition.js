@@ -850,7 +850,7 @@ export async function evaluateShortMarketCondition({
   }
 
   let finalOpeningPrice = initialOpeningPrice;
-  let finalLivePrice = null;
+  let finalLivePrice = initialLivePrice;
   let finalMarketPrices = initialMarketPrices;
   if (oracleSourceVerified) {
     try {
@@ -874,13 +874,6 @@ export async function evaluateShortMarketCondition({
           marketActive: refreshedPrices.marketActive === true,
           marketClosed: refreshedPrices.marketClosed !== false,
           acceptingOrders: refreshedPrices.acceptingOrders === true,
-        };
-      } else if (typeof refreshMarketPrices === "function") {
-        finalMarketPrices = {
-          ...initialMarketPrices,
-          marketActive: false,
-          marketClosed: true,
-          acceptingOrders: false,
         };
       }
     } catch (error) {

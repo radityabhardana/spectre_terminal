@@ -101,7 +101,7 @@ function safeJsonParse(value, fallback) {
   }
 }
 
-export const SEARCH_ENGINE_VERSION = "public-search-v2-event-wide-analysis-v14-top-market-discovery";
+export const SEARCH_ENGINE_VERSION = "public-search-v2-event-wide-analysis-v15-reliable-queue";
 
 function normalizeMarket(raw, event = null, eventSearchRank = 999) {
   const outcomes = safeJsonParse(raw.outcomes, raw.outcomes || []);

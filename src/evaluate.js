@@ -191,7 +191,7 @@ export async function evaluateResolutions(ctx = null) {
       countResolved++;
       let statusText = "kalah";
       const p = (event.prediction || "").toUpperCase();
-      const isNeutralPrediction = event.actionable !== 1 || p === "=" || p === "SKIP" || p === "NETRAL" || p === "WATCHLIST";
+      const isNeutralPrediction = p === "=" || p === "SKIP" || p === "NETRAL" || p === "WATCHLIST";
       const w = (actualOutcome || "").toUpperCase();
       const directMatch = p && w && p === w;
       

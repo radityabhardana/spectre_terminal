@@ -166,10 +166,11 @@ function pushMessage(messages, text, options = {}, role = "assistant") {
 }
 
 function normalizeAnswer(answer) {
-  if (typeof answer === "string") return { text: answer, options: {} };
+  if (typeof answer === "string") return { text: answer, options: {}, result: null };
   return {
     text: answer?.text || "",
     options: answer?.options || {},
+    result: answer?.result || null,
   };
 }
 
@@ -259,6 +260,7 @@ async function handleApiCommand(req, res) {
       ...qwenHealth(),
       ...rateLimitHealth(),
       messages,
+      result: normalized.result,
     });
   } catch (error) {
     if (controller.signal.aborted) return;

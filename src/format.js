@@ -459,7 +459,6 @@ export function formatBook(book) {
 
 export function formatAnalysis({ market, score, qwenResult, finalPrediction, analysisTime }) {
   const qwen = qwenResult?.analysis || {};
-  const verdict = finalVerdict(score, qwen);
   const direction = directionSignal(score);
   const strength = directionStrength(direction);
 
@@ -468,9 +467,11 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
   const isCryptoMarket = researchType === "crypto";
   const isUfcMarket = researchType === "sports_ufc";
   const isShortCrypto = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below)/i.test(market.question || "");
-  const mechanicalBlockers = (score.blockers || []).filter((blocker) =>
-    !isShortCrypto || blocker !== "No measured positive edge"
-  );
+  const isTerminalShortCrypto = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*up or down/i.test(market.question || "");
+  const verdict = isTerminalShortCrypto ? qwen.verdict || "SKIP" : finalVerdict(score, qwen);
+  const mechanicalBlockers = isTerminalShortCrypto
+    ? []
+    : (score.blockers || []).filter((blocker) => !isShortCrypto || blocker !== "No measured positive edge");
   const decisionBlockers = [
     ...mechanicalBlockers,
     ...(qwen.validationIssues || []).map((issue) => `[OUTPUT VALIDATION] ${issue}`),
@@ -512,7 +513,7 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
     market.url ? `URL: ${market.url}` : null,
     "",
     "KESIMPULAN CEPAT",
-    `Arah market: ${shownDirection} (${isShortCrypto ? 'dari Qwen Kuantitatif / EV analysis' : strength})`,
+    `Arah market: ${shownDirection} (${isTerminalShortCrypto ? 'deterministic Chainlink terminal model' : isShortCrypto ? 'dari Qwen Kuantitatif / EV analysis' : strength})`,
     `Entry status: ${entryVerdictMeaning(verdict)}`,
     `Catatan: Arah market = bacaan probabilitas/sentimen. Entry status = layak masuk atau tidak.`,
     "",
@@ -532,23 +533,28 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
     `Orderbook ${direction.primaryLabel}: bid ${price(score.bestBid)} | ask ${price(score.bestAsk)} | spread ${pct(
       score.spreadPercent
     )}`,
+    isTerminalShortCrypto && (qwen.deterministicSnapshot || score.shortBookPrices)
+      ? `Executable books: UP ask ${price(qwen.deterministicSnapshot?.upAsk ?? score.shortBookPrices?.up.bestAsk)} / mid ${price(qwen.deterministicSnapshot?.upMidpoint ?? score.shortBookPrices?.up.midpoint)} | DOWN ask ${price(qwen.deterministicSnapshot?.downAsk ?? score.shortBookPrices?.down.bestAsk)} / mid ${price(qwen.deterministicSnapshot?.downMidpoint ?? score.shortBookPrices?.down.midpoint)}`
+      : null,
     "",
     ...researchLines(qwenResult),
     "CONFIDENCE & RISK",
-    `Data confidence: ${confidenceText(score.confidenceScore)} | Qwen confidence: ${confidenceText(qwen.confidence)}`,
+    `Data confidence: ${confidenceText(score.confidenceScore)} | ${isTerminalShortCrypto ? "Deterministic confidence" : "Qwen confidence"}: ${confidenceText(qwen.confidence)}`,
     `Risks: liquidity ${score.liquidityRisk}, spread ${score.spreadRisk}, resolution ${score.resolutionRisk}`,
     qwen.technicalSource ? `Technical source: ${qwen.technicalSource}` : null,
     qwen.rawRecommendation || qwen.rawDirection
-      ? `Raw AI: ${qwen.rawRecommendation || "n/a"} / ${qwen.rawDirection || "n/a"} / primary probability ${qwen.rawPrimaryProbability ?? "n/a"}%`
+      ? isTerminalShortCrypto
+        ? `Deterministic diagnostic: ${qwen.rawRecommendation || "n/a"} / forecast ${qwen.rawDirection || "n/a"} / terminal UP probability ${qwen.rawPrimaryProbability ?? "n/a"}%`
+        : `Raw AI: ${qwen.rawRecommendation || "n/a"} / ${qwen.rawDirection || "n/a"} / primary probability ${qwen.rawPrimaryProbability ?? "n/a"}%`
       : null,
     score.dataWarnings?.length ? `Data warning: ${score.dataWarnings.join("; ")}` : null,
     `Guardrail: ${blockers}`,
     "",
     "ALASAN SINGKAT",
-    `Qwen summary: ${qwen.summary || "n/a"}`,
+    `${isTerminalShortCrypto ? "Explanation" : "Qwen summary"}: ${qwen.summary || "n/a"}`,
     // Only show fair probability context for crypto markets
     (isCryptoMarket || isShortCrypto) && qwen.estimatedFairProbability != null
-      ? `Est. Fair Prob: ${qwen.estimatedFairProbability}% | Market Prob: ${score.marketProbability?.toFixed(1) ?? "n/a"}%`
+      ? `${isTerminalShortCrypto ? "Selected/lean Fair Prob" : "Est. Fair Prob"}: ${qwen.estimatedFairProbability}% | ${isTerminalShortCrypto ? `Terminal UP Prob: ${qwen.primaryOutcomeProbability ?? "n/a"}%` : `Market Prob: ${score.marketProbability?.toFixed(1) ?? "n/a"}%`}`
       : null,
     qwen.expectedValueCents != null ? `Expected Value (EV): ${qwen.expectedValueCents.toFixed(2)} cents per share` : null,
     qwen.positionSizePct != null ? `Kelly Sizing Rec: ${qwen.positionSizePct}% of Portfolio` : null,
@@ -558,17 +564,18 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
     "",
     "ENTRY VERDICT",
     entryVerdictMeaning(verdict),
-    `Mechanical: ${score.verdict} | Qwen: ${qwen.verdict || "n/a"}`,
+    isTerminalShortCrypto ? `Deterministic entry: ${qwen.verdict || "SKIP"}` : `Mechanical: ${score.verdict} | Qwen: ${qwen.verdict || "n/a"}`,
     modelLine(qwenResult),
     usageLine(qwenResult),
     "",
     "KESIMPULAN AKHIR",
     `Hasil Arah: ${shownDirection === 'NETRAL' ? '=' : shownDirection}`,
     `Data Confidence: ${confidenceText(score.confidenceScore)}`,
-    `Qwen Confidence: ${confidenceText(qwen.confidence)}`,
+    `${isTerminalShortCrypto ? "Deterministic Confidence" : "Qwen Confidence"}: ${confidenceText(qwen.confidence)}`,
     `Kesimpulan Analisis: ${qwen.summary || "n/a"}`,
     qwen.targetPrice != null ? `Target Price: ${qwen.targetPrice}` : null,
     qwen.oraclePrice != null ? `Realtime Chainlink Price: ${qwen.oraclePrice}` : null,
+    isTerminalShortCrypto && qwen.signalDataAt ? `Final Chainlink snapshot: ${qwen.signalDataAt}` : null,
     "",
     "Disclaimer: Analisis ini bukan financial advice dan tidak menjamin hasil.",
   ]
@@ -731,27 +738,36 @@ export function formatEventAnalysis({ event, analyzedMarkets, qwenResult }) {
     .join("\n");
 }
 
-export function formatShortCondition({ techData, longShort, fearGreed, evaluation }) {
+export function formatShortCondition({ techData, tickerData, longShort, fearGreed, oraclePrice, oraclePublishTime, targetPrice, evaluation }) {
   const rec     = (evaluation.recommendation || "AVOID").toUpperCase();
   const dir     = (evaluation.direction || "NEUTRAL").toUpperCase();
   const cond    = (evaluation.condition || "UNKNOWN").toUpperCase();
   const recIcon = rec === "PLAY" ? "PLAY" : "AVOID";
   const dirIcon = dir === "UP" ? "UP" : dir === "DOWN" ? "DOWN" : "NEUTRAL";
   const sigs    = evaluation.key_signals || {};
-  const td      = techData || {};
+  const td      = techData || tickerData || {};
   const conf    = evaluation.confidence ? `${evaluation.confidence}/100` : "n/a";
 
   return [
     "SHORT MARKET VIBE CHECK",
     `${recIcon} | ARAH: ${dirIcon} | Confidence: ${conf}`,
+    `Forecast lean (diagnostic): ${evaluation.forecast_direction || "NEUTRAL"}`,
     `Kondisi: ${cond}   Sentimen: ${evaluation.sentiment || "N/A"}`,
+    "",
+    "── FINAL CHAINLINK SNAPSHOT ────────────────────",
+    `Current Price: ${oraclePrice != null ? `$${oraclePrice}` : "unavailable"}`,
+    `Price to Beat: ${targetPrice != null ? `$${targetPrice}` : "unavailable"}`,
+    `Published: ${oraclePublishTime || "unavailable"}`,
+    `Terminal UP probability: ${evaluation.primary_outcome_probability ?? "n/a"}%`,
+    `Selected/lean fair probability: ${evaluation.estimated_fair_probability ?? "n/a"}%`,
+    `Net EV after fees: ${evaluation.expected_value_cents ?? "n/a"}c`,
     "",
     "── INDIKATOR TEKNIKAL ──────────────────────────",
     td.currentPrice   ? `Harga: $${td.currentPrice} (24h: ${td.priceChange24h}%)` : null,
     td.rsi14 != null  ? `RSI-14: ${td.rsi14} → ${td.rsiSignal}` : null,
     td.macd           ? `MACD: Line:${td.macd.line} Signal:${td.macd.signal} Hist:${td.macd.histogram} → ${td.macd.trend}` : null,
     td.volumeRatio    ? `Volume Ratio: ${td.volumeRatio}x → ${td.volumeSignal}` : null,
-    td.recentCandles  ? `Candles (5m): ${td.recentCandles.map(c => c.direction === "UP" ? "UP" : "DN").join(" ")}` : null,
+    td.recentCandles  ? `Candles (${td.interval || "n/a"}): ${td.recentCandles.map(c => c.direction === "UP" ? "UP" : "DN").join(" ")}` : null,
     "",
     "── SENTIMEN & POSITIONING ──────────────────────",
     longShort
@@ -760,13 +776,11 @@ export function formatShortCondition({ techData, longShort, fearGreed, evaluatio
     fearGreed ? `Fear & Greed: ${fearGreed.value}/100 → ${fearGreed.label}` : "Fear & Greed: unavailable",
     "",
     "── SIGNAL ALIGNMENT ───────────────────────────",
-    sigs.rsi_verdict      ? `RSI:     ${sigs.rsi_verdict}` : null,
-    sigs.macd_verdict     ? `MACD:    ${sigs.macd_verdict}` : null,
-    sigs.volume_verdict   ? `Volume:  ${sigs.volume_verdict}` : null,
-    sigs.futures_verdict  ? `Futures: ${sigs.futures_verdict}` : null,
-    sigs.alignment_score  ? `Overall: ${sigs.alignment_score}` : null,
+    sigs.depth_verdict ? `Depth context: ${sigs.depth_verdict}` : null,
+    sigs.liquidation_verdict ? `Liquidation context: ${sigs.liquidation_verdict}` : null,
+    sigs.flow_verdict ? `Flow context: ${sigs.flow_verdict}` : null,
     "",
-    "── AI ANALYSIS ────────────────────────────────",
+    "── EXPLANATION ────────────────────────────────",
     evaluation.reason || "n/a",
     evaluation.risk_warning ? `\nRISK WARNING: ${evaluation.risk_warning}` : null,
     "",

@@ -4,69 +4,69 @@ import assert from "node:assert/strict";
 import { calculateKelly } from "../src/analytics.js";
 import { tradePricingForPrediction } from "../src/index.js";
 import { normalizeShortAnalysis, parseOpenAiResponse, requestAiText } from "../src/qwen.js";
-import { calculateTechnicalIndicators, chainlinkVariant } from "../src/short_condition.js";
+import {
+  calculateTechnicalIndicators,
+  chainlinkVariant,
+  estimateTerminalUpProbability,
+  evaluateDeterministicShortSnapshot,
+  selectShortMarketSide,
+} from "../src/short_condition.js";
+import { ANALYSIS_STRATEGY_VERSION, summarizePlayStats } from "../src/storage.js";
 
-test("short analysis converts primary probability for DOWN EV", () => {
-  const result = normalizeShortAnalysis({
-    condition: "TRENDING",
-    recommendation: "PLAY",
-    direction: "DOWN",
-    confidence: 88,
-    estimated_fair_probability: 30,
-  }, 30);
+test("terminal UP probability is symmetric and monotonic around Price to Beat", () => {
+  const probability = (currentPrice) => estimateTerminalUpProbability({
+    currentPrice,
+    priceToBeat: 50_000,
+    remainingMs: 300_000,
+    atr: 500,
+    atrIntervalMs: 300_000,
+  });
 
-  assert.equal(result.recommendation, "PLAY");
-  assert.equal(result.direction, "DOWN");
-  assert.equal(result.primary_outcome_probability, 30);
-  assert.equal(result.estimated_fair_probability, 70);
+  assert.ok(Math.abs(probability(50_000) - 50) < 0.001);
+  for (const offset of [25, 100, 500, 1_000]) {
+    assert.ok(Math.abs(probability(50_000 + offset) + probability(50_000 - offset) - 100) < 0.001);
+  }
+  const ordered = [49_500, 49_900, 50_000, 50_100, 50_500].map(probability);
+  assert.deepEqual(ordered, [...ordered].sort((a, b) => a - b));
 });
 
-test("short analysis clamps AI adjustment to fifteen points", () => {
+test("short side selection uses each executable ask and chooses the best qualifying EV", () => {
+  const down = selectShortMarketSide({
+    upProbability: 35,
+    upAsk: 0.01,
+    downAsk: 0.5,
+    maxPrice: 0.7,
+    feeBufferCents: 4,
+  });
+  assert.equal(down.direction, "DOWN");
+  assert.equal(down.selected.ask, 0.5);
+  assert.equal(down.selected.netEvCents, 11);
+
+  const both = selectShortMarketSide({
+    upProbability: 60,
+    upAsk: 0.4,
+    downAsk: 0.1,
+    maxPrice: 0.7,
+    feeBufferCents: 4,
+    minDirectionalProbability: 0,
+  });
+  assert.equal(both.direction, "DOWN");
+  assert.equal(both.selected.netEvCents, 26);
+});
+
+test("AI short normalization keeps explanation fields only", () => {
   const result = normalizeShortAnalysis({
-    condition: "TRENDING",
     recommendation: "PLAY",
-    direction: "UP",
-    confidence: 90,
+    direction: "DOWN",
     estimated_fair_probability: 99,
-  }, 50);
-
-  assert.equal(result.primary_outcome_probability, 65);
-  assert.equal(result.estimated_fair_probability, 65);
-});
-
-test("short analysis rejects contradictory direction", () => {
-  const result = normalizeShortAnalysis({
-    condition: "TRENDING",
-    recommendation: "PLAY",
-    direction: "DOWN",
-    confidence: 95,
-    estimated_fair_probability: 75,
-  }, 70);
-
-  assert.equal(result.recommendation, "AVOID");
-  assert.equal(result.direction, "NEUTRAL");
-  assert.match(result.reason, /OUTPUT VALIDATION/);
-});
-
-test("short analysis rejects blank probability and unknown condition", () => {
-  const blankProbability = normalizeShortAnalysis({
-    condition: "TRENDING",
-    recommendation: "PLAY",
-    direction: "DOWN",
-    confidence: 90,
-    estimated_fair_probability: "",
-  }, 40);
-  assert.equal(blankProbability.recommendation, "AVOID");
-
-  const unknownCondition = normalizeShortAnalysis({
-    condition: "SIDEWAYSISH",
-    recommendation: "PLAY",
-    direction: "UP",
-    confidence: 90,
-    estimated_fair_probability: 65,
-  }, 60);
-  assert.equal(unknownCondition.recommendation, "AVOID");
-  assert.equal(unknownCondition.direction, "NEUTRAL");
+    reason: "Explanation",
+    key_signals: { flow_verdict: "Context" },
+  });
+  assert.equal(result.reason, "Explanation");
+  assert.equal(result.key_signals.flow_verdict, "Context");
+  assert.equal("recommendation" in result, false);
+  assert.equal("direction" in result, false);
+  assert.equal("estimated_fair_probability" in result, false);
 });
 
 test("Kelly returns zero stake for zero edge and ignores neutral history", () => {
@@ -157,6 +157,7 @@ test("technical indicators work without fabricating unavailable volume", () => {
   }));
   const result = calculateTechnicalIndicators(candles);
   assert.ok(result.atr14 > 0);
+  assert.ok(Number.isFinite(result.intervalVolatility));
   assert.ok(Number.isFinite(result.rsi14));
   assert.ok(Number.isFinite(result.macd.histogram));
   assert.equal(result.volumeAvailable, false);
@@ -164,34 +165,86 @@ test("technical indicators work without fabricating unavailable volume", () => {
   assert.equal(result.volumeSignal, "unavailable");
 });
 
-test("neutral output is labeled as neutral band, not contradiction", () => {
-  const result = normalizeShortAnalysis({
-    condition: "CHOPPY",
-    recommendation: "AVOID",
-    direction: "NEUTRAL",
-    confidence: 70,
-    estimated_fair_probability: 51,
-  }, 50);
-  assert.equal(result.direction, "NEUTRAL");
-  assert.match(result.reason, /neutral band/);
-  assert.doesNotMatch(result.reason, /tidak konsisten/);
-  assert.equal(result.raw_recommendation, "AVOID");
-  assert.equal(result.raw_direction, "NEUTRAL");
-  assert.equal(result.raw_primary_probability, 51);
-  assert.deepEqual(result.validation_issues, ["probabilitas primer 51% berada di neutral band 46-54%"]);
+test("DOGE-scale ATR retains enough precision for terminal probability", () => {
+  const candles = Array.from({ length: 40 }, (_, index) => ({
+    time: Date.UTC(2026, 0, 1, 0, index * 5),
+    open: 0.2 + index * 0.0001,
+    high: 0.201 + index * 0.0001,
+    low: 0.199 + index * 0.0001,
+    close: 0.2001 + index * 0.0001,
+    volume: null,
+  }));
+  const result = calculateTechnicalIndicators(candles);
+  assert.ok(result.atr14 > 0);
+  assert.ok(result.atr14 < 0.01);
 });
 
-test("non-actionable analysis keeps a valid directional forecast", () => {
-  const result = normalizeShortAnalysis({
-    condition: "TRENDING",
-    recommendation: "AVOID",
-    direction: "UP",
-    confidence: 75,
-    estimated_fair_probability: 65,
-  }, 55);
-  assert.equal(result.recommendation, "AVOID");
-  assert.equal(result.direction, "UP");
-  assert.deepEqual(result.validation_issues, []);
+test("stale, missing-book, and overprice blockers neutralize short trades but retain forecast lean", () => {
+  const nowMs = Date.UTC(2026, 6, 28, 12, 0, 0);
+  const input = {
+    currentPrice: 101,
+    priceToBeat: 100,
+    oraclePublishTime: new Date(nowMs - 1_000).toISOString(),
+    oracleSourceVerified: true,
+    startTimeMs: nowMs - 200_000,
+    endTimeMs: nowMs + 100_000,
+    nowMs,
+    atr: 1,
+    atrIntervalMs: 300_000,
+    upAsk: 0.6,
+    downAsk: 0.3,
+    maxPrice: 0.7,
+    feeBufferCents: 4,
+    minSecondsToClose: 30,
+  };
+  const valid = evaluateDeterministicShortSnapshot(input);
+  assert.equal(valid.recommendation, "PLAY");
+  assert.equal(valid.direction, "UP");
+
+  const stale = evaluateDeterministicShortSnapshot({
+    ...input,
+    oraclePublishTime: new Date(nowMs - 16_000).toISOString(),
+  });
+  assert.equal(stale.recommendation, "AVOID");
+  assert.equal(stale.direction, "NEUTRAL");
+  assert.equal(stale.forecast_direction, "UP");
+  assert.ok(stale.guardrail_blockers.some((blocker) => blocker.includes("stale")));
+
+  const missingDownBook = evaluateDeterministicShortSnapshot({
+    ...input,
+    currentPrice: 99,
+    upAsk: 0.3,
+    downAsk: null,
+  });
+  assert.equal(missingDownBook.direction, "NEUTRAL");
+  assert.equal(missingDownBook.forecast_direction, "DOWN");
+  assert.ok(missingDownBook.guardrail_blockers.some((blocker) => blocker.includes("DOWN ask")));
+
+  const overpriced = evaluateDeterministicShortSnapshot({ ...input, upAsk: 0.8 });
+  assert.equal(overpriced.direction, "NEUTRAL");
+  assert.equal(overpriced.forecast_direction, "UP");
+  assert.ok(overpriced.guardrail_blockers.some((blocker) => blocker.includes("MAX ENTRY")));
+
+  const closed = evaluateDeterministicShortSnapshot({ ...input, marketClosed: true });
+  assert.equal(closed.direction, "NEUTRAL");
+  assert.ok(closed.guardrail_blockers.some((blocker) => blocker.includes("MARKET GUARDRAIL")));
+});
+
+test("PLAY statistics include all strategies but exclude non-actionable, neutral, and unresolved records", () => {
+  const events = [
+    { strategy_version: ANALYSIS_STRATEGY_VERSION, actionable: 1, status: "selesai", result: "menang" },
+    { strategy_version: ANALYSIS_STRATEGY_VERSION, actionable: 1, status: "selesai", result: "kalah" },
+    { strategy_version: ANALYSIS_STRATEGY_VERSION, actionable: 0, status: "selesai", result: "menang" },
+    { strategy_version: ANALYSIS_STRATEGY_VERSION, actionable: 1, status: "selesai", result: "netral" },
+    { strategy_version: ANALYSIS_STRATEGY_VERSION, actionable: 1, status: "belum selesai", result: "menang" },
+    { strategy_version: "old", actionable: 1, status: "selesai", result: "menang" },
+  ];
+  assert.deepEqual(summarizePlayStats(events), {
+    sampleSize: 3,
+    wins: 2,
+    losses: 1,
+    winRate: 66.7,
+  });
 });
 
 test("flat candles produce neutral RSI and MACD", () => {

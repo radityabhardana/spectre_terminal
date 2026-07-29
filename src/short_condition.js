@@ -18,6 +18,215 @@ const DURATION_MS = {
   "1d": 24 * 60 * 60 * 1000,
 };
 
+const CHAINLINK_MAX_AGE_MS = 15_000;
+const SHORT_AI_TIMEOUT_MS = 4_000;
+const MIN_DIRECTIONAL_PROBABILITY = 55;
+const MIN_NET_EV_CENTS = 5;
+// Brownian high-low range is about 1.596 standard deviations on average.
+const ATR_TO_SIGMA = 1 / 1.5958;
+
+function finiteNumber(value) {
+  if (value == null || (typeof value === "string" && !value.trim())) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function standardNormalCdf(z) {
+  const x = Math.abs(z) / Math.sqrt(2);
+  const t = 1 / (1 + 0.3275911 * x);
+  const erf = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return 0.5 * (1 + (z < 0 ? -erf : erf));
+}
+
+export function estimateTerminalUpProbability({
+  currentPrice,
+  priceToBeat,
+  remainingMs,
+  atr,
+  intervalVolatility,
+  atrIntervalMs,
+}) {
+  const current = finiteNumber(currentPrice);
+  const opening = finiteNumber(priceToBeat);
+  const remaining = finiteNumber(remainingMs);
+  const measuredVolatility = finiteNumber(intervalVolatility);
+  const fallbackAtr = finiteNumber(atr);
+  const volatility = measuredVolatility != null && measuredVolatility > 0
+    ? measuredVolatility
+    : fallbackAtr != null && fallbackAtr > 0
+      ? fallbackAtr * ATR_TO_SIGMA
+      : null;
+  const interval = finiteNumber(atrIntervalMs);
+  if (current == null || current <= 0 || opening == null || opening <= 0 || remaining == null || remaining <= 0 || volatility == null || volatility <= 0 || interval == null || interval <= 0) {
+    return null;
+  }
+
+  const terminalVolatility = volatility * Math.sqrt(remaining / interval);
+  const probability = standardNormalCdf((current - opening) / terminalVolatility) * 100;
+  return Math.max(0, Math.min(100, probability));
+}
+
+export function selectShortMarketSide({
+  upProbability,
+  upAsk,
+  downAsk,
+  maxPrice = config.tradeMaxPrice,
+  feeBufferCents = config.tradeFeeBufferCents,
+  minNetEvCents = MIN_NET_EV_CENTS,
+  minDirectionalProbability = MIN_DIRECTIONAL_PROBABILITY,
+}) {
+  const upFair = finiteNumber(upProbability);
+  const downFair = upFair == null ? null : 100 - upFair;
+  const normalizedMaxPrice = finiteNumber(maxPrice);
+  const normalizedFee = finiteNumber(feeBufferCents);
+  const normalizedMinEv = finiteNumber(minNetEvCents);
+  const normalizedMinFair = finiteNumber(minDirectionalProbability);
+  const buildSide = (direction, fairProbability, rawAsk) => {
+    const ask = finiteNumber(rawAsk);
+    const validAsk = ask != null && ask > 0 && ask <= 1 ? ask : null;
+    const netEvCents = fairProbability == null || validAsk == null || normalizedFee == null
+      ? null
+      : fairProbability - validAsk * 100 - normalizedFee;
+    const qualifies = fairProbability != null
+      && normalizedMinFair != null
+      && fairProbability >= normalizedMinFair
+      && validAsk != null
+      && normalizedMaxPrice != null
+      && validAsk <= normalizedMaxPrice
+      && netEvCents != null
+      && normalizedMinEv != null
+      && netEvCents >= normalizedMinEv;
+    return { direction, fairProbability, ask: validAsk, netEvCents, qualifies };
+  };
+
+  const sides = {
+    UP: buildSide("UP", upFair, upAsk),
+    DOWN: buildSide("DOWN", downFair, downAsk),
+  };
+  const selected = Object.values(sides)
+    .filter((side) => side.qualifies)
+    .sort((a, b) => b.netEvCents - a.netEvCents || b.fairProbability - a.fairProbability || a.ask - b.ask)[0] || null;
+
+  return {
+    recommendation: selected ? "PLAY" : "AVOID",
+    direction: selected?.direction || "NEUTRAL",
+    selected,
+    sides,
+  };
+}
+
+export function evaluateDeterministicShortSnapshot({
+  currentPrice,
+  priceToBeat,
+  oraclePublishTime,
+  oracleSourceVerified,
+  startTimeMs,
+  endTimeMs,
+  nowMs,
+  atr,
+  intervalVolatility,
+  atrIntervalMs,
+  upAsk,
+  downAsk,
+  marketActive = true,
+  marketClosed = false,
+  acceptingOrders = true,
+  maxPrice = config.tradeMaxPrice,
+  feeBufferCents = config.tradeFeeBufferCents,
+  minSecondsToClose = config.tradeMinSecondsToClose,
+}) {
+  const now = finiteNumber(nowMs);
+  const start = finiteNumber(startTimeMs);
+  const end = finiteNumber(endTimeMs);
+  const publishMs = parseTimestamp(oraclePublishTime);
+  const remainingMs = now == null || end == null ? null : end - now;
+  const probability = estimateTerminalUpProbability({
+    currentPrice,
+    priceToBeat,
+    remainingMs,
+    atr,
+    intervalVolatility,
+    atrIntervalMs,
+  });
+  const selection = selectShortMarketSide({
+    upProbability: probability,
+    upAsk,
+    downAsk,
+    maxPrice,
+    feeBufferCents,
+  });
+  const blockers = [];
+
+  if (!oracleSourceVerified) blockers.push("[ORACLE GUARDRAIL] Resolution source is not the official Chainlink stream for this asset.");
+  if (!marketActive || marketClosed || !acceptingOrders) {
+    blockers.push("[MARKET GUARDRAIL] Market is inactive, closed, or not accepting orders.");
+  }
+  if (start == null || end == null || now == null || start >= end || now < start || now >= end) {
+    blockers.push("[TIME GUARDRAIL] Market start/end cannot be verified, has not started, or has already ended.");
+  } else if (remainingMs < finiteNumber(minSecondsToClose) * 1000) {
+    blockers.push(`[TIME GUARDRAIL] Less than ${minSecondsToClose} seconds remain before close.`);
+  }
+  const current = finiteNumber(currentPrice);
+  const opening = finiteNumber(priceToBeat);
+  if (current == null || current <= 0) blockers.push("[DATA GUARDRAIL] Fresh current Chainlink price is unavailable.");
+  if (opening == null || opening <= 0) blockers.push("[DATA GUARDRAIL] Chainlink opening Price to Beat is unavailable.");
+  const oracleAgeMs = now == null || publishMs == null ? null : now - publishMs;
+  if (oracleAgeMs == null || oracleAgeMs < -2_000 || oracleAgeMs > CHAINLINK_MAX_AGE_MS) {
+    blockers.push("[DATA GUARDRAIL] Chainlink live timestamp is missing or stale.");
+  }
+  const measuredVolatility = finiteNumber(intervalVolatility);
+  const fallbackAtr = finiteNumber(atr);
+  if (((measuredVolatility == null || measuredVolatility <= 0)
+    && (fallbackAtr == null || fallbackAtr <= 0))
+    || finiteNumber(atrIntervalMs) == null
+    || Number(atrIntervalMs) <= 0) {
+    blockers.push("[DATA GUARDRAIL] Interval volatility is unavailable or invalid.");
+  }
+
+  const upFair = probability;
+  const downFair = probability == null ? null : 100 - probability;
+  const forecastDirection = upFair == null
+    ? "NEUTRAL"
+    : upFair >= MIN_DIRECTIONAL_PROBABILITY
+      ? "UP"
+      : downFair >= MIN_DIRECTIONAL_PROBABILITY
+        ? "DOWN"
+        : "NEUTRAL";
+  const forecastSide = forecastDirection === "NEUTRAL" ? null : selection.sides[forecastDirection];
+
+  if (!selection.selected) {
+    if (forecastDirection === "NEUTRAL") {
+      blockers.push(`[DIRECTION GUARDRAIL] Terminal probability is not directional enough (UP ${upFair == null ? "n/a" : upFair.toFixed(2)}%).`);
+    } else if (forecastSide.ask == null) {
+      blockers.push(`[ORDERBOOK GUARDRAIL] Executable ${forecastDirection} ask is unavailable.`);
+    } else if (forecastSide.ask > maxPrice) {
+      blockers.push(`[MAX ENTRY PRICE GUARDRAIL] ${forecastDirection} ask $${forecastSide.ask.toFixed(4)} exceeds $${Number(maxPrice).toFixed(4)}.`);
+    } else {
+      blockers.push(`[EV GUARDRAIL] ${forecastDirection} net EV is ${forecastSide.netEvCents?.toFixed(2) ?? "n/a"}c after fees; at least ${MIN_NET_EV_CENTS}c is required.`);
+    }
+  }
+
+  const actionable = blockers.length === 0 && selection.recommendation === "PLAY";
+  const selectedOrLean = selection.selected || forecastSide;
+  const leanFairProbability = probability == null ? null : Math.max(probability, 100 - probability);
+  return {
+    condition: forecastDirection === "NEUTRAL" ? "CHOPPY" : "TRENDING",
+    recommendation: actionable ? "PLAY" : "AVOID",
+    direction: actionable ? selection.direction : "NEUTRAL",
+    actionable,
+    confidence: leanFairProbability == null ? 0 : Math.round(leanFairProbability),
+    forecast_direction: forecastDirection,
+    primary_outcome_probability: probability == null ? null : Number(probability.toFixed(2)),
+    estimated_fair_probability: selectedOrLean?.fairProbability == null ? leanFairProbability == null ? null : Number(leanFairProbability.toFixed(2)) : Number(selectedOrLean.fairProbability.toFixed(2)),
+    expected_value_cents: selectedOrLean?.netEvCents == null ? null : Number(selectedOrLean.netEvCents.toFixed(2)),
+    selected_ask: selection.selected?.ask ?? null,
+    guardrail_blockers: blockers,
+    trade_pricing: selection.sides,
+    oracle_age_ms: oracleAgeMs,
+    remaining_ms: remainingMs,
+  };
+}
+
 function normalizeDurationType(value, question = "") {
   const direct = String(value || "").trim().toLowerCase();
   if (DURATION_MS[direct]) return direct;
@@ -34,6 +243,17 @@ function parseTimestamp(value) {
   if (!value) return null;
   const timestamp = new Date(value).getTime();
   return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function isOfficialChainlinkSource(value, expectedStream) {
+  try {
+    const url = new URL(String(value || "").trim());
+    return url.protocol === "https:"
+      && url.hostname.toLowerCase() === "data.chain.link"
+      && url.pathname.replace(/\/+$/, "").toLowerCase() === `/streams/${expectedStream}`;
+  } catch {
+    return false;
+  }
 }
 
 export function chainlinkVariant(durationType) {
@@ -220,6 +440,13 @@ export function calculateTechnicalIndicators(candles) {
     ));
   }
   const atr14 = trueRanges.reduce((sum, value) => sum + value, 0) / trueRanges.length;
+  const closeDeltas = valid.slice(-31).map((candle, index, window) => (
+    index === 0 ? null : candle.close - window[index - 1].close
+  )).filter(Number.isFinite);
+  const deltaMean = closeDeltas.reduce((sum, value) => sum + value, 0) / closeDeltas.length;
+  const intervalVolatility = closeDeltas.length > 1
+    ? Math.sqrt(closeDeltas.reduce((sum, value) => sum + (value - deltaMean) ** 2, 0) / (closeDeltas.length - 1))
+    : null;
 
   const recentVolumes = valid.slice(-10).map((candle) => candle.volume);
   const volumeAvailable = recentVolumes.every((volume) => Number.isFinite(volume));
@@ -231,7 +458,8 @@ export function calculateTechnicalIndicators(candles) {
 
   return {
     currentPrice: valid.at(-1).close,
-    atr14: Number(atr14.toFixed(2)),
+    atr14: Number(atr14.toPrecision(8)),
+    intervalVolatility: intervalVolatility == null ? null : Number(intervalVolatility.toPrecision(8)),
     rsi14: rsi,
     rsiSignal: rsi > 70 ? "OVERBOUGHT" : rsi < 30 ? "OVERSOLD" : rsi > 55 ? "BULLISH ZONE" : rsi < 45 ? "BEARISH ZONE" : "NEUTRAL",
     macd: {
@@ -355,6 +583,8 @@ function saveShortConditionHistory(result, marketQuestion) {
       condition: result.condition,
       recommendation: result.recommendation,
       direction: result.direction,
+      actionable: result.actionable ? 1 : 0,
+      forecastDirection: result.forecast_direction || "NEUTRAL",
       confidence: result.confidence,
       primaryOutcomeProbability: result.primary_outcome_probability,
       selectedOutcomeProbability: result.estimated_fair_probability,
@@ -366,6 +596,7 @@ function saveShortConditionHistory(result, marketQuestion) {
       rawPrimaryProbability: result.raw_primary_probability ?? null,
       rawModelOutput: result.rawText || null,
       technicalSource: result.technical_source || null,
+      deterministicSnapshot: result.deterministic_snapshot || null,
       reason: result.reason,
     });
     fs.writeFileSync(histPath, JSON.stringify(history.slice(-50), null, 2));
@@ -430,12 +661,48 @@ async function fetchFearGreed(signal = null) {
   }
 }
 
+function deterministicExplanation(decision) {
+  const upProbability = decision.primary_outcome_probability;
+  const lean = decision.forecast_direction || "NEUTRAL";
+  const summary = upProbability == null
+    ? "Terminal Chainlink probability could not be calculated from the final verified snapshot."
+    : `Terminal model estimates UP at ${upProbability.toFixed(2)}% and the diagnostic lean is ${lean}.`;
+  const entry = decision.recommendation === "PLAY"
+    ? ` ${decision.direction} qualifies at ask $${decision.selected_ask.toFixed(4)} with ${decision.expected_value_cents.toFixed(2)}c net EV after fees.`
+    : ` No executable side qualifies: ${decision.guardrail_blockers.join(" ")}`;
+  return {
+    reason: `${summary}${entry}`,
+    key_signals: {
+      depth_verdict: "CONTEXT_ONLY",
+      liquidation_verdict: "CONTEXT_ONLY",
+      flow_verdict: lean === "NEUTRAL" ? "CHOPPY" : `TERMINAL_${lean}`,
+    },
+    risk_warning: decision.recommendation === "PLAY" ? "Revalidate the executable ask before placing an order." : "No deterministic entry is authorized.",
+  };
+}
+
+function snapshotChanged(initial, final) {
+  if (initial.currentPrice !== final.currentPrice || initial.priceToBeat !== final.priceToBeat) return true;
+  if (initial.upAsk !== final.upAsk || initial.downAsk !== final.downAsk) return true;
+  if (initial.decision.recommendation !== final.decision.recommendation || initial.decision.direction !== final.decision.direction) return true;
+  const initialProbability = initial.decision.primary_outcome_probability;
+  const finalProbability = final.decision.primary_outcome_probability;
+  if (initialProbability == null || finalProbability == null) return initialProbability !== finalProbability;
+  return Math.abs(initialProbability - finalProbability) >= 0.01;
+}
+
 export async function evaluateShortMarketCondition({
   signal = null,
-  currentPriceStr = "",
   asset = "BTC",
   marketQuestion = "",
-  marketOutcomePrice = null,
+  upTokenAsk = null,
+  downTokenAsk = null,
+  upTokenMidpoint = null,
+  downTokenMidpoint = null,
+  refreshMarketPrices = null,
+  marketActive = true,
+  marketClosed = false,
+  acceptingOrders = true,
   durationType = null,
   startDate = null,
   endDate = null,
@@ -449,281 +716,227 @@ export async function evaluateShortMarketCondition({
   const explicitStartMs = parseTimestamp(startDate);
   const derivedStartMs = endTimeMs != null && durationMs ? endTimeMs - durationMs : explicitStartMs;
   const expectedOraclePath = `${normalizedAsset.toLowerCase()}-usd`;
-  const oracleSourceVerified = String(resolutionSource || "").toLowerCase().includes(`data.chain.link/streams/${expectedOraclePath}`);
+  const oracleSourceVerified = isOfficialChainlinkSource(resolutionSource, expectedOraclePath);
 
-  // Extract target price from market question
-  let targetPrice = null;
-  if (marketQuestion) {
-    const match = marketQuestion.match(/\$([0-9,]+(\.[0-9]+)?)/);
-    if (match) {
-      targetPrice = parseFloat(match[1].replace(/,/g, ''));
-    }
-  }
-
-  let oraclePrice = null;
-  let oraclePublishTime = null;
+  let initialOpeningPrice = null;
+  let initialLivePrice = null;
   if (oracleSourceVerified) {
-    const [openingPrice, livePrice] = await Promise.all([
-      targetPrice ? Promise.resolve(targetPrice) : fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal).catch(() => null),
-      fetchChainlinkLivePrice(normalizedAsset, signal).catch(() => null),
+    [initialOpeningPrice, initialLivePrice] = await Promise.all([
+      fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal).catch((error) => {
+        if (signal?.aborted) throw error;
+        return null;
+      }),
+      fetchChainlinkLivePrice(normalizedAsset, signal).catch((error) => {
+        if (signal?.aborted) throw error;
+        return null;
+      }),
     ]);
-    targetPrice = openingPrice;
-    oraclePrice = livePrice?.price ?? null;
-    oraclePublishTime = livePrice?.publishTime ?? null;
   }
 
   const intervalMinutes = durationMs ? durationMs / 60_000 : 5;
-
   let tickerData = await fetchChainlinkTechData(normalizedAsset, normalizedDuration, signal);
   if (!tickerData) tickerData = await fetchBinanceTechData(symbol, intervalMinutes, signal);
-  
   if (!tickerData) {
-    if (oraclePrice) {
-      tickerData = {
-        symbol,
-        interval: 'n/a',
-        source: 'chainlink-live-only',
-        currentPrice: oraclePrice.toFixed(2),
-        priceChange24h: null,
-        high24h: null,
-        low24h: null,
-        volume24h: null,
-        rsi14: null,
-        rsiSignal: 'unavailable',
-        macd: null,
-        volumeRatio: null,
-        volumeSignal: 'unavailable',
-        volumeAvailable: false,
-        recentCandles: null,
-        fallback: true
-      };
-    } else {
-      throw new Error("Gagal mengambil data ticker Binance maupun Oracle Chainlink. Periksa koneksi internet.");
-    }
+    tickerData = {
+      symbol,
+      interval: normalizedDuration || "n/a",
+      source: initialLivePrice ? "chainlink-live-only" : "unavailable",
+      currentPrice: initialLivePrice?.price?.toFixed?.(2) ?? null,
+      priceChange24h: null,
+      high24h: null,
+      low24h: null,
+      volume24h: null,
+      atr14: null,
+      rsi14: null,
+      rsiSignal: "unavailable",
+      macd: null,
+      volumeRatio: null,
+      volumeSignal: "unavailable",
+      volumeAvailable: false,
+      recentCandles: null,
+      fallback: true,
+    };
   }
 
-  // Override price if live Polymarket WebSocket price provided
-  if (currentPriceStr && !isNaN(parseFloat(currentPriceStr))) {
-    tickerData.currentPrice = parseFloat(currentPriceStr).toFixed(2);
-  }
-
-  // Fetch remaining data sources in parallel (all gracefully fail to null)
   const [longShort, fearGreed] = await Promise.all([
     fetchLongShortRatio(symbol, signal),
     fetchFearGreed(signal),
   ]);
-
-  // Liquidations (Websocket 15m)
   const liqData = getRecentLiquidations(symbol, 15);
-
-  // Orderbook Depth (Websocket 100ms)
   const depthData = getOrderbookImbalance(symbol);
+  const initialMarketPrices = {
+    upAsk: finiteNumber(upTokenAsk),
+    downAsk: finiteNumber(downTokenAsk),
+    upMidpoint: finiteNumber(upTokenMidpoint),
+    downMidpoint: finiteNumber(downTokenMidpoint),
+  };
+  const evaluateSnapshot = (openingPrice, livePrice, marketPrices, nowMs) => evaluateDeterministicShortSnapshot({
+    currentPrice: livePrice?.price ?? null,
+    priceToBeat: openingPrice,
+    oraclePublishTime: livePrice?.publishTime ?? null,
+    oracleSourceVerified,
+    startTimeMs: derivedStartMs,
+    endTimeMs,
+    nowMs,
+    atr: tickerData?.atr14,
+    intervalVolatility: tickerData?.intervalVolatility,
+    atrIntervalMs: durationMs,
+    upAsk: marketPrices?.upAsk,
+    downAsk: marketPrices?.downAsk,
+    marketActive: marketPrices?.marketActive ?? marketActive,
+    marketClosed: marketPrices?.marketClosed ?? marketClosed,
+    acceptingOrders: marketPrices?.acceptingOrders ?? acceptingOrders,
+  });
 
-  // Calculate Base Probability mechanically
-  let baseProbability = 50;
-  if (targetPrice && tickerData && tickerData.atr14) {
-    const currentP = oraclePrice || parseFloat(tickerData.currentPrice);
-    const distance = targetPrice - currentP;
-    const remainingRatio = endTimeMs != null && durationMs
-      ? Math.max(0.02, Math.min(1, (endTimeMs - Date.now()) / durationMs))
-      : 1;
-    const horizonAtr = tickerData.atr14 * Math.sqrt(remainingRatio);
-    const relDistance = Math.abs(distance) / horizonAtr;
-
-    let isAboveMarket = /above|higher|>/i.test(marketQuestion);
-    let isBelowMarket = /below|lower|</i.test(marketQuestion);
-    
-    // Jika tidak tertulis eksplisit "above" atau "below", tapi merupakan market "Up or Down"
-    if (!isAboveMarket && !isBelowMarket) {
-       if (/up or down/i.test(marketQuestion)) {
-          isAboveMarket = true; // Di Polymarket, YES = UP pada market "Up or Down"
-       } else if (/up/i.test(marketQuestion)) {
-          isAboveMarket = true;
-       } else if (/down/i.test(marketQuestion)) {
-          isBelowMarket = true;
-       } else {
-          isAboveMarket = true; // Default
-       }
+  const initialDecision = evaluateSnapshot(initialOpeningPrice, initialLivePrice, initialMarketPrices, Date.now());
+  const initialSnapshot = {
+    currentPrice: initialLivePrice?.price ?? null,
+    priceToBeat: initialOpeningPrice,
+    upAsk: initialMarketPrices.upAsk,
+    downAsk: initialMarketPrices.downAsk,
+    decision: initialDecision,
+  };
+  let aiExplanation = null;
+  let aiMetadata = {};
+  if (initialDecision.primary_outcome_probability != null) {
+    const aiSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(SHORT_AI_TIMEOUT_MS)])
+      : AbortSignal.timeout(SHORT_AI_TIMEOUT_MS);
+    try {
+      const aiResult = await askQwenShortCondition({
+        tickerData,
+        longShort,
+        fearGreed,
+        signal: aiSignal,
+        liquidations: liqData,
+        orderbookDepth: depthData,
+        targetPrice: initialOpeningPrice,
+        oraclePrice: initialLivePrice?.price ?? null,
+        marketQuestion,
+        deterministic: initialDecision,
+        marketPrices: initialMarketPrices,
+      });
+      aiExplanation = aiResult;
+      aiMetadata = {
+        rawText: aiResult.rawText,
+        usage: aiResult.usage,
+        providerModel: aiResult.providerModel,
+        fallbackFrom: aiResult.fallbackFrom,
+      };
+    } catch (error) {
+      if (signal?.aborted) throw error;
     }
-
-    // Probability of touching/crossing the target
-    let targetProb = 50;
-    if (relDistance <= 2.5) {
-      targetProb = Math.max(10, Math.min(90, 50 - (relDistance * 16)));
-    } else {
-      targetProb = 10;
-    }
-
-    // If currently winning
-    const isCurrentlyWinning = (isAboveMarket && currentP > targetPrice) || (isBelowMarket && currentP < targetPrice);
-    if (isCurrentlyWinning) {
-      targetProb = Math.max(50, Math.min(95, 50 + (relDistance * 16)));
-    }
-
-    // Adjust based on Trend indicators (RSI and MACD)
-    let trendAdjustment = 0;
-    if (tickerData.rsi14) {
-      if (isAboveMarket) {
-        if (tickerData.rsi14 > 55) trendAdjustment += 5;
-        if (tickerData.rsi14 < 45) trendAdjustment -= 5;
-      } else if (isBelowMarket) {
-        if (tickerData.rsi14 < 45) trendAdjustment += 5;
-        if (tickerData.rsi14 > 55) trendAdjustment -= 5;
-      }
-    }
-    if (tickerData.macd) {
-      const macdTrend = tickerData.macd.trend;
-      if (macdTrend !== "NEUTRAL") {
-        const isBullish = macdTrend === 'BULLISH';
-        if (isAboveMarket) trendAdjustment += isBullish ? 5 : -5;
-        else if (isBelowMarket) trendAdjustment += isBullish ? -5 : 5;
-      }
-    }
-
-    // Adjust based on orderbook imbalance
-    if (depthData) {
-      const imbalance = depthData.imbalanceRatio;
-      if (isAboveMarket) {
-        if (imbalance > 1.5) trendAdjustment += 5;
-        if (imbalance < 0.7) trendAdjustment -= 5;
-      } else if (isBelowMarket) {
-        if (imbalance < 0.7) trendAdjustment += 5;
-        if (imbalance > 1.5) trendAdjustment -= 5;
-      }
-    }
-
-    // Adjust for Liquidations (Squeeze Momentum)
-    if (liqData) {
-      const longsLiq = liqData.longsLiqValue || 0;
-      const shortsLiq = liqData.shortsLiqValue || 0;
-      if (shortsLiq > longsLiq * 1.5) {
-        if (isAboveMarket) trendAdjustment += 5;
-        if (isBelowMarket) trendAdjustment -= 5;
-      } else if (longsLiq > shortsLiq * 1.5) {
-        if (isBelowMarket) trendAdjustment += 5;
-        if (isAboveMarket) trendAdjustment -= 5;
-      }
-    }
-
-    baseProbability = Math.round(Math.max(5, Math.min(95, targetProb + trendAdjustment)));
   }
 
-  // Ask Qwen
-    const result = await askQwenShortCondition({ 
-      tickerData, 
-      longShort, 
-      fearGreed, 
-      signal, 
-      liquidations: liqData, 
-      orderbookDepth: depthData,
-      targetPrice,
-      oraclePrice,
-      marketQuestion,
-      marketOutcomePrice,
-      baseProbability
-    });
-
-    // Deterministic guardrails: AI may explain a signal, but cannot bypass math/data checks.
-    const MAX_ENTRY_PRICE = config.tradeMaxPrice;
-    const MIN_EV_CENTS = 5;
-    const upTokenPrice = Number.isFinite(Number(marketOutcomePrice))
-      ? Math.max(0, Math.min(1, Number(marketOutcomePrice)))
-      : null;
-    const downTokenPrice = upTokenPrice == null ? null : Number((1 - upTokenPrice).toFixed(4));
-    const selectedDirection = result.direction;
-    const selectedFairProbability = Number(result.estimated_fair_probability);
-
-    const guardrailBlockers = [];
-    const addGuardrailBlocker = (condition, message) => {
-      if (!condition) return;
-      guardrailBlockers.push(message);
-      if (result.recommendation === "PLAY") result.recommendation = "AVOID";
-    };
-
-    addGuardrailBlocker(
-      !normalizedDuration || derivedStartMs == null || endTimeMs == null || endTimeMs <= Date.now(),
-      "[TIME GUARDRAIL] Durasi serta waktu mulai/selesai market tidak dapat diverifikasi atau market sudah berakhir."
-    );
-    addGuardrailBlocker(
-      !oracleSourceVerified,
-      "[ORACLE GUARDRAIL] Resolution source market tidak cocok dengan Chainlink stream untuk aset ini."
-    );
-    addGuardrailBlocker(!targetPrice, "[DATA GUARDRAIL] Opening price/target Chainlink belum tersedia.");
-    addGuardrailBlocker(!oraclePrice || !oraclePublishTime, "[DATA GUARDRAIL] Harga live Chainlink tidak tersedia atau stale.");
-    addGuardrailBlocker(!tickerData?.atr14, "[DATA GUARDRAIL] ATR tidak tersedia; edge tidak dapat diverifikasi.");
-
-    if (upTokenPrice == null || !Number.isFinite(selectedFairProbability)) {
-      addGuardrailBlocker(true, "[EV GUARDRAIL] Harga token atau fair probability tidak valid; EV tidak dapat dihitung.");
-    } else {
-      const tokenPriceForDirection = selectedDirection === "DOWN" ? downTokenPrice : upTokenPrice;
-      const ev = (selectedFairProbability / 100) - tokenPriceForDirection;
-      result.expected_value_cents = Math.round(ev * 100);
-      addGuardrailBlocker(
-        ev < MIN_EV_CENTS / 100,
-        `[EV GUARDRAIL] Expected Value terlalu kecil (${result.expected_value_cents}c < ${MIN_EV_CENTS}c).`
-      );
+  let finalOpeningPrice = initialOpeningPrice;
+  let finalLivePrice = null;
+  let finalMarketPrices = initialMarketPrices;
+  if (oracleSourceVerified) {
+    try {
+      const [openingPrice, livePrice, refreshedPrices] = await Promise.all([
+        initialOpeningPrice
+          ? Promise.resolve(initialOpeningPrice)
+          : fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal),
+        fetchChainlinkLivePrice(normalizedAsset, signal),
+        typeof refreshMarketPrices === "function"
+          ? Promise.resolve(refreshMarketPrices()).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      finalOpeningPrice = openingPrice;
+      finalLivePrice = livePrice;
+      if (refreshedPrices) {
+        finalMarketPrices = {
+          upAsk: finiteNumber(refreshedPrices.upAsk),
+          downAsk: finiteNumber(refreshedPrices.downAsk),
+          upMidpoint: finiteNumber(refreshedPrices.upMidpoint),
+          downMidpoint: finiteNumber(refreshedPrices.downMidpoint),
+          marketActive: refreshedPrices.marketActive === true,
+          marketClosed: refreshedPrices.marketClosed !== false,
+          acceptingOrders: refreshedPrices.acceptingOrders === true,
+        };
+      } else if (typeof refreshMarketPrices === "function") {
+        finalMarketPrices = {
+          ...initialMarketPrices,
+          marketActive: false,
+          marketClosed: true,
+          acceptingOrders: false,
+        };
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error;
     }
+  }
 
-    // Guardrail 1: Max Entry Price Filter (Anti-Overpaying Rule)
-    if (["UP", "DOWN"].includes(selectedDirection)) {
-      const targetTokenPrice = selectedDirection === "DOWN" ? downTokenPrice : upTokenPrice;
-      addGuardrailBlocker(
-        targetTokenPrice !== null && targetTokenPrice > MAX_ENTRY_PRICE,
-        targetTokenPrice !== null
-          ? `[MAX ENTRY PRICE GUARDRAIL] Harga token ${selectedDirection} ($${targetTokenPrice.toFixed(2)}) melebihi batas $${MAX_ENTRY_PRICE.toFixed(2)}.`
-          : ""
-      );
-    }
+  const finalCapturedAt = Date.now();
+  const finalDecision = evaluateSnapshot(finalOpeningPrice, finalLivePrice, finalMarketPrices, finalCapturedAt);
+  const finalSnapshot = {
+    source: "chainlink",
+    sourceVerified: oracleSourceVerified,
+    currentPrice: finalLivePrice?.price ?? null,
+    priceToBeat: finalOpeningPrice,
+    oraclePublishTime: finalLivePrice?.publishTime ?? null,
+    capturedAt: new Date(finalCapturedAt).toISOString(),
+    startDate: derivedStartMs == null ? null : new Date(derivedStartMs).toISOString(),
+    endDate: endTimeMs == null ? null : new Date(endTimeMs).toISOString(),
+    remainingSeconds: finalDecision.remaining_ms == null ? null : Number((finalDecision.remaining_ms / 1000).toFixed(3)),
+    atr: finiteNumber(tickerData?.atr14),
+    intervalVolatility: finiteNumber(tickerData?.intervalVolatility),
+    atrIntervalMs: durationMs,
+    upProbability: finalDecision.primary_outcome_probability,
+    downProbability: finalDecision.primary_outcome_probability == null ? null : Number((100 - finalDecision.primary_outcome_probability).toFixed(2)),
+    upAsk: finalMarketPrices.upAsk,
+    downAsk: finalMarketPrices.downAsk,
+    upMidpoint: finalMarketPrices.upMidpoint,
+    downMidpoint: finalMarketPrices.downMidpoint,
+    feeBufferCents: config.tradeFeeBufferCents,
+    maxEntryPrice: config.tradeMaxPrice,
+  };
+  const changed = snapshotChanged(initialSnapshot, {
+    currentPrice: finalSnapshot.currentPrice,
+    priceToBeat: finalSnapshot.priceToBeat,
+    upAsk: finalSnapshot.upAsk,
+    downAsk: finalSnapshot.downAsk,
+    decision: finalDecision,
+  });
+  const explanation = aiExplanation?.reason && !changed
+    ? {
+        reason: aiExplanation.reason,
+        key_signals: aiExplanation.key_signals,
+        risk_warning: aiExplanation.risk_warning,
+      }
+    : deterministicExplanation(finalDecision);
+  const result = {
+    ...finalDecision,
+    ...explanation,
+    validation_issues: [],
+    raw_recommendation: finalDecision.recommendation,
+    raw_direction: finalDecision.forecast_direction,
+    raw_primary_probability: finalDecision.primary_outcome_probability,
+    technical_source: tickerData?.source || "unknown",
+    deterministic_snapshot: finalSnapshot,
+    ai_explanation_used: Boolean(aiExplanation?.reason && !changed),
+    ...aiMetadata,
+  };
 
-    // Guardrail 2: Confidence Threshold (<70% -> AVOID)
-    addGuardrailBlocker(
-      (result.confidence || 0) < 70,
-      `[CONFIDENCE GUARDRAIL] Confidence AI terlalu rendah (${result.confidence}% < 70%).`
-    );
-
-    // Guardrail 3: Micro-Gap Noise Filter ($10 BTC / $0.75 ETH)
-    const curPrice = oraclePrice || (tickerData ? parseFloat(tickerData.currentPrice) : null);
-    if (curPrice && targetPrice) {
-      const absGapUsd = Math.abs(curPrice - targetPrice);
-      const minGapThreshold = normalizedAsset === "ETH" ? 0.75 : normalizedAsset === "DOGE" ? 0.0005 : 10.00;
-      addGuardrailBlocker(
-        absGapUsd < minGapThreshold && (result.confidence || 0) < 85,
-        `[MICRO-GAP NOISE FILTER] Jarak ke target ($${absGapUsd.toFixed(2)} < $${minGapThreshold}) terlalu kecil dan rawan noise.`
-      );
-    }
-
-    // Crowd data can confirm a PLAY, but can never revive an AI AVOID.
-    const isExtremeSqueeze = tickerData?.volumeRatio > 2.0;
-    if (["UP", "DOWN"].includes(selectedDirection) && upTokenPrice != null && !isExtremeSqueeze) {
-      const crowdDirection = upTokenPrice >= 0.62 ? "UP" : downTokenPrice >= 0.62 ? "DOWN" : "NEUTRAL";
-      addGuardrailBlocker(
-        crowdDirection !== "NEUTRAL" && crowdDirection !== selectedDirection,
-        `[CROWD CONFLICT] Harga CLOB dominan ${crowdDirection}, berlawanan dengan sinyal ${selectedDirection}.`
-      );
-    }
-
-    result.guardrail_blockers = guardrailBlockers;
-    result.technical_source = tickerData?.source || "unknown";
-    if (guardrailBlockers.length) {
-      result.reason = `${guardrailBlockers.join("\n")}\n${result.reason || ""}`.trim();
-    }
-
-    saveShortConditionHistory(result, marketQuestion);
-
-    return {
-      tickerData,
-      liquidations: liqData,
-      depth: depthData,
-      oraclePrice,
-      oraclePublishTime,
-      targetPrice,
-      durationType: normalizedDuration,
-      startDate: derivedStartMs != null ? new Date(derivedStartMs).toISOString() : null,
-      endDate: endTimeMs != null ? new Date(endTimeMs).toISOString() : null,
-      oracleSourceVerified,
-      evaluation: result,
-      usage: result.usage,
-      providerModel: result.providerModel,
-      fallbackFrom: result.fallbackFrom,
-    };
+  saveShortConditionHistory(result, marketQuestion);
+  return {
+    tickerData,
+    techData: tickerData,
+    longShort,
+    fearGreed,
+    liquidations: liqData,
+    depth: depthData,
+    oraclePrice: finalSnapshot.currentPrice,
+    oraclePublishTime: finalSnapshot.oraclePublishTime,
+    targetPrice: finalSnapshot.priceToBeat,
+    durationType: normalizedDuration,
+    startDate: finalSnapshot.startDate,
+    endDate: finalSnapshot.endDate,
+    oracleSourceVerified,
+    deterministicSnapshot: finalSnapshot,
+    evaluation: result,
+    usage: result.usage,
+    providerModel: result.providerModel,
+    fallbackFrom: result.fallbackFrom,
+  };
 }

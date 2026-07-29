@@ -1,25 +1,31 @@
 import { startWebServer } from "./web.js";
-import { startSniffer } from "./sniffer.js";
-import { initBlockchainTracker } from "./blockchain-tracker.js";
+import { startSniffer, stopSniffer } from "./sniffer.js";
+import { initBlockchainTracker, stopBlockchainTracker } from "./blockchain-tracker.js";
 import { startBinanceLiquidationStream, stopBinanceLiquidationStream, startBinanceDepthStream, stopBinanceDepthStream } from "./binance_ws.js";
 
 const webServer = startWebServer();
+let shuttingDown = false;
 
 // Initialize global.livePrices before sniffer starts writing to it
 if (!global.livePrices) global.livePrices = {};
+if (!global.livePriceTimestamps) global.livePriceTimestamps = {};
 
-startSniffer(); // Start the live whale sniffer
-initBlockchainTracker(); // Start the Polygon on-chain wallet tracker
+startSniffer()
+  .then(() => {
+    if (!shuttingDown) initBlockchainTracker();
+  })
+  .catch((error) => console.error("[Sniffer] Startup error:", error?.message || error));
 startBinanceLiquidationStream(); // Start binance websocket liquidations
 startBinanceDepthStream(); // Start binance websocket depth
 
 console.log("Starting web UI and market-data services (Telegram disabled).");
 
-let shuttingDown = false;
 function shutdown(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log("Shutting down gracefully...");
+  stopSniffer();
+  stopBlockchainTracker();
   stopBinanceLiquidationStream();
   stopBinanceDepthStream();
   const code = typeof exitCode === "number" ? exitCode : 0;
@@ -28,7 +34,7 @@ function shutdown(exitCode = 0) {
   } else {
     process.exit(code);
   }
-  setTimeout(() => process.exit(code || 1), 5000).unref();
+  setTimeout(() => process.exit(code), 5000).unref();
 }
 
 process.on("SIGINT", shutdown);

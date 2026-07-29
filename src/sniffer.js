@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { listTopMarkets, getShortTermMarkets } from "./polymarket.js";
+import { getShortTermMarkets } from "./polymarket.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,10 +16,10 @@ const marketTrades = new Map(); // market_id -> [timestamp1, timestamp2, ...]
 export let marketMap = {}; // Hoisted to module level
 const notifiedHotNiches = new Set();
 
-// State untuk ON/OFF Sniffer
-let isSnifferActive = true;
+// State untuk ON/OFF Sniffer. Importing this module must not start the tracker.
+let isSnifferActive = false;
 let notifyCallback = null;
-let snifferStartTime = Date.now(); // Kapan sniffer dinyalakan (timestamp)
+let snifferStartTime = 0; // Kapan sniffer dinyalakan (timestamp)
 
 export let snifferMinUsd = 1000; // Default minimum whale size
 export let trackedWallets = new Map([
@@ -76,17 +76,12 @@ export function setTrackerConfig(minUsd, walletsArray) {
   saveConfigToFile();
 }
 
-// Ambang batas notifikasi push (misal: di atas $1000 baru di-push biar gak spam)
-const NOTIFY_MIN_SIZE = 500; 
-
 export function setSnifferState(state) {
-  isSnifferActive = !!state;
-  if (isSnifferActive && snifferStartTime === 0) {
-    snifferStartTime = Date.now();
-  } else if (!isSnifferActive) {
-    snifferStartTime = 0;
+  if (!state) {
+    stopSniffer();
+    return Promise.resolve(false);
   }
-  return isSnifferActive;
+  return startSniffer().then(() => getSnifferState());
 }
 
 export function getSnifferState() {
@@ -117,9 +112,7 @@ export function pushWhaleEvent(whaleObj) {
   if (recentWhales.length > MAX_WHALES_STORED) {
     recentWhales.pop();
   }
-  if (notifyCallback) {
-    notifyCallback(whaleObj);
-  }
+  notifySafely(whaleObj, "tracked-wallet-notify");
 }
 
 let currentTimeframeFilter = "all";
@@ -144,41 +137,285 @@ export function getAccumulatedWhaleVolume() {
   return globalAccumulatedWhaleVolume;
 }
 
-// ================================================================
-// FIX: WS lifecycle state at MODULE level (not inside function)
-// This prevents all the race conditions and interval leaks
-// ================================================================
-let snifferWsPool = [];            // Active WS instance
-let snifferPingInterval = null;  // Ping heartbeat interval
-let snifferSubInterval = null;   // Short market re-subscription interval
-let snifferIsConnecting = false; // Anti double-start guard
-let snifferReconnectDelay = 2000;
-const SNIFFER_MAX_RECONNECT_DELAY = 30000; // Max 30s exponential backoff
-let snifferReconnectTimer = null;  // Track pending reconnect to avoid stacking
+const CLOB_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market";
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const MARKET_RETRY_MS = 15000;
+const SHARD_SIZE = 500;
+const SUBSCRIPTION_CHUNK_SIZE = 50;
+const SUBSCRIPTION_CHUNK_DELAY_MS = 250;
+const PING_INTERVAL_MS = 10000;
+export const SNIFFER_STALE_AFTER_MS = 35000;
+export const TRADE_AGGREGATION_WINDOW_MS = 5000;
+export const GENERAL_ALERT_MIN_SECONDS_TO_END = 60;
+const SNIFFER_MAX_RECONNECT_DELAY = 30000;
+const LOG_RATE_LIMIT_MS = 60000;
 
-// Market data fetched once, reused across reconnects
 let cachedClobIds = [];
 let cacheTimestamp = 0;
-const CACHE_TTL_MS = 10 * 60 * 1000; // Refresh market list every 10 minutes
+let snifferGeneration = 0;
+let snifferIsConnecting = false;
+let snifferConnectPromise = null;
+let snifferPingInterval = null;
+let snifferRefreshInterval = null;
+let snifferMarketRetryTimer = null;
+let snifferExpectedShards = 0;
+let snifferExpectedTokens = 0;
+let snifferReconnectCount = 0;
+let snifferErrorCount = 0;
+let snifferParserErrorCount = 0;
+let snifferLastError = null;
+const snifferShards = new Map();
+const tradeAggregations = new Map();
+const lastLogAt = new Map();
+const snifferAuxTimers = new Set();
 
-function clearSnifferIntervals() {
-  if (snifferPingInterval) { clearInterval(snifferPingInterval); snifferPingInterval = null; }
-  if (snifferSubInterval) { clearInterval(snifferSubInterval); snifferSubInterval = null; }
+const EVENT_COUNTER_FIELDS = [
+  "received",
+  "filteredPrice",
+  "filteredExpiry",
+  "belowThreshold",
+  "emitted",
+  "updated",
+  "duplicateSuppressed",
+];
+
+function emptyEventCounter() {
+  return Object.fromEntries(EVENT_COUNTER_FIELDS.map((field) => [field, 0]));
 }
 
-async function fetchAndCacheMarkets(force = false) {
+const snifferEventCounters = { ...emptyEventCounter(), perAsset: {} };
+
+function safeErrorMessage(error) {
+  return String(error?.message || error || "Unknown error")
+    .replace(/\b(?:https?|wss?):\/\/[^\s]+/gi, "[redacted endpoint]")
+    .slice(0, 300);
+}
+
+function logRateLimited(key, level, message) {
   const now = Date.now();
-  if (!force && cachedClobIds.length > 0 && (now - cacheTimestamp) < CACHE_TTL_MS) {
-    return; // Cache still fresh, skip fetch
+  if (now - (lastLogAt.get(key) || 0) < LOG_RATE_LIMIT_MS) return;
+  lastLogAt.set(key, now);
+  console[level](message);
+}
+
+function recordSnifferError(error, { shard = null, category = "general" } = {}) {
+  const message = safeErrorMessage(error);
+  snifferErrorCount += 1;
+  snifferLastError = message;
+  if (category === "parser") snifferParserErrorCount += 1;
+  if (shard) {
+    shard.errorCount += 1;
+    shard.lastError = message;
   }
+  logRateLimited(
+    `${category}:${shard?.id || "global"}`,
+    category === "parser" ? "warn" : "error",
+    `[Sniffer${shard ? ` Shard ${shard.id}` : ""}] ${category} error (${snifferErrorCount} total): ${message}`,
+  );
+}
+
+function incrementEventCounter(field, asset = "unknown") {
+  snifferEventCounters[field] += 1;
+  const key = String(asset || "unknown").toLowerCase();
+  if (!snifferEventCounters.perAsset[key]) snifferEventCounters.perAsset[key] = emptyEventCounter();
+  snifferEventCounters.perAsset[key][field] += 1;
+}
+
+export function getSnifferEventCounters() {
+  return {
+    ...Object.fromEntries(EVENT_COUNTER_FIELDS.map((field) => [field, snifferEventCounters[field]])),
+    perAsset: Object.fromEntries(
+      Object.entries(snifferEventCounters.perAsset).map(([asset, counters]) => [asset, { ...counters }]),
+    ),
+  };
+}
+
+export function evaluateGeneralTrade({ price, endDate, now = Date.now(), minSecondsToEnd = GENERAL_ALERT_MIN_SECONDS_TO_END }) {
+  const numericPrice = Number(price);
+  if (!Number.isFinite(numericPrice) || numericPrice <= 0.10 || numericPrice >= 0.90) {
+    return { accepted: false, reason: "price" };
+  }
+  const endTime = new Date(endDate).getTime();
+  if (!Number.isFinite(endTime) || endTime - now < minSecondsToEnd * 1000) {
+    return { accepted: false, reason: "expiry" };
+  }
+  return { accepted: true, reason: null };
+}
+
+export function aggregateTradeFill(aggregationMap, fill, {
+  now = Date.now(),
+  windowMs = TRADE_AGGREGATION_WINDOW_MS,
+  minUsd = 1000,
+} = {}) {
+  if (!(aggregationMap instanceof Map)) throw new TypeError("aggregationMap must be a Map");
+  const aggregationId = fill.transactionHash || fill.fillId;
+  const key = [aggregationId || `single:${now}`, fill.market, fill.outcome, fill.side]
+    .map((value) => String(value || "UNKNOWN"))
+    .join("|");
+  const cutoff = now - windowMs;
+  const previous = aggregationMap.get(key);
+  const entry = previous || { fills: [], seenFillIds: new Set(), firstAt: now, lastEmittedAt: null, emittedSizeUsdc: 0 };
+  if (!(entry.seenFillIds instanceof Set)) entry.seenFillIds = new Set();
+  if (entry.lastEmittedAt !== null && now - entry.lastEmittedAt >= windowMs) {
+    return {
+      status: "duplicateSuppressed",
+      aggregation: { key, sizeUsdc: 0, price: Number(fill.price), fillCount: 0, windowMs, timestamp: now },
+    };
+  }
+  if (entry.lastEmittedAt === null && entry.firstAt < cutoff) {
+    entry.fills = [];
+    entry.seenFillIds.clear();
+    entry.firstAt = now;
+  }
+  const fillId = String(fill.fillId || `${now}:${fill.sizeUsdc}:${fill.price}`);
+  if (entry.seenFillIds.has(fillId)) {
+    return {
+      status: "duplicateSuppressed",
+      aggregation: { key, sizeUsdc: entry.emittedSizeUsdc, price: Number(fill.price), fillCount: entry.fills.length, windowMs, timestamp: now },
+    };
+  }
+  entry.seenFillIds.add(fillId);
+  entry.fills.push({
+    id: fillId,
+    timestamp: now,
+    sizeUsdc: Number(fill.sizeUsdc),
+    price: Number(fill.price),
+  });
+  aggregationMap.set(key, entry);
+
+  const sizeUsdc = entry.fills.reduce((sum, item) => sum + item.sizeUsdc, 0);
+  const weightedPrice = sizeUsdc > 0
+    ? entry.fills.reduce((sum, item) => sum + item.price * item.sizeUsdc, 0) / sizeUsdc
+    : 0;
+  const aggregation = {
+    key,
+    sizeUsdc,
+    price: weightedPrice,
+    fillCount: entry.fills.length,
+    windowMs,
+    timestamp: now,
+    deltaSizeUsdc: entry.lastEmittedAt === null ? sizeUsdc : sizeUsdc - entry.emittedSizeUsdc,
+  };
+
+  if (entry.lastEmittedAt !== null) {
+    entry.emittedSizeUsdc = sizeUsdc;
+    return { status: "updated", aggregation };
+  }
+  if (!Number.isFinite(sizeUsdc) || sizeUsdc < minUsd) {
+    return { status: "belowThreshold", aggregation };
+  }
+  entry.lastEmittedAt = now;
+  entry.emittedSizeUsdc = sizeUsdc;
+  return { status: "emitted", aggregation };
+}
+
+export function extractLivePriceUpdates(message) {
+  if (!message || typeof message !== "object") return [];
+  const updates = [];
+  const add = (assetId, price) => {
+    if (price == null || (typeof price === "string" && !price.trim())) return;
+    const numericPrice = Number(price);
+    if (assetId != null && Number.isFinite(numericPrice) && numericPrice > 0 && numericPrice <= 1) {
+      updates.push({ assetId: String(assetId), price: numericPrice });
+    }
+  };
+
+  const midpoint = (bid, ask) => {
+    const numericBid = Number(bid);
+    const numericAsk = Number(ask);
+    if (Number.isFinite(numericBid) && Number.isFinite(numericAsk) && numericBid > 0 && numericAsk > numericBid) {
+      return (numericBid + numericAsk) / 2;
+    }
+    return null;
+  };
+  if (message.event_type === "price_change") {
+    if (Array.isArray(message.price_changes)) {
+      for (const change of message.price_changes) {
+        add(change?.asset_id, midpoint(change?.best_bid, change?.best_ask) ?? change?.last_trade_price);
+      }
+    }
+    add(message.asset_id, midpoint(message.best_bid, message.best_ask) ?? message.last_trade_price);
+  } else if (message.event_type === "book" && message.asset_id) {
+    const bids = (Array.isArray(message.bids) ? message.bids : []).map((level) => Number(level?.price)).filter(Number.isFinite);
+    const asks = (Array.isArray(message.asks) ? message.asks : []).map((level) => Number(level?.price)).filter(Number.isFinite);
+    add(message.asset_id, midpoint(bids.length ? Math.max(...bids) : null, asks.length ? Math.min(...asks) : null));
+  } else if (message.event_type === "last_trade_price") {
+    add(message.asset_id, message.price);
+  }
+  return updates;
+}
+
+function latestTimestamp(values) {
+  const timestamps = values.filter((value) => Number.isFinite(value));
+  return timestamps.length ? Math.max(...timestamps) : null;
+}
+
+export function deriveSnifferHealth(snapshot, now = Date.now(), staleAfterMs = SNIFFER_STALE_AFTER_MS) {
+  const shards = (snapshot.shards || []).map((shard) => ({
+    id: Number(shard.id),
+    state: String(shard.state || "PENDING"),
+    expectedTokens: Number(shard.expectedTokens || 0),
+    subscribedTokens: Number(shard.subscribedTokens || 0),
+    lastMessageAt: Number.isFinite(shard.lastMessageAt) ? shard.lastMessageAt : null,
+    lastPongAt: Number.isFinite(shard.lastPongAt) ? shard.lastPongAt : null,
+    lastTradeAt: Number.isFinite(shard.lastTradeAt) ? shard.lastTradeAt : null,
+    reconnectCount: Number(shard.reconnectCount || 0),
+    errorCount: Number(shard.errorCount || 0),
+    lastError: shard.lastError ? String(shard.lastError) : null,
+  }));
+  const expectedShards = Number(snapshot.expectedShards || 0);
+  const expectedTokens = Number(snapshot.expectedTokens || 0);
+  const connectedShards = shards.filter((shard) => shard.state === "OPEN").length;
+  const subscribedTokens = shards.reduce((sum, shard) => sum + shard.subscribedTokens, 0);
+  const staleShards = shards.filter((shard) => {
+    if (shard.state !== "OPEN") return false;
+    const lastSeenAt = latestTimestamp([shard.lastMessageAt, shard.lastPongAt]);
+    return lastSeenAt === null || now - lastSeenAt > staleAfterMs;
+  }).length;
+  const fullyCovered = expectedShards > 0
+    && connectedShards === expectedShards
+    && subscribedTokens === expectedTokens
+    && shards.every((shard) => shard.expectedTokens === shard.subscribedTokens)
+    && staleShards === 0;
+
+  let state;
+  if (!snapshot.active) state = "OFFLINE";
+  else if (fullyCovered) state = "CONNECTED";
+  else if (connectedShards > 0) state = "DEGRADED";
+  else if (snapshot.isConnecting || shards.some((shard) => ["PENDING", "CONNECTING", "SUBSCRIBING"].includes(shard.state))) {
+    state = "CONNECTING";
+  } else {
+    state = "RECONNECTING";
+  }
+
+  return {
+    state,
+    active: Boolean(snapshot.active),
+    expectedShards,
+    connectedShards,
+    subscribedTokens,
+    expectedTokens,
+    staleShards,
+    lastMessageAt: latestTimestamp(shards.map((shard) => shard.lastMessageAt)),
+    lastPongAt: latestTimestamp(shards.map((shard) => shard.lastPongAt)),
+    lastTradeAt: latestTimestamp(shards.map((shard) => shard.lastTradeAt)),
+    reconnectCount: Number(snapshot.reconnectCount || 0),
+    errorCount: Number(snapshot.errorCount || 0),
+    parserErrorCount: Number(snapshot.parserErrorCount || 0),
+    lastError: snapshot.lastError ? String(snapshot.lastError) : null,
+    shards,
+  };
+}
+
+async function fetchAndCacheMarkets(force = false, generation = snifferGeneration) {
+  const now = Date.now();
+  if (!force && cachedClobIds.length > 0 && now - cacheTimestamp < CACHE_TTL_MS) return true;
   try {
     const [btc, eth, doge] = await Promise.all([
       getShortTermMarkets("btc"),
       getShortTermMarkets("eth"),
-      getShortTermMarkets("doge")
+      getShortTermMarkets("doge"),
     ]);
-    
-    // Interleave the arrays so we get an equal mix of btc, eth, and doge in the first N elements
     const allShorts = [];
     const maxLen = Math.max(btc.length, eth.length, doge.length);
     for (let i = 0; i < maxLen; i++) {
@@ -186,274 +423,494 @@ async function fetchAndCacheMarkets(force = false) {
       if (eth[i]) allShorts.push(eth[i]);
       if (doge[i]) allShorts.push(doge[i]);
     }
-    let filteredShorts = currentTimeframeFilter === "all" 
-      ? allShorts 
-      : allShorts.filter(m => m.duration_type === currentTimeframeFilter);
-      
-    cachedClobIds = filteredShorts.flatMap(m => m.clobTokenIds || []).filter(Boolean);
+    const filteredShorts = currentTimeframeFilter === "all"
+      ? allShorts
+      : allShorts.filter((market) => market.duration_type === currentTimeframeFilter);
+
+    if (!isSnifferActive || generation !== snifferGeneration) return false;
+    cachedClobIds = [...new Set(
+      filteredShorts.flatMap((market) => market.clobTokenIds || []).filter(Boolean).map(String),
+    )];
     marketMap = {};
-    for (const m of filteredShorts) {
-      if (m.conditionId) {
-        marketMap[m.conditionId] = { 
-          id: m.id, 
-          question: m.question, 
-          slug: m.eventSlug || m.slug || "",
-          duration_type: m.duration_type || "",
-          asset: m.asset || "unknown",
-          clobTokenIds: m.clobTokenIds || []
-        };
-      }
+    for (const market of filteredShorts) {
+      if (!market.conditionId) continue;
+      marketMap[market.conditionId] = {
+        id: market.id,
+        question: market.question,
+        slug: market.eventSlug || market.slug || "",
+        duration_type: market.duration_type || "",
+        asset: market.asset || "unknown",
+        endDate: market.endDate || "",
+        clobTokenIds: (market.clobTokenIds || []).map(String),
+      };
     }
     cacheTimestamp = now;
-    console.log(`🕵️ [Sniffer] Market cache updated: ${allShorts.length} short-term crypto markets (${cachedClobIds.length} tokens).`);
-  } catch (err) {
-    console.error("❌ [Sniffer] Failed to fetch markets:", err.message);
-    // Don't throw — use existing cache if available
+    if (!global.livePrices) global.livePrices = {};
+    if (!global.livePriceTimestamps) global.livePriceTimestamps = {};
+    const activeIds = new Set(cachedClobIds);
+    for (const assetId of Object.keys(global.livePrices)) {
+      if (!activeIds.has(assetId)) {
+        delete global.livePrices[assetId];
+        delete global.livePriceTimestamps[assetId];
+      }
+    }
+    const aggregationCutoff = now - TRADE_AGGREGATION_WINDOW_MS;
+    for (const [key, entry] of tradeAggregations) {
+      const latestFillAt = Math.max(0, ...(entry.fills || []).map((fill) => fill.timestamp), entry.lastEmittedAt || 0);
+      if (latestFillAt < aggregationCutoff) tradeAggregations.delete(key);
+    }
+    console.log(`[Sniffer] Market cache updated: ${allShorts.length} markets, ${cachedClobIds.length} tokens.`);
+    return true;
+  } catch (error) {
+    recordSnifferError(error, { category: "market-fetch" });
+    return cachedClobIds.length > 0;
   }
+}
+
+function clearShardTimers(shard) {
+  for (const timer of shard.timers) clearTimeout(timer);
+  shard.timers.clear();
+}
+
+function scheduleShardTask(shard, task, delay) {
+  const timer = setTimeout(() => {
+    shard.timers.delete(timer);
+    if (!isSnifferActive || shard.generation !== snifferGeneration || snifferShards.get(shard.id) !== shard) return;
+    task();
+  }, delay);
+  shard.timers.add(timer);
+  return timer;
+}
+
+function closeShard(shard, reason = "Sniffer stopped") {
+  clearShardTimers(shard);
+  shard.intentionalClose = true;
+  shard.state = "CLOSED";
+  const ws = shard.ws;
+  if (!ws || ws.readyState === WebSocket.CLOSED) return;
+  try {
+    ws.close(1000, reason);
+  } catch {
+    ws.terminate();
+  }
+}
+
+function clearLifecycleTimers() {
+  if (snifferPingInterval) clearInterval(snifferPingInterval);
+  if (snifferRefreshInterval) clearInterval(snifferRefreshInterval);
+  if (snifferMarketRetryTimer) clearTimeout(snifferMarketRetryTimer);
+  snifferPingInterval = null;
+  snifferRefreshInterval = null;
+  snifferMarketRetryTimer = null;
+  for (const timer of snifferAuxTimers) clearTimeout(timer);
+  snifferAuxTimers.clear();
+  notifiedHotNiches.clear();
+}
+
+function closeAllShards(reason) {
+  for (const shard of snifferShards.values()) closeShard(shard, reason);
+  snifferShards.clear();
+}
+
+function scheduleShardReconnect(shard) {
+  if (!isSnifferActive || shard.generation !== snifferGeneration || shard.intentionalClose) return;
+  clearShardTimers(shard);
+  const delay = shard.reconnectDelay;
+  shard.state = "RECONNECTING";
+  shard.reconnectCount += 1;
+  snifferReconnectCount += 1;
+  console.warn(`[Sniffer Shard ${shard.id}] Reconnecting in ${delay / 1000}s.`);
+  scheduleShardTask(shard, () => openSnifferShard(shard), delay);
+  shard.reconnectDelay = Math.min(delay * 2, SNIFFER_MAX_RECONNECT_DELAY);
+}
+
+function sendSubscriptionChunks(shard, ws, offset = 0) {
+  if (!isSnifferActive || shard.generation !== snifferGeneration || shard.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
+  if (offset >= shard.ids.length) {
+    shard.state = "OPEN";
+    shard.reconnectDelay = 2000;
+    console.log(`[Sniffer Shard ${shard.id}] Subscribed to ${shard.subscribedTokens}/${shard.expectedTokens} tokens.`);
+    return;
+  }
+
+  const ids = shard.ids.slice(offset, offset + SUBSCRIPTION_CHUNK_SIZE);
+  const frame = offset === 0
+    ? { assets_ids: ids, type: "market" }
+    : { assets_ids: ids, operation: "subscribe" };
+  ws.send(JSON.stringify(frame), (error) => {
+    if (error) {
+      recordSnifferError(error, { shard, category: "subscription" });
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+      return;
+    }
+    if (!isSnifferActive || shard.generation !== snifferGeneration || shard.ws !== ws) return;
+    shard.subscribedTokens += ids.length;
+    scheduleShardTask(
+      shard,
+      () => sendSubscriptionChunks(shard, ws, offset + SUBSCRIPTION_CHUNK_SIZE),
+      SUBSCRIPTION_CHUNK_DELAY_MS,
+    );
+  });
+}
+
+function notifySafely(payload, category) {
+  if (!notifyCallback) return;
+  try {
+    Promise.resolve(notifyCallback(payload)).catch((error) => recordSnifferError(error, { category }));
+  } catch (error) {
+    recordSnifferError(error, { category });
+  }
+}
+
+function emitGeneralWhale(message) {
+  const now = Date.now();
+  const marketInfo = marketMap[message.market] || {
+    id: "Unknown",
+    question: "Unknown Market",
+    slug: "",
+    duration_type: "",
+    asset: "unknown",
+    endDate: "",
+    clobTokenIds: [],
+  };
+  const asset = marketInfo.asset || "unknown";
+  incrementEventCounter("received", asset);
+
+  const price = Number(message.price);
+  const shares = Number(message.size);
+  const sizeUsdc = shares * price;
+  const filter = evaluateGeneralTrade({ price, endDate: marketInfo.endDate, now });
+  if (!filter.accepted) {
+    incrementEventCounter(filter.reason === "price" ? "filteredPrice" : "filteredExpiry", asset);
+    return;
+  }
+  if (!Number.isFinite(sizeUsdc) || sizeUsdc <= 0) {
+    incrementEventCounter("belowThreshold", asset);
+    return;
+  }
+
+  let outcome = "UNKNOWN";
+  if (marketInfo.clobTokenIds.length >= 2) {
+    if (String(message.asset_id) === marketInfo.clobTokenIds[0]) outcome = "UP";
+    else if (String(message.asset_id) === marketInfo.clobTokenIds[1]) outcome = "DOWN";
+  }
+  const side = String(message.side || "UNKNOWN").toUpperCase();
+  const flowDirection = (side === "BUY" && outcome === "UP") || (side === "SELL" && outcome === "DOWN")
+    ? "UP"
+    : (side === "BUY" && outcome === "DOWN") || (side === "SELL" && outcome === "UP")
+      ? "DOWN"
+      : null;
+  const aggregateResult = aggregateTradeFill(tradeAggregations, {
+    market: message.market,
+    outcome,
+    side,
+    sizeUsdc,
+    price,
+    transactionHash: message.transaction_hash || message.transactionHash || null,
+    fillId: message.trade_id || message.id || `${message.asset_id}:${message.timestamp || now}:${message.size}:${message.price}`,
+  }, { now, minUsd: snifferMinUsd });
+  if (aggregateResult.status === "updated") {
+    incrementEventCounter("updated", asset);
+    const existingWhale = recentWhales.find((whale) => whale.aggregationKey === aggregateResult.aggregation.key);
+    if (existingWhale) {
+      const delta = Math.max(0, aggregateResult.aggregation.deltaSizeUsdc || 0);
+      existingWhale.sizeUsdc = aggregateResult.aggregation.sizeUsdc;
+      existingWhale.price = aggregateResult.aggregation.price;
+      existingWhale.fillCount = aggregateResult.aggregation.fillCount;
+      existingWhale.timestamp = now;
+      const duration = marketInfo.duration_type;
+      if (delta > 0 && duration && flowDirection) {
+        if (globalAccumulatedWhaleVolume.all[duration]) globalAccumulatedWhaleVolume.all[duration][flowDirection] += delta;
+        if (globalAccumulatedWhaleVolume[asset]?.[duration]) globalAccumulatedWhaleVolume[asset][duration][flowDirection] += delta;
+      }
+    }
+    return;
+  }
+  if (aggregateResult.status !== "emitted") {
+    incrementEventCounter(aggregateResult.status, asset);
+    return;
+  }
+  incrementEventCounter("emitted", asset);
+
+  const maker = String(message.maker || message.makerAddress || "Hidden");
+  const whaleObj = {
+    market_id: marketInfo.id,
+    market_question: marketInfo.question,
+    market_slug: marketInfo.slug,
+    duration_type: marketInfo.duration_type,
+    asset,
+    outcome,
+    flowDirection,
+    sizeUsdc: aggregateResult.aggregation.sizeUsdc,
+    price: aggregateResult.aggregation.price,
+    side,
+    maker,
+    timestamp: now,
+    isTracked: false,
+    wallet_nickname: "",
+    fillCount: aggregateResult.aggregation.fillCount,
+    aggregationWindowMs: aggregateResult.aggregation.windowMs,
+    aggregationKey: aggregateResult.aggregation.key,
+  };
+
+  if (marketInfo.duration_type && outcome !== "UNKNOWN") {
+    const duration = marketInfo.duration_type;
+    const flowDirection = whaleObj.flowDirection;
+    if (flowDirection && globalAccumulatedWhaleVolume.all[duration]) globalAccumulatedWhaleVolume.all[duration][flowDirection] += whaleObj.sizeUsdc;
+    if (flowDirection && globalAccumulatedWhaleVolume[asset]?.[duration]) globalAccumulatedWhaleVolume[asset][duration][flowDirection] += whaleObj.sizeUsdc;
+  }
+  recentWhales.unshift(whaleObj);
+  if (recentWhales.length > MAX_WHALES_STORED) recentWhales.length = MAX_WHALES_STORED;
+
+  if (!marketTrades.has(message.market)) marketTrades.set(message.market, []);
+  marketTrades.get(message.market).push(now);
+  const cutoff = now - 15 * 60 * 1000;
+  const recentTradesForMarket = marketTrades.get(message.market).filter((timestamp) => timestamp > cutoff);
+  marketTrades.set(message.market, recentTradesForMarket);
+
+  if (recentTradesForMarket.length >= 4 && !notifiedHotNiches.has(message.market)) {
+    notifiedHotNiches.add(message.market);
+    const timer = setTimeout(() => {
+      snifferAuxTimers.delete(timer);
+      notifiedHotNiches.delete(message.market);
+    }, 60 * 60 * 1000);
+    snifferAuxTimers.add(timer);
+    timer.unref?.();
+    notifySafely({
+      type: "HOT_NICHE",
+      marketInfo,
+      recentTradesCount: recentTradesForMarket.length,
+      triggerWhale: whaleObj,
+    }, "hot-niche-notify");
+  }
+
+  const icon = side === "BUY" ? "🟢" : (side === "SELL" ? "🔴" : "🔵");
+  const sizeStr = "$" + whaleObj.sizeUsdc.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const walletShort = maker === "Hidden" ? "Anonymous" : `${maker.slice(0, 6)}...${maker.slice(-4)}`;
+  let text = `🚨 *LIVE WHALE ALERT* 🚨\n\n`;
+  text += `${icon} *${sizeStr}* (${side} @ ${whaleObj.price.toFixed(3)})\n`;
+  text += `📊 Market: ${whaleObj.market_question}\n`;
+  text += `👤 Wallet: ${maker === "Hidden" ? "`Anonymous`" : `[${walletShort}](https://polymarket.com/profile/${maker})`}\n`;
+  notifySafely(text, "whale-notify");
+}
+
+function handleShardMessage(shard, data) {
+  const raw = data.toString();
+  const now = Date.now();
+  shard.lastMessageAt = now;
+  if (raw.trim().toUpperCase() === "PONG") {
+    shard.lastPongAt = now;
+    return;
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    recordSnifferError(error, { shard, category: "parser" });
+    return;
+  }
+  const messages = Array.isArray(parsed) ? parsed : [parsed];
+    if (!global.livePrices) global.livePrices = {};
+    if (!global.livePriceTimestamps) global.livePriceTimestamps = {};
+  for (const message of messages) {
+    try {
+      for (const update of extractLivePriceUpdates(message)) {
+        global.livePrices[update.assetId] = update.price;
+        global.livePriceTimestamps[update.assetId] = now;
+      }
+      if (message?.event_type === "last_trade_price") {
+        shard.lastTradeAt = now;
+        if (isSnifferActive && message.asset_id && message.market) emitGeneralWhale(message);
+      }
+    } catch (error) {
+      recordSnifferError(error, { shard, category: "parser" });
+    }
+  }
+}
+
+function openSnifferShard(shard) {
+  if (!isSnifferActive || shard.generation !== snifferGeneration || snifferShards.get(shard.id) !== shard) return;
+  if (shard.ws && [WebSocket.CONNECTING, WebSocket.OPEN].includes(shard.ws.readyState)) return;
+  clearShardTimers(shard);
+  shard.intentionalClose = false;
+  shard.state = "CONNECTING";
+  shard.subscribedTokens = 0;
+  const ws = new WebSocket(CLOB_WS_URL, { handshakeTimeout: 15000 });
+  shard.ws = ws;
+
+  ws.on("open", () => {
+    if (!isSnifferActive || shard.generation !== snifferGeneration || shard.ws !== ws) {
+      ws.close(1000, "Stale sniffer generation");
+      return;
+    }
+    shard.state = "SUBSCRIBING";
+    shard.openedAt = Date.now();
+    console.log(`[Sniffer Shard ${shard.id}] Connected; subscribing to ${shard.expectedTokens} tokens.`);
+    sendSubscriptionChunks(shard, ws);
+  });
+  ws.on("message", (data) => {
+    if (isSnifferActive && shard.generation === snifferGeneration && shard.ws === ws) {
+      handleShardMessage(shard, data);
+    }
+  });
+  ws.on("pong", () => {
+    if (shard.generation === snifferGeneration && shard.ws === ws) shard.lastPongAt = Date.now();
+  });
+  ws.on("error", (error) => {
+    if (!shard.intentionalClose) recordSnifferError(error, { shard, category: "websocket" });
+  });
+  ws.on("close", (code) => {
+    if (shard.ws !== ws) return;
+    shard.ws = null;
+    shard.subscribedTokens = 0;
+    if (!isSnifferActive || shard.intentionalClose || shard.generation !== snifferGeneration) {
+      shard.state = "CLOSED";
+      return;
+    }
+    console.warn(`[Sniffer Shard ${shard.id}] Closed with code ${code}.`);
+    scheduleShardReconnect(shard);
+  });
+}
+
+function heartbeatShards() {
+  const now = Date.now();
+  for (const shard of snifferShards.values()) {
+    const ws = shard.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) continue;
+    const lastSeenAt = latestTimestamp([shard.lastMessageAt, shard.lastPongAt]);
+    if (shard.openedAt && now - shard.openedAt > SNIFFER_STALE_AFTER_MS
+      && (lastSeenAt === null || now - lastSeenAt > SNIFFER_STALE_AFTER_MS)) {
+      recordSnifferError("CLOB shard heartbeat became stale", { shard, category: "stale" });
+      ws.terminate();
+      continue;
+    }
+    ws.send("PING", (error) => {
+      if (error && !shard.intentionalClose) recordSnifferError(error, { shard, category: "heartbeat" });
+    });
+  }
+}
+
+async function refreshMarkets(generation) {
+  const previousIds = cachedClobIds.join("|");
+  const refreshed = await fetchAndCacheMarkets(true, generation);
+  if (!refreshed || !isSnifferActive || generation !== snifferGeneration) return;
+  if (cachedClobIds.join("|") !== previousIds) {
+    console.log("[Sniffer] Market token set changed; rebuilding shard subscriptions.");
+    await connectSnifferWs();
+  }
+}
+
+function startLifecycleIntervals(generation) {
+  snifferPingInterval = setInterval(() => {
+    if (isSnifferActive && generation === snifferGeneration) heartbeatShards();
+  }, PING_INTERVAL_MS);
+  snifferRefreshInterval = setInterval(() => {
+    if (isSnifferActive && generation === snifferGeneration) {
+      refreshMarkets(generation).catch((error) => recordSnifferError(error, { category: "market-refresh" }));
+    }
+  }, CACHE_TTL_MS);
 }
 
 async function connectSnifferWs() {
-  if (snifferIsConnecting) {
-    console.log("[Sniffer] Already connected or connecting, skipping.");
-    return;
-  }
-  snifferIsConnecting = true;
-
-  // Non-blocking: fetch markets then proceed. If cache is fresh this is instant.
-  await fetchAndCacheMarkets();
-
-  if (cachedClobIds.length === 0) {
-    console.warn("[Sniffer] No market IDs available — retry in 15s.");
-    snifferIsConnecting = false;
-    setTimeout(connectSnifferWs, 15000);
-    return;
-  }
-
-  const SHARD_SIZE = 500;
-  const numShards = Math.ceil(cachedClobIds.length / SHARD_SIZE);
-  console.log(`🕵️ [Sniffer] Connecting ${numShards} WebSockets (Shards) to Polymarket CLOB...`);
-  
-  // Close any existing WS in pool
-  for (const ws of snifferWsPool) {
-    if (ws) {
-      if (typeof ws.removeAllListeners === 'function') {
-        ws.removeAllListeners('close');
-        ws.removeAllListeners('error');
-        ws.removeAllListeners('open');
-        ws.removeAllListeners('message');
-      } else {
-        ws.onclose = null;
-        ws.onerror = null;
-        ws.onopen = null;
-        ws.onmessage = null;
-      }
-      ws.close(1000);
-    }
-  }
-  snifferWsPool = [];
-  clearSnifferIntervals();
-  
-  // Setup heartbeat for all WS in pool
-  snifferPingInterval = setInterval(() => {
-    for (const ws of snifferWsPool) {
-      if (ws && ws.readyState === 1) ws.ping();
-    }
-  }, 20000);
-
-  // Refresh market subscriptions periodically by reconnecting cleanly
-  snifferSubInterval = setInterval(() => {
-    console.log("[Sniffer] Refreshing connections to fetch latest markets...");
-    connectSnifferWs();
-  }, 15 * 60 * 1000);
-
-  // Create shards — do NOT await between them, stagger via setTimeout to avoid blocking
-  for (let i = 0; i < cachedClobIds.length; i += SHARD_SIZE) {
-    const chunk = cachedClobIds.slice(i, i + SHARD_SIZE);
-    const shardId = Math.floor(i / SHARD_SIZE) + 1;
-    const delay = i === 0 ? 0 : 12000; // stagger subsequent shards by 12s each
-    setTimeout(() => createSnifferShard(chunk, shardId), delay);
-  }
-  
-  // Mark done immediately — shard creation itself is non-blocking
-  snifferIsConnecting = false;
-  console.log(`✅ [Sniffer] Semua shard siap.`);
-}
-
-function createSnifferShard(ids, shardId) {
-  const ws = new WebSocket('wss://ws-subscriptions-clob.polymarket.com/ws/market');
-  snifferWsPool.push(ws);
-
-  ws.on('open', async () => {
-    console.log(`✅ [Sniffer Shard ${shardId}] Terhubung! Subscribing to ${ids.length} tokens...`);
-    // Reset delay hanya saat koneksi berhasil dan selesai subscribe
-    
-    // Subscribe tokens in background (non-blocking) — doesn't stall HTTP server
-    const CHUNK_SIZE = 25;
-    let sentCount = 0;
-    const sendNextChunk = (idx) => {
-      if (ws.readyState !== 1) {
-        if (ws.readyState === 3) return; // closed, give up
-        // Still connecting, retry shortly
-        setTimeout(() => sendNextChunk(idx), 200);
-        return;
-      }
-      if (idx >= ids.length) {
-        console.log(`[Sniffer Shard ${shardId}] Subscribed to ${sentCount} tokens. ✅`);
-        snifferReconnectDelay = 2000; // Reset backoff only after subscribe complete
-        return;
-      }
-      const chunk = ids.slice(idx, idx + CHUNK_SIZE);
-      ws.send(JSON.stringify({ assets_ids: chunk, type: "market" }));
-      sentCount += chunk.length;
-      setTimeout(() => sendNextChunk(idx + CHUNK_SIZE), 800); // 800ms between chunks, non-blocking
-    };
-    sendNextChunk(0);
-  });
-
-  ws.on('pong', () => { /* Heartbeat ACK */ });
-
-  ws.on('message', (data) => {
+  if (!isSnifferActive) return;
+  if (snifferConnectPromise) {
     try {
-      const parsed = JSON.parse(data.toString());
-      const messages = Array.isArray(parsed) ? parsed : [parsed];
-
-      for (const m of messages) {
-        if ((m.event_type === "price_change" || m.event_type === "book") && m.asset_id) {
-          if (m.price !== undefined) {
-            global.livePrices[m.asset_id] = parseFloat(m.price);
-          } else if (m.bids && m.bids.length > 0) {
-            global.livePrices[m.asset_id] = parseFloat(m.bids[0].price);
-          } else if (m.asks && m.asks.length > 0) {
-            global.livePrices[m.asset_id] = parseFloat(m.asks[0].price);
-          }
-        }
-      }
-
-      if (!isSnifferActive) return;
-
-      for (const m of messages) {
-        if (m.event_type === "last_trade_price" && m.asset_id && m.price && m.size && m.market) {
-          const sizeUsdc = parseFloat(m.size) * parseFloat(m.price);
-          const makerRaw = m.maker || m.makerAddress || "Hidden";
-
-          if (sizeUsdc >= snifferMinUsd) {
-            const marketInfo = marketMap[m.market] || { id: "Unknown", question: "Unknown Market", slug: "", duration_type: "", asset: "unknown", clobTokenIds: [] };
-            
-            let outcome = "UNKNOWN";
-            if (marketInfo.clobTokenIds && marketInfo.clobTokenIds.length >= 2) {
-              if (m.asset_id === marketInfo.clobTokenIds[0]) outcome = "UP";
-              else if (m.asset_id === marketInfo.clobTokenIds[1]) outcome = "DOWN";
-            }
-
-            const isTracked = trackedWallets.has(makerRaw.toLowerCase());
-            const walletNickname = isTracked ? (trackedWallets.get(makerRaw.toLowerCase()) || makerRaw) : "";
-
-            const whaleObj = {
-              market_id: marketInfo.id,
-              market_question: marketInfo.question,
-              market_slug: marketInfo.slug,
-              duration_type: marketInfo.duration_type,
-              asset: marketInfo.asset,
-              outcome: outcome,
-              sizeUsdc,
-              price: parseFloat(m.price),
-              side: m.side || "UNKNOWN",
-              maker: makerRaw,
-              timestamp: Date.now(),
-              isTracked,
-              wallet_nickname: walletNickname
-            };
-
-            if (sizeUsdc >= snifferMinUsd) {
-              if (marketInfo.duration_type && outcome !== "UNKNOWN") {
-                const asset = marketInfo.asset;
-                const dur = marketInfo.duration_type;
-                if (globalAccumulatedWhaleVolume.all[dur]) {
-                  globalAccumulatedWhaleVolume.all[dur][outcome] += sizeUsdc;
-                }
-                if (globalAccumulatedWhaleVolume[asset] && globalAccumulatedWhaleVolume[asset][dur]) {
-                  globalAccumulatedWhaleVolume[asset][dur][outcome] += sizeUsdc;
-                }
-              }
-              recentWhales.unshift(whaleObj);
-              if (recentWhales.length > MAX_WHALES_STORED) {
-                recentWhales = recentWhales.slice(0, MAX_WHALES_STORED);
-              }
-            }
-
-            if (!marketTrades.has(m.market)) marketTrades.set(m.market, []);
-            marketTrades.get(m.market).push(Date.now());
-
-            const cutoff = Date.now() - 15 * 60 * 1000;
-            const recentTradesForMarket = marketTrades.get(m.market).filter(ts => ts > cutoff);
-            marketTrades.set(m.market, recentTradesForMarket);
-
-            if (recentTradesForMarket.length >= 4 && !notifiedHotNiches.has(m.market)) {
-              notifiedHotNiches.add(m.market);
-              setTimeout(() => notifiedHotNiches.delete(m.market), 60 * 60 * 1000);
-              if (notifyCallback) {
-                notifyCallback({ type: "HOT_NICHE", marketInfo, recentTradesCount: recentTradesForMarket.length, triggerWhale: whaleObj }).catch(() => {});
-              }
-            }
-
-            if ((sizeUsdc >= NOTIFY_MIN_SIZE || isTracked) && notifyCallback) {
-              const icon = whaleObj.side === "BUY" ? "🟢" : (whaleObj.side === "SELL" ? "🔴" : "🔵");
-              const sizeStr = "$" + whaleObj.sizeUsdc.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-              const walletShort = whaleObj.maker === "Hidden" ? "Anonymous" : `${whaleObj.maker.slice(0, 6)}...${whaleObj.maker.slice(-4)}`;
-              let text = isTracked ? `🎯 *TRACKED WALLET ALERT* 🎯\n\n` : `🚨 *LIVE WHALE ALERT* 🚨\n\n`;
-              text += `${icon} *${sizeStr}* (${whaleObj.side} @ ${whaleObj.price.toFixed(3)})\n`;
-              text += `📊 Market: ${whaleObj.market_question}\n`;
-              const walletLink = whaleObj.maker === "Hidden" ? "`Anonymous`" : `[${walletShort}](https://polymarket.com/profile/${whaleObj.maker})`;
-              text += `👤 Wallet: ${walletLink}\n`;
-              notifyCallback(text).catch(() => {});
-            }
-          }
-        }
-      }
-    } catch (err) {
-      // Ignore parse errors silently
+      await snifferConnectPromise;
+    } catch (error) {
+      recordSnifferError(error, { category: "connect" });
     }
-  });
+    return;
+  }
 
-  ws.on('error', (err) => {
-    console.error(`❌ [Sniffer Shard ${shardId}] WebSocket error:`, err.message);
-  });
+  const generation = ++snifferGeneration;
+  snifferIsConnecting = true;
+  clearLifecycleTimers();
+  closeAllShards("Refreshing sniffer subscriptions");
+  snifferExpectedShards = 0;
+  snifferExpectedTokens = 0;
 
-  ws.on('close', (code, reason) => {
-    const reasonStr = reason && reason.length > 0 ? reason.toString() : '';
-    console.log(`⚠️ [Sniffer Shard ${shardId}] Terputus (Code: ${code}${reasonStr ? ', Reason: ' + reasonStr : ''}).`);
-    
-    // Hapus ws ini dari pool
-    const idx = snifferWsPool.indexOf(ws);
-    if (idx !== -1) snifferWsPool.splice(idx, 1);
-
-    // Jika masih ada shard lain yang hidup, jangan reconnect dulu
-    const anyAlive = snifferWsPool.some(s => s.readyState === 0 || s.readyState === 1);
-    if (anyAlive) return;
-
-    // Semua shard mati — jadwalkan reconnect jika belum ada
-    if (!snifferIsConnecting && !snifferReconnectTimer) {
-      const isClean = code === 1000 || code === 1001;
-      if (isClean) snifferReconnectDelay = 2000;
-      
-      console.log(`⚠️ [Sniffer] Semua shard mati. Reconnect dalam ${snifferReconnectDelay / 1000}s...`);
-      snifferReconnectTimer = setTimeout(() => {
-        snifferReconnectTimer = null;
-        connectSnifferWs();
-      }, snifferReconnectDelay);
-      snifferReconnectDelay = Math.min(snifferReconnectDelay * 2, SNIFFER_MAX_RECONNECT_DELAY);
-    } else if (snifferIsConnecting) {
-      // connectSnifferWs sedang berjalan — reset flagnya agar bisa reconnect lagi nanti
-      console.log(`⚠️ [Sniffer Shard ${shardId}] Drop saat connecting — reset flag.`);
-      snifferIsConnecting = false;
+  const connectionTask = (async () => {
+    await fetchAndCacheMarkets(false, generation);
+    if (!isSnifferActive || generation !== snifferGeneration) return;
+    if (cachedClobIds.length === 0) {
+      logRateLimited("no-market-ids", "warn", `[Sniffer] No market token IDs available; retrying in ${MARKET_RETRY_MS / 1000}s.`);
+      snifferMarketRetryTimer = setTimeout(() => {
+        snifferMarketRetryTimer = null;
+        if (!isSnifferActive || generation !== snifferGeneration) return;
+        snifferReconnectCount += 1;
+        connectSnifferWs().catch((error) => recordSnifferError(error, { category: "market-retry" }));
+      }, MARKET_RETRY_MS);
+      return;
     }
-  });
+
+    snifferExpectedTokens = cachedClobIds.length;
+    snifferExpectedShards = Math.ceil(cachedClobIds.length / SHARD_SIZE);
+    console.log(`[Sniffer] Connecting ${snifferExpectedShards} CLOB shard(s).`);
+    for (let index = 0; index < snifferExpectedShards; index++) {
+      const ids = cachedClobIds.slice(index * SHARD_SIZE, (index + 1) * SHARD_SIZE);
+      const shard = {
+        id: index + 1,
+        generation,
+        ids,
+        expectedTokens: ids.length,
+        subscribedTokens: 0,
+        state: "PENDING",
+        ws: null,
+        timers: new Set(),
+        intentionalClose: false,
+        openedAt: null,
+        lastMessageAt: null,
+        lastPongAt: null,
+        lastTradeAt: null,
+        reconnectCount: 0,
+        reconnectDelay: 2000,
+        errorCount: 0,
+        lastError: null,
+      };
+      snifferShards.set(shard.id, shard);
+      scheduleShardTask(shard, () => openSnifferShard(shard), index * 1000);
+    }
+    startLifecycleIntervals(generation);
+  })();
+  snifferConnectPromise = connectionTask;
+
+  try {
+    await connectionTask;
+  } catch (error) {
+    recordSnifferError(error, { category: "connect" });
+  } finally {
+    if (generation === snifferGeneration) snifferIsConnecting = false;
+    if (snifferConnectPromise === connectionTask) snifferConnectPromise = null;
+  }
 }
 
-export function startSniffer() {
-  console.log("🕵️ [Sniffer] Memulai inisialisasi...");
-  // Fire-and-forget: do not block server startup
-  connectSnifferWs().catch(err => console.error("[Sniffer] Init error:", err.message));
+export async function startSniffer() {
+  if (isSnifferActive) {
+    if (snifferConnectPromise) await connectSnifferWs();
+    else if (snifferExpectedShards === 0 && !snifferIsConnecting) await connectSnifferWs();
+    return getSnifferWsStatus();
+  }
+  isSnifferActive = true;
+  snifferStartTime = Date.now();
+  console.log("[Sniffer] Starting live CLOB tracker.");
+  await connectSnifferWs();
+  return getSnifferWsStatus();
+}
+
+export function stopSniffer() {
+  if (!isSnifferActive && snifferShards.size === 0) return getSnifferWsStatus();
+  isSnifferActive = false;
+  snifferStartTime = 0;
+  snifferGeneration += 1;
+  snifferIsConnecting = false;
+  snifferConnectPromise = null;
+  clearLifecycleTimers();
+  closeAllShards("Sniffer disabled");
+  tradeAggregations.clear();
+  snifferExpectedShards = 0;
+  snifferExpectedTokens = 0;
+  return getSnifferWsStatus();
 }
 
 export function getRecentWhales(minSizeUsdc = 0) {
@@ -500,14 +957,17 @@ export function formatSnifferWhales(whales, minSizeUsdc) {
   text += `_Disadap langsung dari Polymarket WebSocket_\n\n`;
 
   for (const w of whales.slice(0, 15)) {
-    const size = "$" + w.sizeUsdc.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const size = w.sizeUsdc != null && Number.isFinite(Number(w.sizeUsdc))
+      ? "$" + Number(w.sizeUsdc).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+      : "N/A";
     const walletShort = w.maker === "Hidden" ? "Anonymous" : `${w.maker.slice(0, 6)}...${w.maker.slice(-4)}`;
     const timeAgo = Math.round((Date.now() - w.timestamp) / 1000);
     const timeFmt = timeAgo < 60 ? `${timeAgo} detik lalu` : `${Math.floor(timeAgo/60)} menit lalu`;
     
     const icon = w.side === "BUY" ? "🟢" : (w.side === "SELL" ? "🔴" : "🔵");
     
-    text += `${icon} *${size}* (${w.side} @ $${w.price.toFixed(3)})\n`;
+    const price = w.price != null && Number.isFinite(Number(w.price)) ? `$${Number(w.price).toFixed(3)}` : "price unavailable";
+    text += `${icon} *${size}* (${w.side} @ ${price})\n`;
     text += `  📊 Market: ${w.market_question.slice(0, 45)}...\n`;
     text += `  👤 Wallet: \`${walletShort}\` (${timeFmt})\n\n`;
   }
@@ -516,22 +976,33 @@ export function formatSnifferWhales(whales, minSizeUsdc) {
 }
 
 export function getSnifferWsStatus() {
-  if (!isSnifferActive) return "OFFLINE";
-  if (snifferIsConnecting) return "CONNECTING";
-  if (!snifferWsPool || snifferWsPool.length === 0) return "RECONNECTING";
-  
-  let connectedCount = 0;
-  for (const ws of snifferWsPool) {
-    if (ws && ws.readyState === 1) connectedCount++;
-  }
-  
-  if (connectedCount > 0) return "CONNECTED";
-  
-  let connectingCount = 0;
-  for (const ws of snifferWsPool) {
-    if (ws && ws.readyState === 0) connectingCount++;
-  }
-  
-  if (connectingCount > 0) return "CONNECTING";
-  return "RECONNECTING";
+  const shards = Array.from(snifferShards.values(), (shard) => ({
+    id: shard.id,
+    state: shard.ws?.readyState === WebSocket.OPEN
+      ? shard.state === "SUBSCRIBING" ? "SUBSCRIBING" : "OPEN"
+      : shard.ws?.readyState === WebSocket.CONNECTING
+        ? "CONNECTING"
+        : shard.state === "OPEN"
+          ? "RECONNECTING"
+          : shard.state,
+    expectedTokens: shard.expectedTokens,
+    subscribedTokens: shard.subscribedTokens,
+    lastMessageAt: shard.lastMessageAt,
+    lastPongAt: shard.lastPongAt,
+    lastTradeAt: shard.lastTradeAt,
+    reconnectCount: shard.reconnectCount,
+    errorCount: shard.errorCount,
+    lastError: shard.lastError,
+  }));
+  return deriveSnifferHealth({
+    active: isSnifferActive,
+    isConnecting: snifferIsConnecting,
+    expectedShards: snifferExpectedShards,
+    expectedTokens: snifferExpectedTokens,
+    reconnectCount: snifferReconnectCount,
+    errorCount: snifferErrorCount,
+    parserErrorCount: snifferParserErrorCount,
+    lastError: snifferLastError,
+    shards,
+  });
 }

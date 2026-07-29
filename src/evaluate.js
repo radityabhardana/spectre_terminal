@@ -1,4 +1,4 @@
-import { ANALYSIS_STRATEGY_VERSION, getAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, saveReflection, getReflectionByMarketId } from "./storage.js";
+import { ANALYSIS_STRATEGY_VERSION, getAnalyzedEvents, getUnresolvedAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, saveReflection, getReflectionByMarketId } from "./storage.js";
 import { getMarketById } from "./polymarket.js";
 import { config } from "./config.js";
 import { requestAiText } from "./qwen.js";
@@ -57,6 +57,9 @@ export async function evaluateSingleEvent(eventId, signal = null) {
     const event = getAnalyzedEventById(eventId);
     if (!event) return { error: "Event tidak ditemukan." };
 
+    if (event.actionable !== 1 || !["YES", "UP", "NO", "DOWN"].includes(String(event.prediction || "").toUpperCase())) {
+      return { error: "Event ini bukan PLAY yang actionable dan tidak boleh masuk reflection memory." };
+    }
     if (event.result !== 'kalah') {
       return { error: "Event ini tidak berstatus kalah. Evaluasi hanya untuk prediksi yang salah." };
     }
@@ -89,7 +92,7 @@ export async function evaluateSingleEvent(eventId, signal = null) {
 
 export async function evaluateAllResolutions(signal = null) {
   const allEvents = getAnalyzedEvents(100).filter(e =>
-    e.status === "selesai" && e.result === "kalah" && e.strategy_version === ANALYSIS_STRATEGY_VERSION
+    e.status === "selesai" && e.result === "kalah" && e.actionable === 1 && e.strategy_version === ANALYSIS_STRATEGY_VERSION
   );
   if (!allEvents.length) {
     return { status: "Selesai", message: "✅ Tidak ada histori tebakan yang salah untuk dievaluasi." };
@@ -154,7 +157,7 @@ export async function evaluateAllResolutions(signal = null) {
 }
 
 export async function evaluateResolutions(ctx = null) {
-  const unresolved = getAnalyzedEvents(100).filter(e => e.status === "belum selesai" && e.strategy_version === ANALYSIS_STRATEGY_VERSION);
+  const unresolved = getUnresolvedAnalyzedEvents();
   if (!unresolved.length) {
     return "✅ Semua prediksi yang ada di memori saat ini sudah tereksekusi atau belum ada yang close.";
   }
@@ -188,7 +191,7 @@ export async function evaluateResolutions(ctx = null) {
       countResolved++;
       let statusText = "kalah";
       const p = (event.prediction || "").toUpperCase();
-      const isNeutralPrediction = p === "=" || p === "SKIP" || p === "NETRAL" || p === "WATCHLIST";
+      const isNeutralPrediction = event.actionable !== 1 || p === "=" || p === "SKIP" || p === "NETRAL" || p === "WATCHLIST";
       const w = (actualOutcome || "").toUpperCase();
       const directMatch = p && w && p === w;
       
@@ -202,7 +205,7 @@ export async function evaluateResolutions(ctx = null) {
 
       textOut += `🔹 Market: ${market.question}\nPrediksi: ${event.prediction} | Hasil: ${actualOutcome} | Status: *${statusText.toUpperCase()}*\n`;
 
-      if (statusText === "kalah") {
+      if (statusText === "kalah" && event.actionable === 1) {
         const reflectionNote = await fetchQwenReflection(market, event.prediction, actualOutcome, event.analysis_conclusion, ctx?.signal);
         saveReflection({
           market_id: event.market_id,

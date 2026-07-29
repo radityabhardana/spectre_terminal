@@ -11,7 +11,8 @@ import { ANALYSIS_STRATEGY_VERSION, completeTradeExecution, getAnalyzedEvents, g
 import { evaluateSingleEvent, evaluateAllResolutions } from "./evaluate.js";
 import { getBinanceWsStatus } from "./binance_ws.js";
 import { getShortMemoryEnabled, runWithAiLanguage, setShortMemoryEnabled } from "./qwen.js";
-import { getSnifferWsStatus, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig, setAggressiveMode, getAggressiveMode } from "./sniffer.js";
+import { getSnifferWsStatus, getSnifferEventCounters, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig, setAggressiveMode, getAggressiveMode } from "./sniffer.js";
+import { getBlockchainTrackerHealth } from "./blockchain-tracker.js";
 import { initWallet, getWalletBalances } from "./wallet.js";
 import { initTradeModule } from "./trade.js";
 import { getMarketPulseState, initializeMarketPulseMonitor, startMarketPulseMonitor, stopMarketPulseMonitor, subscribeMarketPulse } from "./market-pulse.js";
@@ -352,9 +353,13 @@ export function startWebServer(options = {}) {
       }
 
       if (req.method === "GET" && req.url === "/api/ws-status") {
+        const snifferHealth = getSnifferWsStatus();
         sendJson(res, 200, {
-          sniffer: getSnifferWsStatus(),
-          binance: getBinanceWsStatus()
+          sniffer: snifferHealth.state,
+          binance: getBinanceWsStatus(),
+          snifferHealth,
+          snifferCounters: getSnifferEventCounters(),
+          polygon: getBlockchainTrackerHealth(),
         });
         return;
       }
@@ -440,11 +445,7 @@ export function startWebServer(options = {}) {
         try {
           const { getStats } = await import("./storage.js");
           const stats = getStats();
-          const { totalAnalyzed, wins, losses } = stats;
-          const totalResolved = wins + losses;
-          const winRate = totalResolved > 0 ? Math.round((wins / totalResolved) * 100) : 0;
-          
-          sendJson(res, 200, { ok: true, stats: { ...stats, winRate } });
+          sendJson(res, 200, { ok: true, stats });
         } catch (error) {
           sendJson(res, 500, { ok: false, error: String(error.message) });
         }
@@ -536,7 +537,7 @@ export function startWebServer(options = {}) {
           const startDate = parsedUrl.searchParams.get("startDate");
           const endDate = parsedUrl.searchParams.get("endDate");
           const events = getAnalyzedEvents(2000, startDate, endDate); // Increased limit so UI shows correct overall stats
-          sendJson(res, 200, { ok: true, events });
+          sendJson(res, 200, { ok: true, events, strategyVersion: ANALYSIS_STRATEGY_VERSION });
           return;
         }
       }
@@ -592,7 +593,7 @@ export function startWebServer(options = {}) {
             }
             
             updateAnalyzedEventStatus(eventId, status, result, actualOutcome);
-            if (result === 'menang' || result === 'kalah' || result === 'netral') {
+            if (storedEvent.actionable === 1 && (result === 'menang' || result === 'kalah')) {
               patchShortMemoryOutcome(market.question, result);
             }
             sendJson(res, 200, { ok: true, status, result, actualOutcome });
@@ -760,7 +761,11 @@ export function startWebServer(options = {}) {
       }
 
       if (req.url === "/api/sniffer-status" && req.method === "GET") {
-        return sendJson(res, 200, { isSnifferActive: getSnifferState(), startTime: getSnifferStartTime() });
+        return sendJson(res, 200, {
+          isSnifferActive: getSnifferState(),
+          startTime: getSnifferStartTime(),
+          health: getSnifferWsStatus(),
+        });
       }
 
       if (req.url === "/api/sniffer-whales" && req.method === "GET") {
@@ -769,7 +774,6 @@ export function startWebServer(options = {}) {
         
         // Dynamic import to avoid circular dependency issues if any
         const { getAccumulatedWhaleVolume, getTimeframeFilter } = await import('./sniffer.js');
-        const { getTotalAITokensUsed } = await import('./qwen.js');
 
         return sendJson(res, 200, {
           isSnifferActive: getSnifferState(),
@@ -777,14 +781,21 @@ export function startWebServer(options = {}) {
           whales: whales,
           trending: trending,
           accumulatedWhaleVolume: getAccumulatedWhaleVolume(),
-          timeframeFilter: getTimeframeFilter()
+          timeframeFilter: getTimeframeFilter(),
+          health: getSnifferWsStatus(),
+          counters: getSnifferEventCounters(),
+          polygonHealth: getBlockchainTrackerHealth(),
         });
       }
 
       if (req.url === "/api/sniffer-toggle" && req.method === "POST") {
         const body = await readBody(req);
-        const newState = setSnifferState(body.active);
-        return sendJson(res, 200, { isSnifferActive: newState, startTime: getSnifferStartTime() });
+        const newState = await setSnifferState(body.active);
+        return sendJson(res, 200, {
+          isSnifferActive: newState,
+          startTime: getSnifferStartTime(),
+          health: getSnifferWsStatus(),
+        });
       }
 
       if (req.url === "/api/settings/aggressive-mode" && req.method === "POST") {

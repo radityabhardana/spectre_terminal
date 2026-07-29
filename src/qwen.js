@@ -637,70 +637,16 @@ function parseJsonOr(value, fallback) {
   }
 }
 
-export function normalizeShortAnalysis(value, baseProbability = 50) {
+export function normalizeShortAnalysis(value) {
   const input = value && typeof value === "object" ? value : {};
-  const base = boundedNumber(baseProbability, 0, 100, 50);
-  const rawPrimaryProbability = boundedNumber(
-    input.estimated_fair_probability ?? input.estimatedFairProbability,
-    0,
-    100
-  );
-  const primaryProbability = rawPrimaryProbability == null
-    ? base
-    : Math.max(Math.max(0, base - 15), Math.min(Math.min(100, base + 15), rawPrimaryProbability));
-  const probabilityDirection = primaryProbability >= 55 ? "UP" : primaryProbability <= 45 ? "DOWN" : "NEUTRAL";
-  const modelDirection = String(input.direction || "").trim().toUpperCase();
-  const directionValid = ["UP", "DOWN", "NEUTRAL"].includes(modelDirection);
-  const directionConsistent = directionValid && (
-    modelDirection === probabilityDirection ||
-    (probabilityDirection === "NEUTRAL" && modelDirection === "NEUTRAL")
-  );
-  const confidence = boundedNumber(input.confidence, 0, 100, 0);
-  let recommendation = String(input.recommendation || "").trim().toUpperCase() === "PLAY" ? "PLAY" : "AVOID";
-  let direction = directionValid ? modelDirection : "NEUTRAL";
-  let reason = truncate(input.reason || "", 1200);
-  const validationIssues = [];
-
-  if (rawPrimaryProbability == null) {
-    validationIssues.push("probabilitas primer tidak valid");
-  } else if (!directionConsistent) {
-    validationIssues.push(`arah ${modelDirection || "tidak valid"} tidak konsisten dengan probabilitas primer ${primaryProbability}% (${probabilityDirection})`);
-  } else if (direction === "NEUTRAL") {
-    validationIssues.push(`probabilitas primer ${primaryProbability}% berada di neutral band 46-54%`);
-  }
-
-  if (validationIssues.length) {
-    recommendation = "AVOID";
-    direction = "NEUTRAL";
-    reason = `[OUTPUT VALIDATION] ${validationIssues.join("; ")}. ${reason}`.trim();
-  }
-
-  const selectedProbability = direction === "DOWN" ? 100 - primaryProbability : primaryProbability;
-  const condition = String(input.condition || "").trim().toUpperCase();
-  if (!["TRENDING", "CHOPPY"].includes(condition)) {
-    recommendation = "AVOID";
-    direction = "NEUTRAL";
-    validationIssues.push("kondisi market tidak valid");
-    reason = `[OUTPUT VALIDATION] kondisi market tidak valid. ${reason}`.trim();
-  }
   return {
-    condition: ["TRENDING", "CHOPPY"].includes(condition) ? condition : "UNKNOWN",
-    recommendation,
-    direction,
-    confidence: Math.round(confidence),
-    primary_outcome_probability: Number(primaryProbability.toFixed(2)),
-    estimated_fair_probability: Number(selectedProbability.toFixed(2)),
-    reason,
+    reason: truncate(input.reason || "", 1200),
     key_signals: {
       depth_verdict: truncate(input.key_signals?.depth_verdict || "UNKNOWN", 80),
       liquidation_verdict: truncate(input.key_signals?.liquidation_verdict || "UNKNOWN", 80),
       flow_verdict: truncate(input.key_signals?.flow_verdict || "UNKNOWN", 80),
     },
     risk_warning: truncate(input.risk_warning || "", 300),
-    validation_issues: validationIssues,
-    raw_recommendation: String(input.recommendation || "").trim().toUpperCase() || null,
-    raw_direction: modelDirection || null,
-    raw_primary_probability: rawPrimaryProbability,
   };
 }
 
@@ -1550,28 +1496,27 @@ export async function askQwenShortCondition({
   tickerData, 
   longShort, 
   fearGreed, 
-  tweets, 
   signal = null, 
   liquidations = null, 
   orderbookDepth = null,
   targetPrice = null,
   oraclePrice = null,
   marketQuestion = "",
-  marketOutcomePrice = null,
-  baseProbability = 50
+  deterministic = null,
+  marketPrices = null,
 }) {
   throwIfAborted(signal);
 
   let historyContext = "";
-  // Always use short market learning memory — unless disabled by toggle
   if (shortMemoryEnabled) {
     try {
       const histPath = path.join(dataDir, "short_condition_history.json");
       if (fs.existsSync(histPath)) {
         const histData = JSON.parse(fs.readFileSync(histPath, "utf-8"));
-        if (histData.length > 0) {
-          const recentHist = histData.slice(-3).map((h, i) => `[Memory ${i+1}] ${h.date} | Dir:${h.direction || 'N/A'} | Outcome:${h.outcome || 'belum diketahui'}\nReason: ${(h.reason||'').slice(0, 200)}...`).join("\n\n");
-          historyContext = `\n\nAI LEARNING MEMORY (Last 3 analyses):\n${recentHist}\nPelajari memori ini: jika Outcome='kalah', hindari mengulangi pola yang sama. Utamakan perhitungan matematis jarak vs sisa waktu.\n`;
+        const actionableHistory = histData.filter((item) => item.actionable === 1).slice(-3);
+        if (actionableHistory.length > 0) {
+          const recentHist = actionableHistory.map((item, index) => `[Memory ${index + 1}] ${item.date} | Direction:${item.direction || "N/A"} | Outcome:${item.outcome || "unresolved"}`).join("\n");
+          historyContext = `\nACTIONABLE-ONLY HISTORY (explanation context only):\n${recentHist}`;
         }
       }
     } catch (err) {
@@ -1579,117 +1524,64 @@ export async function askQwenShortCondition({
     }
   }
 
-  const td = tickerData || {};
-  
-  let targetContext = "";
-  if (marketQuestion && targetPrice) {
-    const currentP = oraclePrice || td.currentPrice;
-    const distance = targetPrice - currentP;
-    
-    targetContext = `
-MARKET TARGET (PRICE TO BEAT):
-- Pertanyaan Polymarket: "${marketQuestion}"
-- Target Price: $${targetPrice}
-- Current Chainlink Price (Oracle): $${oraclePrice || "N/A"}
-- Jarak Absolut: $${distance.toFixed(2)}
-- Volatilitas/ATR-14 (Kekuatan Gerak Normal): $${td.atr14 || "N/A"}
-- Jarak Relatif (Distance/ATR): ${td.atr14 ? (Math.abs(distance) / td.atr14).toFixed(2) + "x ATR" : "N/A"}
-- Base Probability Kuantitatif (JS Mechanical): ${baseProbability}%
-- Harga Token Polymarket Saat Ini: ${marketOutcomePrice != null ? "$" + marketOutcomePrice : "N/A"}
-`;
-  }
-
-  const context = `
-${targetContext}
-
-TECHNICAL DATA (${td.symbol || 'BTCUSDT'} / Ticker):
-Source: ${td.source || 'unknown'}
-Current Price: $${td.currentPrice}
-${td.priceChange24h != null ? `24h Change: ${td.priceChange24h}%` : '24h Change: unavailable'}
-${td.high24h != null && td.low24h != null ? `24h High: $${td.high24h} | 24h Low: $${td.low24h}` : '24h High/Low: unavailable'}
-${td.volume24h != null ? `24h Volume: ${td.volume24h} ${(td.symbol || 'BTCUSDT').replace('USDT','')}` : '24h Volume: unavailable (bukan nol)'}
-${td.rsi14 != null ? `RSI-14: ${td.rsi14} (${td.rsiSignal})` : ''}
-${td.macd ? `MACD: Line ${td.macd.line}, Signal ${td.macd.signal} (${td.macd.trend})` : ''}
-${td.volumeRatio != null ? `Volume Momentum: ${td.volumeRatio}x (${td.volumeSignal})` : ''}
-
-FUTURES POSITIONING (Binance):
-${longShort ? `Long/Short Ratio: ${longShort.ratio} (Long: ${longShort.longPct}% | Short: ${longShort.shortPct}%) → ${longShort.bias}` : 'Long/Short data: unavailable'}
-
-LIVE LIQUIDATIONS (Binance 15m):
-${liquidations ? `Longs Liq: $${liquidations.longsLiqValue.toFixed(2)} | Shorts Liq: $${liquidations.shortsLiqValue.toFixed(2)} | Total Events: ${liquidations.totalCount}` : 'Liquidations data: unavailable'}
-
-LIVE ORDERBOOK DEPTH (Binance 20-levels):
-${orderbookDepth ? `Total Bid Volume (Nahan Turun): $${orderbookDepth.bidsValue.toFixed(2)} | Total Ask Volume (Nahan Naik): $${orderbookDepth.asksValue.toFixed(2)} | Ratio (Bid/Ask): ${orderbookDepth.imbalanceRatio.toFixed(2)}x` : 'Depth data: unavailable'}
-
-MARKET SENTIMENT:
-${fearGreed ? `Fear & Greed Index: ${fearGreed.value}/100 (${fearGreed.label}) — ${fearGreed.value >= 75 ? 'Extreme Greed: Pasar euforia, potensi reversal tinggi' : fearGreed.value >= 55 ? 'Greed: Momentum bullish kuat' : fearGreed.value >= 45 ? 'Neutral: Tidak ada sinyal kuat' : fearGreed.value >= 25 ? 'Fear: Pasar panik, sering ada bounce' : 'Extreme Fear: Peluang contrarian tinggi'}` : 'Fear & Greed: unavailable'}
-
-TWITTER/X SENTIMENT (recent):
-${tweets && tweets.length > 0 ? JSON.stringify(tweets.slice(0, 5), null, 2) : 'No tweets available'}
-${historyContext}`.trim();
+  const context = {
+    marketQuestion,
+    chainlink: { currentPrice: oraclePrice, priceToBeat: targetPrice },
+    deterministic,
+    executablePolymarketPrices: marketPrices,
+    atrContext: {
+      source: tickerData?.source || "unknown",
+      atr14: tickerData?.atr14 ?? null,
+      rsi14: tickerData?.rsi14 ?? null,
+      macd: tickerData?.macd ?? null,
+    },
+    contextOnly: {
+      longShort,
+      fearGreed,
+      liquidations,
+      orderbookDepth,
+    },
+  };
 
   const prompt = `
-  Kamu adalah AI Quant Trader yang bersifat DINGIN, OBJEKTIF, TANPA EMOSI, dan SANGAT PRESISI. 
-  Tujuan utamamu HANYA SATU: Memaksimalkan Win Rate di Short Market Polymarket (BTC/ETH/DOGE 5-15 menit).
-  Kamu tidak pernah ragu-ragu. Kamu HANYA melihat data di depan mata, BUKAN firasat, BUKAN sentimen semu.
-  
-  Tugasmu: Berikan keputusan entry murni berdasarkan FAKTA KUANTITATIF (Jarak Harga, Orderbook Flow, dan Nilai Ekspektasi/EV). JANGAN menebak reversal menggunakan pola atau tebakan kosong!
-  
-  Pemeriksaan wajib yang harus diringkas secara singkat dalam field "reason":
-  1. [Distance Check] Berapa jarak harga Oracle Chainlink saat ini ke Target Price? Bandingkan dengan ATR-14.
-  2. [Orderbook Flow] Apakah ada tembok duit raksasa (Bid/Ask Depth) di Binance yang menghalangi pergerakan harga menuju target?
-  3. [Crowd Wisdom / Market Probability] Berapa harga token Polymarket saat ini? (Contoh $0.76 = Crowd yakin 76% UP).
-  4. [Momentum Follow] Jangan melawan tren! Jika Crowd Probability tinggi (> 60%) dan tidak ada tembok yang memblokir, asumsikan Crowd BENAR. Jangan coba-coba menebak reversal.
-  5. [Base Probability Calibration] Perhatikan angka "Base Probability Kuantitatif (JS Mechanical)" sebesar ${baseProbability}% yang dihitung di backend. Jangan mengarang probabilitas acak dari nol.
-  6. [Heuristic Adjustment] Lakukan BUFF (+1% s.d. +15%) atau NERF (-1% s.d. -15%) terhadap base probability.
-  
-  ATURAN MUTLAK:
-  - BERSIKAPLAH DINGIN DAN TEPAT. Jangan pernah overthink atau menggunakan kalimat ragu-ragu dalam "reason" kamu.
-  - JANGAN MENEBAK REVERSAL. Harga bergerak berdasarkan volume, bukan tebakan. Jika tren sedang kuat menuju target, ikuti.
-  - JANGAN mencoba menghitung Expected Value (EV). Tugasmu HANYA menganalisis kondisi dan menentukan 'estimated_fair_probability'. Sistem akan menghitung EV-nya.
-  - Jika harga token Polymarket (MarketOutcomePrice) tidak tersedia/N/A, abaikan, dan fokus murni pada penentuan 'estimated_fair_probability' berdasarkan Distance vs ATR.
-  - Jika Liquidasi besar searah dengan target, itu sangat menambah 'estimated_fair_probability'.
-  - DEFINISI WAJIB: Base Probability dan "estimated_fair_probability" SELALU berarti probabilitas outcome primer UP/YES menang, BUKAN probabilitas direction yang dipilih.
-  - "estimated_fair_probability" WAJIB berada maksimal 15 poin dari Base Probability. Jangan membalik 85% menjadi 15% untuk memilih DOWN.
-  - Tentukan direction secara mekanis dari estimated_fair_probability: >=55 berarti UP, <=45 berarti DOWN, dan 46-54 berarti NEUTRAL.
-  - KONSISTENSI WAJIB: PLAY + UP hanya jika estimated_fair_probability >= 55. PLAY + DOWN hanya jika estimated_fair_probability <= 45.
-  - Jika estimated_fair_probability berada di 46-54, recommendation WAJIB AVOID dan direction WAJIB NEUTRAL.
+Explain the deterministic short-market decision below. The backend has already fixed direction, probability, recommendation, prices, and EV.
 
-Format JSON wajib:
+${JSON.stringify(context, null, 2)}
+${historyContext}
+
+Rules:
+- You may explain the supplied values only. Do not recalculate, adjust, contradict, or propose another direction, probability, recommendation, entry price, or EV.
+- RSI, MACD, futures depth, liquidations, sentiment, and history are context only. They do not alter fair probability.
+- State missing data plainly and do not invent facts.
+- Return only JSON with explanation fields:
 {
-  "condition": "TRENDING" atau "CHOPPY",
-  "recommendation": "PLAY" atau "AVOID",
-  "direction": "UP" atau "DOWN" atau "NEUTRAL",
-  "confidence": 80,
-  "estimated_fair_probability": 85,
-  "reason": "Analisis mendalam berdasarkan Jarak ke Target, ATR, Tembok Binance, dan Momentum Market. Jelaskan probabilitas tembus secara rasional.",
+  "reason": "Concise explanation of the deterministic terminal model and entry blockers/value.",
   "key_signals": {
-    "depth_verdict": "BULLISH_WALL / BEARISH_WALL / CLEAR_PATH",
-    "liquidation_verdict": "SQUEEZE_UP / SQUEEZE_DOWN / NORMAL",
-    "flow_verdict": "STRONG_MOMENTUM / CHOPPY / REVERSAL_RISK"
+    "depth_verdict": "context summary",
+    "liquidation_verdict": "context summary",
+    "flow_verdict": "context summary"
   },
-  "risk_warning": "Peringatan khusus jika ada tembok besar atau anomali spread."
-}
-  `.trim();
+  "risk_warning": "Concise execution/data warning."
+}`.trim();
 
   const finalApiKey = config.qwenApiKey;
   const finalBaseUrl = config.qwenBaseUrl;
   const finalModel = config.qwenShortModel;
 
   const payload = {
-    model: finalModel, // Menggunakan model tercerdas untuk analisis mendalam
+    model: finalModel,
     messages: [
-      { role: "system", content: "Kamu adalah analis teknikal tingkat dewa. Jawab HANYA dengan JSON valid." },
-      { role: "user", content: `${context}\n\n${prompt}` }
+      { role: "system", content: "You explain immutable deterministic trading output. Return only the requested JSON explanation fields." },
+      { role: "user", content: prompt }
     ],
     temperature: 0,
-    max_tokens: config.qwenShortMaxTokens,
+    max_tokens: Math.min(config.qwenShortMaxTokens, 600),
     response_format: { type: "json_object" }
   };
 
   const json = await callRoleQwenJson(payload, config.qwenEvaluatorModel, finalBaseUrl, finalApiKey, signal);
   const parsed = parseJsonOr(json.text, null);
-  const result = normalizeShortAnalysis(parsed, baseProbability);
+  const result = normalizeShortAnalysis(parsed);
   return {
     ...result,
     rawText: truncate(json.text, 8000),

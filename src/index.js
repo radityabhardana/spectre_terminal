@@ -214,8 +214,46 @@ function isShortCryptoMarket(market) {
   return Boolean(shortCryptoAsset(market?.question) && /\bup or down\b/i.test(String(market?.question || "")));
 }
 
-function scoreHasHardBlockers(score) {
-  return (score?.blockers || []).some((blocker) => blocker !== "No measured positive edge");
+function executableOrderBookPricing(book) {
+  const prices = (levels) => (Array.isArray(levels) ? levels : [])
+    .map((level) => {
+      if (level?.price == null || (typeof level.price === "string" && !level.price.trim())) return null;
+      const value = Number(level.price);
+      return Number.isFinite(value) && value > 0 && value <= 1 ? value : null;
+    })
+    .filter((value) => value != null);
+  const bids = prices(book?.bids);
+  const asks = prices(book?.asks);
+  const bestBid = bids.length ? Math.max(...bids) : null;
+  const bestAsk = asks.length ? Math.min(...asks) : null;
+  const midpoint = bestBid != null && bestAsk != null && bestBid < bestAsk
+    ? (bestBid + bestAsk) / 2
+    : null;
+  return { bestBid, bestAsk, midpoint };
+}
+
+async function refreshShortExecutionSnapshot(marketId, score) {
+  const freshMarket = await getMarketById(marketId, true).catch(() => null);
+  const freshTokens = freshMarket ? pickYesNoTokens(freshMarket) : null;
+  const primaryTokenId = freshTokens?.yesTokenId || score.primaryTokenId;
+  const secondaryTokenId = freshTokens?.noTokenId || score.secondaryTokenId;
+  const [upBook, downBook] = await Promise.all([
+    primaryTokenId ? getOrderBook(primaryTokenId).catch(() => null) : Promise.resolve(null),
+    secondaryTokenId
+      ? getOrderBook(secondaryTokenId).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  const up = executableOrderBookPricing(upBook);
+  const down = executableOrderBookPricing(downBook);
+  return {
+    upAsk: up.bestAsk,
+    downAsk: down.bestAsk,
+    upMidpoint: up.midpoint,
+    downMidpoint: down.midpoint,
+    marketActive: freshMarket?.active === true,
+    marketClosed: freshMarket?.closed !== false,
+    acceptingOrders: freshMarket?.acceptingOrders === true,
+  };
 }
 
 export function tradePricingForPrediction(analysis, prediction) {
@@ -286,12 +324,28 @@ async function scoreOneMarket(market) {
     throw new Error(`Market ${market.id} tidak punya token utama.`);
   }
 
-  const yesBook = await getOrderBook(tokens.yesTokenId);
+  const shortMarket = isShortCryptoMarket(market);
+  let yesBook;
+  let noBook = null;
+  if (shortMarket) {
+    [yesBook, noBook] = await Promise.all([
+      getOrderBook(tokens.yesTokenId).catch(() => null),
+      tokens.noTokenId ? getOrderBook(tokens.noTokenId).catch(() => null) : Promise.resolve(null),
+    ]);
+  } else {
+    yesBook = await getOrderBook(tokens.yesTokenId);
+  }
   const baseScore = scoreMarket({ market, yesBook });
   const clobMidpoint =
     baseScore.marketProbability == null ? null : baseScore.marketProbability / 100;
   const gammaPrice = Number(tokens.yesPrice);
   const dataWarnings = [];
+  const shortBookPrices = shortMarket
+    ? {
+        up: executableOrderBookPricing(yesBook),
+        down: executableOrderBookPricing(noBook),
+      }
+    : null;
 
   if (
     Number.isFinite(clobMidpoint) &&
@@ -318,9 +372,10 @@ async function scoreOneMarket(market) {
     primaryTokenId: tokens.yesTokenId,
     secondaryTokenId: tokens.noTokenId,
     gammaPrimaryPrice: Number.isFinite(gammaPrice) ? gammaPrice : null,
+    shortBookPrices,
     dataWarnings,
   };
-  return { market, yesBook, score };
+  return { market, yesBook, noBook, score };
 }
 
 async function scoreEventMarkets(markets, setStep, signal = null) {
@@ -489,6 +544,40 @@ function eventResultFromSession(session) {
   };
 }
 
+function qwenResultFromShortEvaluation(shortRes) {
+  const evaluation = shortRes.evaluation;
+  return {
+    model: shortRes.providerModel ? `Terminal Chainlink | ${shortRes.providerModel}` : "Terminal Chainlink",
+    usage: shortRes.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 },
+    analysis: {
+      verdict: evaluation.recommendation === "PLAY" ? "VALUE CANDIDATE" : "SKIP",
+      confidence: evaluation.confidence,
+      estimatedFairProbability: evaluation.estimated_fair_probability,
+      primaryOutcomeProbability: evaluation.primary_outcome_probability,
+      expectedValueCents: evaluation.expected_value_cents,
+      targetPrice: shortRes.targetPrice,
+      oraclePrice: shortRes.oraclePrice,
+      signalDataAt: shortRes.oraclePublishTime,
+      technicalSource: evaluation.technical_source,
+      validationIssues: evaluation.validation_issues,
+      guardrailBlockers: evaluation.guardrail_blockers,
+      rawRecommendation: evaluation.raw_recommendation,
+      rawDirection: evaluation.raw_direction,
+      rawPrimaryProbability: evaluation.raw_primary_probability,
+      rawModelOutput: evaluation.rawText,
+      scoutDirection: evaluation.direction,
+      scoutRecommendation: evaluation.recommendation,
+      forecastDirection: evaluation.forecast_direction,
+      deterministicSnapshot: evaluation.deterministic_snapshot,
+      tradePricing: evaluation.trade_pricing,
+      finalReason: evaluation.reason,
+      summary: evaluation.reason || "Deterministic terminal-price evaluation unavailable.",
+      bullishCase: [`Terminal UP probability: ${evaluation.primary_outcome_probability ?? "n/a"}%`],
+      bearishCase: [`Terminal DOWN probability: ${evaluation.primary_outcome_probability == null ? "n/a" : (100 - evaluation.primary_outcome_probability).toFixed(2)}%`],
+    },
+  };
+}
+
 async function resolveEventInput(arg) {
   const session = getEventSession(arg);
   if (session) {
@@ -517,39 +606,20 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
       signal,
       asset,
       marketQuestion: scored.market.question,
-      marketOutcomePrice: scored.score.marketProbability / 100,
+      upTokenAsk: scored.score.shortBookPrices?.up.bestAsk,
+      downTokenAsk: scored.score.shortBookPrices?.down.bestAsk,
+      upTokenMidpoint: scored.score.shortBookPrices?.up.midpoint,
+      downTokenMidpoint: scored.score.shortBookPrices?.down.midpoint,
+      refreshMarketPrices: () => refreshShortExecutionSnapshot(scored.market.id, scored.score),
+      marketActive: scored.market.active,
+      marketClosed: scored.market.closed,
+      acceptingOrders: scored.market.acceptingOrders,
       durationType: scored.market.durationType,
       startDate: scored.market.startDate,
       endDate: scored.market.endDate,
       resolutionSource: scored.market.resolutionSource,
     });
-    
-    qwenResult = {
-      model: shortRes.providerModel ? `Sniper V2 | ${shortRes.providerModel}` : "Sniper V2",
-      usage: shortRes.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 },
-      analysis: {
-        verdict: shortRes.evaluation.recommendation === "PLAY" ? "VALUE CANDIDATE" : "SKIP",
-        confidence: shortRes.evaluation.confidence,
-        estimatedFairProbability: shortRes.evaluation.estimated_fair_probability,
-        expectedValueCents: shortRes.evaluation.expected_value_cents,
-        targetPrice: shortRes.targetPrice,
-        oraclePrice: shortRes.oraclePrice,
-        signalDataAt: shortRes.oraclePublishTime,
-        technicalSource: shortRes.evaluation.technical_source,
-        validationIssues: shortRes.evaluation.validation_issues,
-        guardrailBlockers: shortRes.evaluation.guardrail_blockers,
-        rawRecommendation: shortRes.evaluation.raw_recommendation,
-        rawDirection: shortRes.evaluation.raw_direction,
-        rawPrimaryProbability: shortRes.evaluation.raw_primary_probability,
-        rawModelOutput: shortRes.evaluation.rawText,
-        scoutDirection: shortRes.evaluation.direction,
-        scoutRecommendation: shortRes.evaluation.recommendation,
-        finalReason: shortRes.evaluation.reason,
-        summary: shortRes.evaluation.reason ? shortRes.evaluation.reason.substring(0, 150) + "..." : "Short Market Sniper V2",
-        bullishCase: ["Flow Momentum: " + (shortRes.evaluation.key_signals?.flow_verdict || "")],
-        bearishCase: ["Orderbook/Liq: " + (shortRes.evaluation.key_signals?.depth_verdict || "")]
-      }
-    };
+    qwenResult = qwenResultFromShortEvaluation(shortRes);
   } else {
     setStep("Fetching crypto research context");
     researchContext = await buildResearchContext({ market: scored.market });
@@ -594,7 +664,8 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
     } else {
       finalPrediction = "=";
     }
-    actionable = scoutRec === "PLAY" && finalPrediction !== "=" && !scoreHasHardBlockers(scored.score);
+    actionable = scoutRec === "PLAY" && finalPrediction !== "=";
+    if (!actionable) finalPrediction = "=";
   } else {
     const confidence = Number(qwenResult?.analysis?.confidence);
     finalPrediction = predictionFromValidatedAnalysis(qwenResult?.analysis, scored.score);
@@ -701,38 +772,20 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
       signal,
       asset,
       marketQuestion: best.market.question,
-      marketOutcomePrice: best.score.marketProbability / 100,
+      upTokenAsk: best.score.shortBookPrices?.up.bestAsk,
+      downTokenAsk: best.score.shortBookPrices?.down.bestAsk,
+      upTokenMidpoint: best.score.shortBookPrices?.up.midpoint,
+      downTokenMidpoint: best.score.shortBookPrices?.down.midpoint,
+      refreshMarketPrices: () => refreshShortExecutionSnapshot(best.market.id, best.score),
+      marketActive: best.market.active,
+      marketClosed: best.market.closed,
+      acceptingOrders: best.market.acceptingOrders,
       durationType: best.market.durationType,
       startDate: best.market.startDate,
       endDate: best.market.endDate,
       resolutionSource: best.market.resolutionSource,
     });
-    bestQwen = {
-      model: shortRes.providerModel ? `Sniper V2 | ${shortRes.providerModel}` : "Sniper V2",
-      usage: shortRes.usage || { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0 },
-      analysis: {
-        verdict: shortRes.evaluation.recommendation === "PLAY" ? "VALUE CANDIDATE" : "SKIP",
-        confidence: shortRes.evaluation.confidence,
-        estimatedFairProbability: shortRes.evaluation.estimated_fair_probability,
-        expectedValueCents: shortRes.evaluation.expected_value_cents,
-        targetPrice: shortRes.targetPrice,
-        oraclePrice: shortRes.oraclePrice,
-        signalDataAt: shortRes.oraclePublishTime,
-        technicalSource: shortRes.evaluation.technical_source,
-        validationIssues: shortRes.evaluation.validation_issues,
-        guardrailBlockers: shortRes.evaluation.guardrail_blockers,
-        rawRecommendation: shortRes.evaluation.raw_recommendation,
-        rawDirection: shortRes.evaluation.raw_direction,
-        rawPrimaryProbability: shortRes.evaluation.raw_primary_probability,
-        rawModelOutput: shortRes.evaluation.rawText,
-        scoutDirection: shortRes.evaluation.direction,
-        scoutRecommendation: shortRes.evaluation.recommendation,
-        finalReason: shortRes.evaluation.reason,
-        summary: shortRes.evaluation.reason ? shortRes.evaluation.reason.substring(0, 150) + "..." : "Short Market Sniper V2",
-        bullishCase: ["RSI/MACD: " + (shortRes.evaluation.key_signals?.rsi_verdict || "")],
-        bearishCase: ["Orderbook/Liq: " + (shortRes.evaluation.key_signals?.depth_verdict || "")]
-      }
-    };
+    bestQwen = qwenResultFromShortEvaluation(shortRes);
   } else {
     setStep("Running Qwen final market pipeline");
     bestQwen = await askQwen({
@@ -781,7 +834,8 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
     } else {
       bestFinalPrediction = "=";
     }
-    bestActionable = scoutRecommendation === "PLAY" && bestFinalPrediction !== "=" && !scoreHasHardBlockers(best.score);
+    bestActionable = scoutRecommendation === "PLAY" && bestFinalPrediction !== "=";
+    if (!bestActionable) bestFinalPrediction = "=";
   } else {
     const confidence = Number(bestQwen?.analysis?.confidence);
     bestFinalPrediction = predictionFromValidatedAnalysis(bestQwen?.analysis, best.score);
@@ -1157,7 +1211,14 @@ export async function handleCommand(text, message, ctx) {
         signal: ctx?.signal,
         asset: shortCryptoAsset(market.question),
         marketQuestion: market.question,
-        marketOutcomePrice: scored.score.marketProbability / 100,
+        upTokenAsk: scored.score.shortBookPrices?.up.bestAsk,
+        downTokenAsk: scored.score.shortBookPrices?.down.bestAsk,
+        upTokenMidpoint: scored.score.shortBookPrices?.up.midpoint,
+        downTokenMidpoint: scored.score.shortBookPrices?.down.midpoint,
+        refreshMarketPrices: () => refreshShortExecutionSnapshot(market.id, scored.score),
+        marketActive: market.active,
+        marketClosed: market.closed,
+        acceptingOrders: market.acceptingOrders,
         durationType: market.durationType,
         startDate: market.startDate,
         endDate: market.endDate,

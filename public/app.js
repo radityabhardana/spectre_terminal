@@ -152,10 +152,6 @@ setInterval(updateClock, 1000);
           if (asset === "BTC" && priceBTC) priceBTC.textContent = formatPrice(priceVal, 'BTC');
           if (asset === "ETH" && priceETH) priceETH.textContent = formatPrice(priceVal, 'ETH');
           if (asset === "DOGE" && priceDOGE) priceDOGE.textContent = formatPrice(priceVal, 'DOGE');
-          
-          if (window.updateChartRealtimePrice) {
-            window.updateChartRealtimePrice(asset, priceVal);
-          }
         }
       }
     };
@@ -566,18 +562,18 @@ function setBusy(nextBusy) {
 
     const dConc = document.getElementById("dashConclusionText");
     const staticPanel = document.getElementById("staticResultPanel");
-    const staticBody = document.getElementById("staticResultBody");
+    const staticContent = document.getElementById("staticResultContent");
 
-    if (dConc || (staticPanel && staticBody)) {
+    if (dConc || (staticPanel && staticContent)) {
       let stageIdx = 0;
       const initialText = pipelineStages[0];
       
       if (dConc) dConc.innerText = initialText;
       
-      if (staticPanel && staticBody) {
-        staticPanel.style.display = "flex";
-        staticBody.style.overflowY = "hidden";
-        staticBody.innerHTML = `
+      if (staticPanel && staticContent) {
+        staticPanel.classList.remove("hidden");
+        staticContent.style.overflowY = "hidden";
+        staticContent.innerHTML = `
           <div class="empty-dashboard-state" style="grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 240px; gap: 20px;">
             <div class="spinner" style="width:40px; height:40px; border-width:2px; border-radius:50%; border-color:rgba(16,185,129,0.15); border-top-color:var(--neon-green);"></div>
             <div id="staticLoadingText" style="font-family:var(--font-secondary); font-size:12px; color:var(--neon-green); letter-spacing:0.2em; text-transform:uppercase; font-weight:500;">
@@ -941,36 +937,31 @@ function appendMessageElement(message) {
 
     // [STATIC PANEL INJECTION LOGIC]
     const staticPanel = document.getElementById("staticResultPanel");
-    const staticBody = document.getElementById("staticResultBody");
-    if (staticPanel && staticBody) {
+    const staticContent = document.getElementById("staticResultContent");
+    if (staticPanel && staticContent && !marketSummaryClosed) {
+      staticPanel.classList.remove("hidden");
       if (html.includes('class="dash-agent-analysis"')) {
         // Real Qwen analysis result - show in static panel
-        if (marketSummaryClosed) {
-          return wrapper; // Skip rendering if user closed it
-        }
-        
         if (message.text && message.text.includes("MARKET SUMMARY")) {
           const bentoHtml = typeof buildBentoGrid === "function" ? buildBentoGrid(message.text) : html;
-          staticBody.style.overflowY = "hidden";
-          staticBody.innerHTML = bentoHtml;
+          staticContent.style.overflowY = "auto";
+          staticContent.innerHTML = bentoHtml;
           // Store the report HTML globally so openFullReportModal() can access it
           window._currentReportHtml = html;
           // Handler is now inline onclick="openFullReportModal()" on the span itself
 
         } else {
-          staticBody.style.overflowY = "auto";
-          staticBody.innerHTML = html;
+          staticContent.style.overflowY = "auto";
+          staticContent.innerHTML = html;
         }
-        
-        staticPanel.style.display = "flex";
-        if (window.lucide) window.lucide.createIcons({ root: staticBody });
+
+        if (window.lucide) window.lucide.createIcons({ root: staticContent });
         wrapper.style.display = "none";
       } else {
         // Raw text / errors: also show them in the static panel if the console feed is hidden
-        staticBody.style.overflowY = "auto";
-        staticBody.innerHTML = `<div style="display:flex; flex-direction:column; justify-content:center; padding: 24px; background:var(--bg-elevated); border-radius:12px; border:1px solid rgba(255,255,255,0.05); position:relative;">\n          <button onclick="closeStaticPanel()" style="position:absolute; top:12px; right:12px; background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:16px;height:16px;"></i></button>\n          ${html}\n        </div>`;
-        staticPanel.style.display = "flex";
-        if (window.lucide) window.lucide.createIcons({ root: staticBody });
+        staticContent.style.overflowY = "auto";
+        staticContent.innerHTML = `<div style="display:flex; flex-direction:column; justify-content:center; padding: 24px; background:var(--bg-elevated); border-radius:12px; border:1px solid rgba(255,255,255,0.05); position:relative;">\n          <button onclick="closeStaticPanel()" style="position:absolute; top:12px; right:12px; background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:16px;height:16px;"></i></button>\n          ${html}\n        </div>`;
+        if (window.lucide) window.lucide.createIcons({ root: staticContent });
         wrapper.style.display = "none";
       }
     }
@@ -1452,9 +1443,6 @@ setInterval(async () => {
 function addMessage(message, tabId = activeTabId) {
   const tab = ensureTab(tabId ? outputTabs.get(tabId) || { id: tabId, label: "Console" } : { id: "console", label: "Console" });
   if (!activeTabId) activeTabId = tab.id;
-  if (message.role === "assistant" && message.text?.includes("MARKET SUMMARY")) {
-    marketSummaryClosed = false;
-  }
   tab.messages.push(message);
   renderTabs();
 
@@ -1658,16 +1646,11 @@ async function executeCommand(commandText, isBackground = false) {
     activeRequest = null;
     // Refresh history so that recent analysis is shown in the History tab
     await fetchHistoryEvents();
+    await Promise.all([fetchStats(), fetchDashboardMetrics()]);
     
     setBusy(false);
     if (isBackground) playQueueDoneSound();
     
-    // Jika fetch gagal atau tidak ok, sembunyikan static panel
-    if (!data || !data.ok) {
-       const staticPanel = document.getElementById("staticResultPanel");
-       if (staticPanel) staticPanel.classList.add("hidden");
-    }
-
     // Jika fetch sukses, state udah disync via syncRateLimit.
     // Jika gagal network, set local fallback cooldown.
     if (!data || !data.rateLimit) {
@@ -1697,6 +1680,43 @@ function runFromInput() {
 }
 
 /* --- Real-Time WS Status Polling --- */
+function getSnifferUiStatus(health, isActive = null) {
+  if (isActive === false) return { label: 'Offline', tone: 'offline' };
+  if (!health) return isActive === true ? { label: 'Live', tone: 'live' } : { label: 'Offline', tone: 'offline' };
+
+  const state = String(typeof health === 'string' ? health : health.state || '').toUpperCase();
+  const expected = Number(typeof health === 'object' ? health.expectedShards : NaN);
+  const connected = Number(typeof health === 'object' ? health.connectedShards : NaN);
+  const hasPartialShards = Number.isFinite(expected) && expected > 0 && Number.isFinite(connected) && connected < expected;
+
+  if (state === 'CONNECTING' || state === 'RECONNECTING' || state === 'STARTING') {
+    return { label: 'Connecting', tone: 'connecting' };
+  }
+  if (state === 'DEGRADED' || state === 'PARTIAL' || hasPartialShards) {
+    return { label: 'Degraded', tone: 'degraded' };
+  }
+  if (state === 'CONNECTED' || state === 'LIVE' || (Number.isFinite(connected) && connected > 0 && connected === expected)) {
+    return { label: 'Live', tone: 'live' };
+  }
+  if (Number.isFinite(connected) && connected > 0) return { label: 'Degraded', tone: 'degraded' };
+  if (isActive === true) return { label: 'Connecting', tone: 'connecting' };
+  return { label: 'Offline', tone: 'offline' };
+}
+
+function describeSnifferHealth(health, status) {
+  if (!health || typeof health === 'string') return status.label;
+  const details = [status.label];
+  if (health.expectedShards != null || health.connectedShards != null) {
+    details.push(`shards ${health.connectedShards ?? 0}/${health.expectedShards ?? '?'}`);
+  }
+  if (health.subscribedTokens != null) {
+    const tokenCount = Array.isArray(health.subscribedTokens) ? health.subscribedTokens.length : health.subscribedTokens;
+    details.push(`tokens ${tokenCount}`);
+  }
+  if (health.lastMessageAt) details.push(`last message ${new Date(health.lastMessageAt).toLocaleTimeString()}`);
+  return details.join(' | ');
+}
+
 async function fetchWsStatus() {
   try {
     const res = await fetch('/api/ws-status');
@@ -1710,7 +1730,16 @@ async function fetchWsStatus() {
       else el.style.background = 'var(--neon-red)';
     };
 
-    updateDot('wsStatusSniffer', data.sniffer);
+    const snifferHealth = data.snifferHealth || data.sniffer;
+    const snifferStatus = getSnifferUiStatus(snifferHealth);
+    const snifferDot = document.getElementById('wsStatusSniffer');
+    if (snifferDot) {
+      snifferDot.style.background = snifferStatus.tone === 'live'
+        ? 'var(--neon-green)'
+        : snifferStatus.tone === 'offline' ? 'var(--neon-red)' : 'var(--neon-amber)';
+      const polygonState = data.polygon?.state ? ` | wallet ${String(data.polygon.state).toLowerCase()}` : "";
+      snifferDot.title = describeSnifferHealth(snifferHealth, snifferStatus) + polygonState;
+    }
     updateDot('wsStatusLiq', data.binance?.liquidation);
     updateDot('wsStatusDepth', data.binance?.depth);
   } catch (e) {
@@ -2648,14 +2677,6 @@ function showSniperSummaryModal() {
          dirBg = "rgba(239,68,68,0.1)";
       }
       
-      let gradeStr = '-';
-      if (historyItem.grades) {
-         try {
-           const g = typeof historyItem.grades === 'string' ? JSON.parse(historyItem.grades) : historyItem.grades;
-           gradeStr = `S:${g.S||0} A:${g.A||0} B:${g.B||0} C:${g.C||0}`;
-         } catch(e) {}
-      }
-      
       html += `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
           <td style="padding:10px 16px;">
@@ -2665,10 +2686,7 @@ function showSniperSummaryModal() {
           <td style="padding:10px 16px; text-align:center;">
             <span style="background:${dirBg}; color:${dirColor}; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:11px;">${historyItem.prediction || '-'}</span>
           </td>
-          <td style="padding:10px 16px; text-align:center; font-family:monospace; color:var(--neon-amber);">${historyItem.confluence_score ? historyItem.confluence_score + '%' : '-'}</td>
-          <td style="padding:10px 16px; text-align:center;">
-             <span style="color:var(--text-secondary); font-size:11px; background:rgba(255,255,255,0.02); padding:4px 6px; border-radius:4px;">${gradeStr}</span>
-          </td>
+          <td style="padding:10px 16px; text-align:center; font-family:monospace; color:var(--neon-amber);">${historyItem.qwen_confidence ? historyItem.qwen_confidence + '%' : '-'}</td>
         </tr>
       `;
     } else {
@@ -2678,7 +2696,6 @@ function showSniperSummaryModal() {
             <div style="font-weight:600; color:#fff;">${title}</div>
           </td>
           <td style="padding:10px 16px; text-align:center;">-</td>
-          <td style="padding:10px 16px; text-align:center;">-</td>
           <td style="padding:10px 16px; text-align:center;">Belum Dianalisis / Gagal</td>
         </tr>
       `;
@@ -2686,7 +2703,7 @@ function showSniperSummaryModal() {
   });
   
   if (html === "") {
-    html = `<tr><td colspan="4" style="padding:20px; text-align:center; color:var(--text-tertiary);">Tidak ada data summary.</td></tr>`;
+    html = `<tr><td colspan="3" style="padding:20px; text-align:center; color:var(--text-tertiary);">Tidak ada data summary.</td></tr>`;
   }
   
   tbody.innerHTML = html;
@@ -2721,7 +2738,7 @@ function showSniperSummaryModal() {
         let title = m.groupItemTitle || m.question.replace(new RegExp(`(Bitcoin|Ethereum|Dogecoin) Up or Down -? ?`, 'i'), '').trim();
         const historyItem = allHistoryEvents.find(h => String(h.market_id) === String(m.id));
         if (historyItem) {
-           txt += `- ${title}: ${historyItem.prediction} (${historyItem.confluence_score ? historyItem.confluence_score + '%' : ''})\n`;
+           txt += `- ${title}: ${historyItem.prediction} (${historyItem.qwen_confidence ? historyItem.qwen_confidence + '%' : ''})\n`;
         } else {
            txt += `- ${title}: FAILED/WAITING\n`;
         }
@@ -3233,7 +3250,7 @@ if (btnHistory && historyModal && closeHistoryModal) {
 
   if (btnEvaluateAllHistory) {
     btnEvaluateAllHistory.addEventListener("click", async () => {
-      const pendingEvals = allHistoryEvents.filter(e => e.result === 'kalah' && !e.has_reflection);
+      const pendingEvals = allHistoryEvents.filter(e => e.actionable === 1 && e.result === 'kalah' && !e.has_reflection);
       if (pendingEvals.length === 0) {
         showCustomAlert("Tidak ada market kalah yang perlu dievaluasi.");
         return;
@@ -3615,6 +3632,7 @@ function renderHistoryListPanel(eventsToRender = null) {
 window.showHistoryChat = function(eventId) {
   const event = allHistoryEvents.find(e => e.id === eventId);
   if (!event) return;
+  marketSummaryClosed = false;
   
   // Set tab history-archive message log to this event's conclusion
   const tab = outputTabs.get("history-archive");
@@ -3633,20 +3651,29 @@ window.showHistoryChat = function(eventId) {
 
   // Also populate the MARKET SUMMARY panel with the history content
   const staticPanel = document.getElementById("staticResultPanel");
-  const staticBody = document.getElementById("staticResultBody");
+  const staticContent = document.getElementById("staticResultContent");
   if (staticPanel) {
-    staticPanel.style.display = "flex";
-    marketSummaryClosed = false;
+    staticPanel.classList.remove("hidden");
   }
   
-  if (staticBody && typeof buildBentoGrid === "function") {
+  if (staticContent && typeof buildBentoGrid === "function") {
     const aiText = event.analysis_conclusion || "";
-    staticBody.style.overflowY = "hidden";
-    staticBody.innerHTML = buildBentoGrid(aiText, true);
-    if (window.lucide) window.lucide.createIcons({ root: staticBody });
+    staticContent.style.overflowY = "auto";
+    staticContent.innerHTML = buildBentoGrid(aiText, true);
+    if (window.lucide) window.lucide.createIcons({ root: staticContent });
     
     // Store archive report HTML for the global modal opener
-    window._currentReportHtml = marked.parse(`## 🤖 ARCHIVED ANALYSIS\n\n**Market:** [${event.question}](${event.url})\n**Prediction:** ${event.prediction}\n**Result:** ${event.result}\n\n---\n\n${aiText}`);
+    const report = document.createElement("div");
+    const heading = document.createElement("h3");
+    const meta = document.createElement("p");
+    const body = document.createElement("pre");
+    heading.textContent = "Archived Analysis";
+    meta.textContent = `${event.question} | Prediction: ${event.prediction || "-"} | Result: ${event.result || "-"}`;
+    body.textContent = aiText;
+    body.style.whiteSpace = "pre-wrap";
+    body.style.fontFamily = "inherit";
+    report.append(heading, meta, body);
+    window._currentReportHtml = report.outerHTML;
   }
 }
 
@@ -3656,7 +3683,7 @@ function renderHistoryEvents(events) {
   const displayEvents = events.slice(0, limit);
 
   const statsEvents = events;
-  let total = statsEvents.length;
+  let total = events.length;
   let wins = 0;
   let losses = 0;
   let neutrals = 0;
@@ -3666,10 +3693,10 @@ function renderHistoryEvents(events) {
   for (const event of statsEvents) {
     const r = (event.result || "").toLowerCase();
     const p = (event.prediction || "").trim().toUpperCase();
-    const isNeutral = r === 'netral' || p === '=' || p === 'SKIP' || p === 'NETRAL' || p === 'WATCHLIST';
+    const isNeutral = event.actionable !== 1 || r === 'netral' || p === '=' || p === 'SKIP' || p === 'NETRAL' || p === 'WATCHLIST';
 
-    if (event.result === 'menang') wins++;
-    else if (event.result === 'kalah') losses++;
+    if (event.actionable === 1 && event.result === 'menang') wins++;
+    else if (event.actionable === 1 && event.result === 'kalah') losses++;
     else if (isNeutral) neutrals++;
     else pending++;
   }
@@ -3706,7 +3733,7 @@ function renderHistoryEvents(events) {
             Reason
           </button>
           ` : ''}
-          ${event.status === 'selesai' && event.result === 'kalah' && !event.has_reflection ? `
+          ${event.actionable === 1 && event.status === 'selesai' && event.result === 'kalah' && !event.has_reflection ? `
           <button class="action-chip" style="height:24px; font-size:10px; padding:0 8px; margin-left:4px; background:rgba(239,68,68,0.1); color:var(--neon-red); border:1px solid rgba(239,68,68,0.3);" 
                   onclick="evaluateSingleEventInline(${event.id}, this)">
             Evaluate
@@ -3896,7 +3923,7 @@ window.showReasonModal = async function(eventId) {
   reflectionText.textContent = "";
   reasonModal.style.display = "flex";
 
-  if (event.result === 'kalah') {
+  if (event.actionable === 1 && event.result === 'kalah') {
     // Check if reflection exists
     try {
       const res = await fetch(`/api/evaluate/reflection/${event.market_id}`);
@@ -4054,19 +4081,25 @@ async function fetchDashboardMetrics() {
       if (dMDD) dMDD.innerText = m.maxDrawdown === "N/A" ? "N/A" : m.maxDrawdown + "%";
       if (dWR) dWR.innerText = m.winRate + "%";
 
-      const g = m.grades;
-      if (g) {
-        const ds = document.getElementById("dashGradeS");
-        const da = document.getElementById("dashGradeA");
-        const db = document.getElementById("dashGradeB");
-        const dc = document.getElementById("dashGradeC");
-        const dd = document.getElementById("dashGradeD");
-        if(ds) ds.innerText = g.S;
-        if(da) da.innerText = g.A;
-        if(db) db.innerText = g.B;
-        if(dc) dc.innerText = g.C;
-        if(dd) dd.innerText = g.D;
-      }
+      const playStats = m.playStats || {};
+      const sampleSize = playStats.sampleSize ?? m.sampleSize ?? 0;
+      const wins = playStats.wins ?? 0;
+      const losses = playStats.losses ?? 0;
+      const winRate = playStats.winRate ?? m.winRate ?? 0;
+      const safeCount = value => Number.isFinite(Number(value)) ? String(value) : "0";
+      const safePercent = value => {
+        if (value == null || value === "" || !Number.isFinite(parseFloat(value))) return "0%";
+        const text = String(value);
+        return text.endsWith("%") ? text : `${text}%`;
+      };
+      const dSample = document.getElementById("dashPlaySampleSize");
+      const dWins = document.getElementById("dashPlayWins");
+      const dLosses = document.getElementById("dashPlayLosses");
+      const dPlayWinRate = document.getElementById("dashPlayWinRate");
+      if (dSample) dSample.innerText = safeCount(sampleSize);
+      if (dWins) dWins.innerText = safeCount(wins);
+      if (dLosses) dLosses.innerText = safeCount(losses);
+      if (dPlayWinRate) dPlayWinRate.innerText = safePercent(winRate);
 
       const sig = m.latestSignal;
       if (sig) {
@@ -4624,7 +4657,9 @@ if (btnToggleWallet) {
 /* --- Whale Sniffer UI Toggle --- */
 let currentSnifferStartTime = 0;
 let lastSeenWhaleTimestamp = Date.now();
+let lastSeenTrackedTimestamp = Date.now();
 let isFirstLoad = true;
+let currentSnifferUiState = 'Offline';
 
   // Toast Function for New Whales
   function showWhaleToast(whale) {
@@ -4652,10 +4687,13 @@ let isFirstLoad = true;
     ], { duration: 300, easing: 'ease-out' });
     
     const icon = whale.side === "BUY" ? "🟢" : (whale.side === "SELL" ? "🔴" : "🔵");
-    const sizeStr = "$" + whale.sizeUsdc.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const sizeStr = whale.sizeUsdc != null && Number.isFinite(Number(whale.sizeUsdc))
+      ? "$" + Number(whale.sizeUsdc).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+      : "N/A";
+    const priceStr = whale.price != null && Number.isFinite(Number(whale.price)) ? `$${Number(whale.price).toFixed(3)}` : "price unavailable";
     
     const isTracked = whale.isTracked;
-    const headerTitle = isTracked ? "Tracked Wallet Traded!" : "Whale Ditemukan!";
+    const headerTitle = isTracked ? "Tracked Wallet Activity" : "Whale Ditemukan!";
     const headerColor = isTracked ? "var(--neon-amber)" : "var(--neon-cyan)";
     const borderGlow = isTracked ? "1px solid var(--neon-amber)" : "1px solid var(--neon-cyan)";
     const iconName = isTracked ? "target" : "radar";
@@ -4667,7 +4705,7 @@ let isFirstLoad = true;
       <div style="font-weight:bold; font-size:12px; color:${headerColor}; display:flex; align-items:center; gap:6px;">
         <i data-lucide="${iconName}" style="width:14px; height:14px;"></i> ${headerTitle}
       </div>
-      <div style="font-size:11px;">${icon} ${sizeStr} (${whale.side} @ $${whale.price.toFixed(3)})</div>
+      <div style="font-size:11px;">${icon} ${sizeStr} (${whale.side} @ ${priceStr})</div>
       <div style="font-size:10px; color:var(--text-secondary); max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${whale.market_question}</div>
     `;
     
@@ -4706,12 +4744,14 @@ let isFirstLoad = true;
       dashTabWallet.classList.remove('active');
       dashPaneSniffer.classList.add('active');
       dashPaneWallet.classList.remove('active');
+      updateSnifferUI();
     });
     dashTabWallet.addEventListener('click', () => {
       dashTabWallet.classList.add('active');
       dashTabSniffer.classList.remove('active');
       dashPaneWallet.classList.add('active');
       dashPaneSniffer.classList.remove('active');
+      updateSnifferUI();
     });
   }
 
@@ -4759,42 +4799,6 @@ let isFirstLoad = true;
     });
   }
 
-  // Dashboard Add Wallet Logic
-  if (dashWalletAddBtn) {
-    dashWalletAddBtn.addEventListener('click', async () => {
-      const address = dashWalletInput.value.trim();
-      const nick = dashWalletNick.value.trim();
-      if (!address) return;
-      dashWalletAddBtn.innerText = 'Adding...';
-      try {
-        await fetch('/api/sniffer-wallet', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({action: 'add', address, nickname: nick})
-        });
-        dashWalletInput.value = '';
-        dashWalletNick.value = '';
-        await updateSnifferUI();
-      } catch (e) {
-        console.error(e);
-      } finally {
-        dashWalletAddBtn.innerText = 'Add';
-      }
-    });
-  }
-
-  // Dashboard Remove Wallet logic happens inside updateSnifferUI
-  window.removeDashWallet = async function(address) {
-    try {
-      await fetch('/api/sniffer-wallet', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({action: 'remove', address})
-      });
-      await updateSnifferUI();
-    } catch(e) { console.error(e); }
-  };
-
   // Power Button Logic (Modal)
   const panelSnifferPowerBtn = document.getElementById('panelSnifferPowerBtn');
   if (panelSnifferPowerBtn) {
@@ -4828,6 +4832,19 @@ let isFirstLoad = true;
       
       const topBtnText = document.getElementById('snifferToggleText');
       const topBtnIcon = document.getElementById('snifferToggleIcon');
+      const snifferStatus = getSnifferUiStatus(data.health, data.isSnifferActive);
+      const walletTabActive = dashPaneWallet?.classList.contains('active');
+      const polygonState = String(data.polygonHealth?.state || "OFFLINE").toUpperCase();
+      const cardStatus = walletTabActive
+        ? polygonState === "RUNNING"
+          ? { label: "Live", tone: "live" }
+          : polygonState === "CONNECTING" || polygonState === "WAITING_FOR_MARKETS"
+            ? { label: "Connecting", tone: "connecting" }
+            : polygonState === "OFFLINE" || polygonState === "STOPPED"
+              ? { label: "Offline", tone: "offline" }
+              : { label: "Degraded", tone: "degraded" }
+        : snifferStatus;
+      currentSnifferUiState = cardStatus.label;
       
       if (data.isSnifferActive) {
         // Force to ON state to ensure interval starts ticking
@@ -4844,7 +4861,13 @@ let isFirstLoad = true;
         const dashStatusPill = document.getElementById('trackerCardStatusPill');
         const dashStatusText = document.getElementById('trackerCardStatusText');
         if (dashStatusPill && dashStatusText) {
-          dashStatusPill.classList.add('live');
+          dashStatusPill.classList.remove('live', 'degraded', 'connecting');
+          dashStatusPill.classList.add(cardStatus.tone);
+          dashStatusText.innerText = cardStatus.label;
+          const walletState = data.polygonHealth?.state
+            ? ` | wallet ${String(data.polygonHealth.state).toLowerCase()}`
+            : "";
+          dashStatusPill.title = describeSnifferHealth(data.health, snifferStatus) + walletState;
         }
       } else {
         if (topBtnText) topBtnText.innerText = 'TRACKER: OFF';
@@ -4858,8 +4881,9 @@ let isFirstLoad = true;
         const dashStatusPill = document.getElementById('trackerCardStatusPill');
         const dashStatusText = document.getElementById('trackerCardStatusText');
         if (dashStatusPill && dashStatusText) {
-          dashStatusPill.classList.remove('live');
+          dashStatusPill.classList.remove('live', 'degraded', 'connecting');
           dashStatusText.innerText = 'Offline';
+          dashStatusPill.title = 'Offline';
         }
       }
 
@@ -4928,6 +4952,7 @@ let isFirstLoad = true;
         if (dashTrackerMinSize) currentMinSize = parseInt(dashTrackerMinSize.value, 10) || 0;
         
         const snifferFiltered = data.whales.filter(w => {
+          if (w.isTracked) return false;
           if (w.sizeUsdc < currentMinSize) return false;
           if (currentTrackerAsset !== "all" && w.asset !== currentTrackerAsset) return false;
           return true;
@@ -4961,7 +4986,9 @@ let isFirstLoad = true;
                newWhaleFound = w;
              }
              
-             const size = "$" + w.sizeUsdc.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+             const size = w.sizeUsdc != null && Number.isFinite(Number(w.sizeUsdc))
+               ? "$" + Number(w.sizeUsdc).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+               : "N/A";
              
              let walletShort = "";
              if (w.wallet_nickname) {
@@ -5016,10 +5043,13 @@ let isFirstLoad = true;
         const trackedWhaleList = document.getElementById('trackedWhaleList');
         const dashTrackedFeed = document.getElementById('dashTrackedFeed');
         if (trackedFiltered.length > 0) {
+           const newestTracked = trackedFiltered.reduce((latest, whale) => whale.timestamp > (latest?.timestamp || 0) ? whale : latest, null);
            let html = '';
            let dashTrackedHtml = '';
            for (const w of trackedFiltered) {
-             const size = "$" + w.sizeUsdc.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+             const size = w.sizeUsdc != null && Number.isFinite(Number(w.sizeUsdc))
+               ? "$" + Number(w.sizeUsdc).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+               : "N/A";
              
              let walletShort = "";
              if (w.wallet_nickname) {
@@ -5058,12 +5088,16 @@ let isFirstLoad = true;
              dashTrackedFeed.innerHTML = dashTrackedHtml;
              if (typeof lucide !== 'undefined') lucide.createIcons({root: dashTrackedFeed});
            }
+           if (newestTracked && newestTracked.timestamp > lastSeenTrackedTimestamp && !isFirstLoad) {
+             showWhaleToast(newestTracked);
+           }
+           if (newestTracked) lastSeenTrackedTimestamp = Math.max(lastSeenTrackedTimestamp, newestTracked.timestamp);
         } else {
           if (dashTrackedFeed) {
             if (activeTrackedWallets.length > 0) {
-              dashTrackedFeed.innerHTML = `<div class="tracker-empty"><i data-lucide="target" class="tracker-empty-icon"></i><p>Listening for trades from tracked wallets...</p></div>`;
+               dashTrackedFeed.innerHTML = `<div class="tracker-empty"><i data-lucide="target" class="tracker-empty-icon"></i><p>Listening for token transfers from tracked wallets...</p></div>`;
             } else {
-              dashTrackedFeed.innerHTML = `<div class="tracker-empty"><i data-lucide="target" class="tracker-empty-icon"></i><p>No wallets tracked.<br>Add an address to intercept their trades.</p></div>`;
+              dashTrackedFeed.innerHTML = `<div class="tracker-empty"><i data-lucide="target" class="tracker-empty-icon"></i><p>No wallets tracked.<br>Add an address to monitor token transfers.</p></div>`;
             }
             if (typeof lucide !== 'undefined') lucide.createIcons({root: dashTrackedFeed});
           }
@@ -5105,7 +5139,7 @@ let isFirstLoad = true;
     }
     
     if (text) text.innerText = `TRACKER: ON (${timeStr})`;
-    if (dashText) dashText.innerText = `Live (${timeStr})`;
+    if (dashText) dashText.innerText = `${currentSnifferUiState} (${timeStr})`;
   }, 1000);
   
   setInterval(updateSnifferUI, 5000);
@@ -5622,11 +5656,9 @@ document.addEventListener('DOMContentLoaded', initDashboardDragDrop);
 window.addEventListener('load', initDashboardDragDrop);
 
 function closeStaticPanel() {
-  const panel = document.getElementById('staticResultPanel');
-  if (panel) {
-    marketSummaryClosed = true;
-    panel.style.display = 'none';
-  }
+  marketSummaryClosed = true;
+  const content = document.getElementById('staticResultContent');
+  if (content) content.replaceChildren();
 }
 window.closeStaticPanel = closeStaticPanel;
 
@@ -5646,244 +5678,6 @@ function openFullReportModal() {
   }
 }
 window.openFullReportModal = openFullReportModal;
-
-window.toggleChartFullscreen = function(ticker) {
-  const container = document.getElementById(`icc-chart-${ticker}`);
-  const modal = document.getElementById('chartModal');
-  const modalBody = document.getElementById('chartModalBody');
-  const modalTitle = document.getElementById('chartModalTitle');
-  
-  if (!container || !modal || !modalBody) return;
-  
-  // Save original parent
-  container.dataset.originalParent = container.parentElement.id;
-  
-  // Update UI
-  modalTitle.textContent = `${ticker.toUpperCase()}/USDT`;
-  modalTitle.style.color = ticker === 'btc' ? '#f59e0b' : ticker === 'eth' ? '#818cf8' : '#34d399';
-  
-  // Remove absolute top constraint so it fills modal body
-  container.style.top = '0';
-  
-  // Move to modal
-  modalBody.appendChild(container);
-  modal.style.display = 'flex';
-  
-  // Force resize on the chart
-  if (iccCharts[ticker] && iccCharts[ticker].chart) {
-    setTimeout(() => {
-      iccCharts[ticker].chart.timeScale().fitContent();
-    }, 50);
-  }
-};
-
-window.closeChartModal = function() {
-  const modal = document.getElementById('chartModal');
-  const modalBody = document.getElementById('chartModalBody');
-  if (!modal || !modalBody) return;
-  
-  const container = modalBody.firstElementChild;
-  if (container && container.dataset.originalParent) {
-    const origParent = document.getElementById(container.dataset.originalParent);
-    if (origParent) {
-      container.style.top = '30px'; // Restore constraint for grid
-      origParent.appendChild(container);
-      
-      const ticker = container.id.split('-').pop();
-      if (iccCharts[ticker] && iccCharts[ticker].chart) {
-        setTimeout(() => {
-          iccCharts[ticker].chart.timeScale().fitContent();
-        }, 50);
-      }
-    }
-  }
-  
-  modal.style.display = 'none';
-};
-
-window.updateChartRealtimePrice = function(asset, priceVal) {
-  const symbol = asset + "USDT";
-  const state = iccCharts[symbol];
-  if (!state || !state.series || !state.lastCandle) return;
-
-  const nowMs = Date.now();
-  const currentIntervalSec = Math.floor(nowMs / (15 * 60 * 1000)) * (15 * 60);
-
-  let lc = state.lastCandle;
-  
-  if (currentIntervalSec > lc.time) {
-    // Start a new 15m candle
-    lc = {
-      time: currentIntervalSec,
-      open: lc.close, // Open at previous close
-      high: priceVal,
-      low: priceVal,
-      close: priceVal
-    };
-    state.lastCandle = lc;
-    state.openPrice = lc.open; // Update the reference open price for the % change calculation
-  } else {
-    // Update existing candle
-    lc.close = priceVal;
-    if (priceVal > lc.high) lc.high = priceVal;
-    if (priceVal < lc.low) lc.low = priceVal;
-  }
-
-  state.series.update(lc);
-  
-  // Update header UI
-  updatePriceDisplay(state.cfg, priceVal, state.openPrice);
-};
-
-// === Live Chart Command Center (Lightweight Charts + Binance REST + Pyth Realtime) ===
-const iccCharts = {}; // symbol -> { chart, series, cfg, lastCandle, openPrice }
-
-function initTradingViewCharts() {
-  if (typeof LightweightCharts === 'undefined') {
-    // LW Charts not loaded yet — retry in 500ms
-    setTimeout(initTradingViewCharts, 500);
-    return;
-  }
-
-  const chartDefs = [
-    { symbol: 'BTCUSDT',  containerId: 'icc-chart-btc',  priceId: 'icc-btc-price',  chgId: 'icc-btc-chg',  color: '#f59e0b', precision: 2 },
-    { symbol: 'ETHUSDT',  containerId: 'icc-chart-eth',  priceId: 'icc-eth-price',  chgId: 'icc-eth-chg',  color: '#818cf8', precision: 2 },
-    { symbol: 'DOGEUSDT', containerId: 'icc-chart-doge', priceId: 'icc-doge-price', chgId: 'icc-doge-chg', color: '#34d399', precision: 5 },
-  ];
-
-  chartDefs.forEach(cfg => {
-    const container = document.getElementById(cfg.containerId);
-    if (!container || iccCharts[cfg.symbol]) return;
-
-    const chart = LightweightCharts.createChart(container, {
-      width: container.offsetWidth || 400,
-      height: container.offsetHeight || 300,
-      layout: { background: { color: '#0a0a0e' }, textColor: '#555' },
-      grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
-      crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-      rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)', textColor: '#555' },
-      timeScale: { borderColor: 'rgba(255,255,255,0.06)', timeVisible: true, secondsVisible: false },
-      handleScroll: true,
-      handleScale: true,
-    });
-
-    // Auto-resize — use resize() not applyOptions() for LW Charts v4
-    const ro = new ResizeObserver(() => {
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      if (w > 0 && h > 0) chart.resize(w, h);
-    });
-    ro.observe(container);
-
-    const series = chart.addCandlestickSeries({
-      upColor: cfg.color,
-      downColor: '#ef4444',
-      borderUpColor: cfg.color,
-      borderDownColor: '#ef4444',
-      wickUpColor: cfg.color,
-      wickDownColor: '#ef4444',
-      priceFormat: { type: 'price', precision: cfg.precision, minMove: Math.pow(10, -cfg.precision) },
-    });
-
-    iccCharts[cfg.symbol] = { chart, series, cfg, currentTf: '15m' };
-
-    fetchChartData(cfg.symbol, '15m');
-  });
-}
-
-window.changeChartTimeframe = function(coin, tf) {
-  const symbol = coin.toUpperCase() + 'USDT';
-  if (!iccCharts[symbol]) {
-    // Chart not init yet — init on demand then fetch
-    initTradingViewCharts();
-    setTimeout(() => window.changeChartTimeframe(coin, tf), 600);
-    return;
-  }
-  iccCharts[symbol].currentTf = tf;
-  fetchChartData(symbol, tf);
-  // Update button styles
-  document.querySelectorAll(`.tf-btn-${coin.toLowerCase()}`).forEach(btn => {
-    btn.style.color = btn.getAttribute('data-tf') === tf ? '#e8e8e8' : '#555';
-    btn.style.background = btn.getAttribute('data-tf') === tf ? 'rgba(255,255,255,0.1)' : 'transparent';
-  });
-};
-
-function fetchChartData(symbol, tf) {
-  const cfg = iccCharts[symbol].cfg;
-  const series = iccCharts[symbol].series;
-  const chart = iccCharts[symbol].chart;
-  
-  fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${tf}&limit=500`)
-    .then(r => r.json())
-    .then(data => {
-      const candles = data.map(k => ({
-        time: Math.floor(k[0] / 1000),
-        open: parseFloat(k[1]),
-        high: parseFloat(k[2]),
-        low: parseFloat(k[3]),
-        close: parseFloat(k[4]),
-      }));
-      series.setData(candles);
-      chart.timeScale().fitContent();
-
-      const lastCandle = candles[candles.length - 1];
-      const firstClose = candles[0].open;
-      iccCharts[symbol].lastCandle = Object.assign({}, lastCandle);
-      iccCharts[symbol].openPrice = firstClose;
-      
-      updatePriceDisplay(cfg, lastCandle.close, firstClose);
-    })
-    .catch(() => {
-      const container = document.getElementById(cfg.containerId);
-      if(container) container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#333;font-size:11px;font-family:monospace;">Connection error</div>';
-    });
-}
-
-function updatePriceDisplay(cfg, currentPrice, openPrice) {
-  const priceEl = document.getElementById(cfg.priceId);
-  const chgEl = document.getElementById(cfg.chgId);
-  if (!priceEl || !chgEl) return;
-
-  priceEl.textContent = currentPrice.toFixed(cfg.precision);
-  const chgPct = ((currentPrice - openPrice) / openPrice) * 100;
-  const chgSign = chgPct >= 0 ? '+' : '';
-  chgEl.textContent = `${chgSign}${chgPct.toFixed(2)}%`;
-  chgEl.style.color = chgPct >= 0 ? '#34d399' : '#ef4444';
-}
-
-function startIccKlineWs(cfg, series) {
-  const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${cfg.symbol.toLowerCase()}@kline_15m`);
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    const k = msg.k;
-    if (!k) return;
-    const candle = {
-      time: Math.floor(k.t / 1000),
-      open: parseFloat(k.o),
-      high: parseFloat(k.h),
-      low: parseFloat(k.l),
-      close: parseFloat(k.c),
-    };
-    series.update(candle);
-    // Update price display with open of first historical candle is tricky — just use prev close
-    const priceEl = document.getElementById(cfg.priceId);
-    if (priceEl) {
-      const prev = parseFloat(priceEl.textContent) || candle.open;
-      updatePriceDisplay(cfg, candle.close, candle.open);
-    }
-  };
-  ws.onerror = () => {};
-  if (iccCharts[cfg.symbol]) iccCharts[cfg.symbol].ws = ws;
-}
-
-// Call after page is ready
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => setTimeout(initTradingViewCharts, 800));
-} else {
-  setTimeout(initTradingViewCharts, 800);
-}
-
-
 
 function toggleWhaleVolume() {
   const wrapper = document.getElementById('dashAccumulatedVolumeGridWrapper');
@@ -5938,6 +5732,14 @@ function injectMspStyles() {
 .msp-depth-bar { display: flex; width: 100%; height: 6px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); gap: 1px; }
 .msp-depth-bid-fill { height: 100%; background: linear-gradient(90deg, rgba(16,185,129,0.4), rgba(16,185,129,0.85)); border-radius: 4px 0 0 4px; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(16,185,129,0.5); }
 .msp-depth-ask-fill { height: 100%; background: linear-gradient(90deg, rgba(239,68,68,0.85), rgba(239,68,68,0.4)); border-radius: 0 4px 4px 0; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(239,68,68,0.5); }
+@media (max-width: 768px) {
+  .msp-top-row, .msp-hero-row, .msp-strip { flex-wrap: wrap; gap: 12px; }
+  .msp-top-row > div:last-child { flex-wrap: wrap; }
+  .msp-hero-row > div[style*="flex:2.2"] { flex: 1 1 100% !important; order: 3; padding: 0 !important; }
+  .msp-vline, .msp-strip-sep { display: none; }
+  .msp-strip-item { flex: 1 1 calc(50% - 12px); min-width: 120px; }
+  .msp-strip-val { white-space: normal; overflow-wrap: anywhere; }
+}
 `;
   document.head.appendChild(style);
 }
@@ -5947,7 +5749,7 @@ function buildBentoGrid(text, isHistory = false) {
 
   const data = {
      arah: "-", entry: "-", liquidity: "-", gammaVol: "-", orderbook: "-", conf: "-", qwenScore: "-", risk: "-",
-     deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-", analysisTime: null, url: null, tokens: null
+     deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-", realtimeSource: "Reference", scoreLabel: "QWEN", analysisTime: null, url: null, tokens: null
   };
   const lines = text.split("\n");
   for (let line of lines) {
@@ -5958,10 +5760,20 @@ function buildBentoGrid(text, isHistory = false) {
     if (line.startsWith("Orderbook")) data.orderbook = line.split("|").slice(0, 2).join(" | ").replace("Orderbook UP:", "").replace("Orderbook DOWN:", "").trim();
     if (line.includes("Data confidence:")) data.conf = line.split("|")[0].replace("Data confidence:", "").trim();
     if (line.includes("Qwen confidence:")) data.qwenScore = line.split("Qwen confidence:")[1].trim();
+    if (line.includes("Deterministic Confidence:")) {
+      data.qwenScore = line.split("Deterministic Confidence:")[1].trim();
+      data.scoreLabel = "TERMINAL";
+    }
     if (line.includes("API close/resolution:")) data.deadline = line.split("API close/resolution:")[1].replace("WIB", "").trim();
     if (line.includes("Kesimpulan Analisis:")) data.summary = line.split("Kesimpulan Analisis:")[1].trim();
     if (line.includes("Target Price:")) data.targetPrice = line.split("Target Price:")[1].trim();
-    if (line.includes("Realtime Price:")) data.realtimePrice = line.split("Realtime Price:")[1].trim();
+    if (line.includes("Realtime Chainlink Price:")) {
+      data.realtimePrice = line.split("Realtime Chainlink Price:")[1].trim();
+      data.realtimeSource = "Chainlink";
+    } else if (line.includes("Realtime Price:")) {
+      data.realtimePrice = line.split("Realtime Price:")[1].trim();
+      data.realtimeSource = "Pyth";
+    }
     if (line.includes("Durasi Analisis:")) data.analysisTime = line.split("Durasi Analisis:")[1].trim().replace(" detik", "");
     if (line.startsWith("URL:")) data.url = line.split("URL:")[1].trim();
     if (line.startsWith("Tokens:")) data.tokens = line.split("Tokens:")[1].trim();
@@ -5973,6 +5785,7 @@ function buildBentoGrid(text, isHistory = false) {
   }
   if (data.realtimePrice === "-" && data.summary.match(/Oracle Pyth\s*\(?\$?([0-9.,]+)\)?/i)) {
       data.realtimePrice = data.summary.match(/Oracle Pyth\s*\(?\$?([0-9.,]+)\)?/i)[1];
+      data.realtimeSource = "Pyth";
   }
 
   const arahColor = data.arah === "UP" ? "var(--neon-green)" : (data.arah === "DOWN" ? "var(--neon-red)" : "var(--neon-cyan)");
@@ -6017,7 +5830,7 @@ function buildBentoGrid(text, isHistory = false) {
              ${data.deadline !== "-" ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="clock" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.deadline}</span>` : ""}
              ${data.url ? `<a href="${data.url}" target="_blank" class="msp-link" style="color:var(--neon-cyan); text-decoration:none; display:flex; align-items:center; gap:2px;"><i data-lucide="external-link" style="width:12px;height:12px;"></i> Polymarket</a>` : ""}
              <span class="msp-link" id="bentoKesimpulanBox" onclick="openFullReportModal()" style="cursor:pointer;">View full report →</span>
-             <span class="msp-link" onclick="closeStaticPanel()" style="cursor:pointer; color:var(--neon-red); margin-left:8px; display:flex; align-items:center; gap:2px;" title="Tutup analisis dan kembali ke Live Charts"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
+             <span class="msp-link" onclick="closeStaticPanel()" style="cursor:pointer; color:var(--neon-red); margin-left:8px; display:flex; align-items:center; gap:2px;" title="Bersihkan isi Market Summary"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
            </div>
         </div>
         <div class="msp-hero-row">
@@ -6035,7 +5848,7 @@ function buildBentoGrid(text, isHistory = false) {
              <!-- Premium Price Ticker -->
               <div style="display:flex; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:8px 14px; margin-bottom:8px; align-items:center; justify-content:space-between; box-shadow:inset 0 2px 10px rgba(0,0,0,0.4);">
                 <div style="display:flex; flex-direction:column; gap:4px;">
-                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.1em;">Realtime (Pyth)</span>
+                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.1em;">Realtime (${data.realtimeSource})</span>
                    <div style="font-family:var(--font-primary); font-size:18px; font-weight:800; color:var(--text-primary); text-shadow:0 0 12px rgba(255,255,255,0.15); line-height:1;">
                       ${data.realtimePrice !== "-" ? `$${data.realtimePrice.replace(/^\$/, '')}` : '<span style="font-size:11px;color:rgba(255,255,255,0.2);">WAITING DATA</span>'}
                    </div>
@@ -6092,7 +5905,7 @@ function buildBentoGrid(text, isHistory = false) {
           </div>
           <div class="msp-strip-sep"></div>
           <div class="msp-strip-item">
-            <span class="msp-strip-label">QWEN</span>
+            <span class="msp-strip-label">${data.scoreLabel}</span>
             <span class="msp-strip-val" style="color:var(--neon-purple);">${data.qwenScore}</span>
           </div>
         </div>

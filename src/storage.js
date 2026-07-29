@@ -11,7 +11,7 @@ if (!fs.existsSync(dataDir)) {
 
 const dbPath = path.join(dataDir, "database.db");
 const db = new Database(dbPath);
-export const ANALYSIS_STRATEGY_VERSION = "deepseek-chainlink-guarded-v2";
+export const ANALYSIS_STRATEGY_VERSION = "chainlink-terminal-value-v3";
 
 // Enable WAL mode for better concurrent performance
 db.pragma('journal_mode = WAL');
@@ -270,38 +270,71 @@ export function getAnalyzedEvents(limit = 100, startDate = null, endDate = null)
   }
 }
 
+export function getUnresolvedAnalyzedEvents() {
+  try {
+    return db.prepare("SELECT * FROM analyzed_events WHERE status = 'belum selesai' ORDER BY id ASC").all();
+  } catch (error) {
+    console.error("[Storage] getUnresolvedAnalyzedEvents error:", error.message);
+    return [];
+  }
+}
+
+export function summarizePlayStats(events, strategyVersion = null) {
+  const resolved = (Array.isArray(events) ? events : []).filter((event) =>
+    (!strategyVersion || event.strategy_version === strategyVersion)
+    && Number(event.actionable) === 1
+    && event.status === "selesai"
+    && (event.result === "menang" || event.result === "kalah")
+  );
+  const wins = resolved.filter((event) => event.result === "menang").length;
+  const losses = resolved.length - wins;
+  return {
+    sampleSize: resolved.length,
+    wins,
+    losses,
+    winRate: resolved.length ? Number(((wins / resolved.length) * 100).toFixed(1)) : 0,
+  };
+}
+
+function getResolvedPlayEvents() {
+  return db.prepare(`
+    SELECT strategy_version, actionable, status, result
+    FROM analyzed_events
+    WHERE actionable = 1 AND status = 'selesai' AND result IN ('menang', 'kalah')
+    ORDER BY id ASC
+  `).all();
+}
+
 export function getStats() {
   try {
-    const totalRow = db.prepare('SELECT COUNT(*) as total FROM analyzed_events WHERE strategy_version = ?').get(ANALYSIS_STRATEGY_VERSION);
-    const winRow = db.prepare('SELECT COUNT(*) as wins FROM analyzed_events WHERE strategy_version = ? AND result = ?').get(ANALYSIS_STRATEGY_VERSION, 'menang');
-    const lossRow = db.prepare('SELECT COUNT(*) as losses FROM analyzed_events WHERE strategy_version = ? AND result = ?').get(ANALYSIS_STRATEGY_VERSION, 'kalah');
+    const playStats = summarizePlayStats(getResolvedPlayEvents());
+    const totalRow = db.prepare("SELECT COUNT(*) AS total FROM analyzed_events").get();
     return {
-      totalAnalyzed: totalRow.total || 0,
-      wins: winRow.wins || 0,
-      losses: lossRow.losses || 0,
+      totalAnalyzed: Number(totalRow?.total || 0),
+      sampleSize: playStats.sampleSize,
+      wins: playStats.wins,
+      losses: playStats.losses,
+      winRate: playStats.winRate,
       strategyVersion: ANALYSIS_STRATEGY_VERSION,
     };
   } catch (error) {
     console.error("[Storage] getStats error:", error.message);
-    return { totalAnalyzed: 0, wins: 0, losses: 0 };
+    return { totalAnalyzed: 0, sampleSize: 0, wins: 0, losses: 0, winRate: 0 };
   }
 }
 
 export function getDashboardMetrics() {
   try {
-    const resolvedEvents = db.prepare("SELECT result FROM analyzed_events WHERE strategy_version = ? AND status = 'selesai' ORDER BY id ASC").all(ANALYSIS_STRATEGY_VERSION);
-    let wins = 0;
-    let losses = 0;
+    const resolvedEvents = getResolvedPlayEvents();
+    const playStats = summarizePlayStats(resolvedEvents);
     let currentEquity = 0;
     let peakEquity = 0;
     let maxDrawdown = 0;
 
     for (const ev of resolvedEvents) {
       if (ev.result === 'menang') {
-        wins++;
         currentEquity++;
       } else if (ev.result === 'kalah') {
-        losses++;
         currentEquity--;
       }
       if (currentEquity > peakEquity) {
@@ -313,25 +346,16 @@ export function getDashboardMetrics() {
       }
     }
 
-    const totalResolved = wins + losses;
-    const winRate = totalResolved > 0 ? (wins / totalResolved) : 0;
     // Financial metrics require fills, fees, and realized PnL, which this schema does not store yet.
     const profitFactor = "N/A";
     const expectancy = "N/A";
 
-    const confidences = db.prepare("SELECT qwen_confidence FROM analyzed_events WHERE strategy_version = ? AND qwen_confidence IS NOT NULL").all(ANALYSIS_STRATEGY_VERSION);
-    const grades = { S: 0, A: 0, B: 0, C: 0, D: 0 };
-    for (const c of confidences) {
-      const confVal = parseFloat(c.qwen_confidence);
-      if (isNaN(confVal)) continue;
-      if (confVal >= 90) grades.S++;
-      else if (confVal >= 80) grades.A++;
-      else if (confVal >= 70) grades.B++;
-      else if (confVal >= 60) grades.C++;
-      else grades.D++;
-    }
-
-    const latestEvent = db.prepare("SELECT question, prediction, analysis_conclusion, qwen_confidence, created_at, resolved_at, status FROM analyzed_events WHERE strategy_version = ? ORDER BY id DESC LIMIT 1").get(ANALYSIS_STRATEGY_VERSION);
+    const latestEvent = db.prepare(`
+      SELECT question, prediction, analysis_conclusion, qwen_confidence, created_at, resolved_at, status
+      FROM analyzed_events
+      WHERE actionable = 1 AND UPPER(prediction) IN ('YES', 'UP', 'NO', 'DOWN')
+      ORDER BY id DESC LIMIT 1
+    `).get();
     
     let signalText = "-";
     let signalDir = "WAITING";
@@ -383,10 +407,10 @@ export function getDashboardMetrics() {
       profitFactor,
       expectancy,
       maxDrawdown: "N/A",
-      winRate: (winRate * 100).toFixed(1),
-      sampleSize: totalResolved,
+      winRate: playStats.winRate.toFixed(1),
+      sampleSize: playStats.sampleSize,
       strategyVersion: ANALYSIS_STRATEGY_VERSION,
-      grades,
+      playStats,
       latestSignal: {
         asset: signalText,
         direction: signalDir,
@@ -430,7 +454,18 @@ export function saveReflection(reflection) {
 
 export function getRecentReflections(limit = 5) {
   try {
-    return db.prepare('SELECT * FROM prediction_reflections ORDER BY id DESC LIMIT ?').all(limit);
+    return db.prepare(`
+      SELECT p.*
+      FROM prediction_reflections p
+      WHERE EXISTS (
+        SELECT 1 FROM analyzed_events a
+        WHERE a.market_id = p.market_id
+          AND a.strategy_version = ?
+          AND a.actionable = 1
+          AND a.result = 'kalah'
+      )
+      ORDER BY p.id DESC LIMIT ?
+    `).all(ANALYSIS_STRATEGY_VERSION, limit);
   } catch (error) {
     console.error("[Storage] getRecentReflections error:", error.message);
     return [];

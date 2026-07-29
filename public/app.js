@@ -2057,6 +2057,41 @@ let currentShortMarkets = [];
 let activeShortAsset = 'btc';
 let activeShortDuration = '5m';
 
+const SNIPER_CONFIG_VERSION = 2;
+
+function defaultSniperConfig() {
+  return {
+    version: SNIPER_CONFIG_VERSION,
+    m5: { min: 2, sec: 0 },
+    m15: { min: 6, sec: 0 },
+    h1: { min: 24, sec: 0 },
+    h4: { hour: 1, min: 36 },
+    d1: { hour: 9, min: 36 },
+  };
+}
+
+function sniperInputNumber(id, fallback) {
+  const value = Number.parseInt(document.querySelector(`#${id}`)?.value, 10);
+  return Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
+function sniperTriggerSeconds(durationType) {
+  if (durationType === '15m') return sniperInputNumber('set15mMin', 6) * 60 + sniperInputNumber('set15mSec', 0);
+  if (durationType === '1h') return sniperInputNumber('set1hMin', 24) * 60 + sniperInputNumber('set1hSec', 0);
+  if (durationType === '4h') return sniperInputNumber('set4hHour', 1) * 3600 + sniperInputNumber('set4hMin', 36) * 60;
+  if (durationType === '1d') return sniperInputNumber('set1dHour', 9) * 3600 + sniperInputNumber('set1dMin', 36) * 60;
+  return sniperInputNumber('set5mMin', 2) * 60 + sniperInputNumber('set5mSec', 0);
+}
+
+function formatSniperCountdown(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  if (hours > 0) return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+  return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
+}
+
 function updateActiveAssetTab() {
   if (tabAssetBtc) {
     tabAssetBtc.style.color = activeShortAsset === 'btc' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
@@ -2400,6 +2435,10 @@ function renderQueue() {
   queueEmpty.style.display = "none";
   let html = "";
   analysisQueue.forEach((m, index) => {
+    const targetLabel = formatSniperCountdown(sniperTriggerSeconds(m.duration_type));
+    const firedLabel = Number.isFinite(m.snipeFiredAtRemainingSeconds)
+      ? formatSniperCountdown(m.snipeFiredAtRemainingSeconds)
+      : null;
     let timeHtml = "";
     if (m.endDate) {
       const timeToClose = new Date(m.endDate).getTime() - Date.now();
@@ -2419,15 +2458,16 @@ function renderQueue() {
     let sniperStatus = "";
     if (m.isFailed) {
       sniperStatus = `<span title="Analisis Gagal" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="alert-triangle" style="width:8px; height:8px; margin-right:4px;"></i> Failed</span>`;
-    } else if (isSniperActive && !m.snipeFired && !m.isTooLate) {
-      sniperStatus = `<span style="color:var(--neon-amber); font-size:9px; border:1px solid var(--neon-amber); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Wait</span>`;
+    } else if (!m.snipeFired && !m.isTooLate) {
+      const targetColor = isSniperActive ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+      sniperStatus = `<span title="Sniper akan menganalisis saat hitung mundur ${targetLabel}" style="color:${targetColor}; font-size:9px; border:1px solid ${targetColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Target ${targetLabel}</span>`;
     } else if (m.isTooLate) {
-      sniperStatus = `<span title="Terlewat (Sisa < 1m30s)" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="x-circle" style="width:8px; height:8px; margin-right:4px;"></i> Skipped</span>`;
+      sniperStatus = `<span title="Terlewat (Sisa < 1m30s)" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="x-circle" style="width:8px; height:8px; margin-right:4px;"></i> Skipped${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
     } else if (m.snipeFired) {
       if (m.isLateFired) {
-        sniperStatus = `<span title="Dipaksa karena waktu minimum sudah lewat" style="color:var(--neon-cyan); font-size:9px; border:1px solid var(--neon-cyan); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="clock-4" style="width:8px; height:8px; margin-right:4px;"></i> Forced</span>`;
+        sniperStatus = `<span title="Target ${targetLabel}; ditembak terlambat" style="color:var(--neon-cyan); font-size:9px; border:1px solid var(--neon-cyan); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="clock-4" style="width:8px; height:8px; margin-right:4px;"></i> Fired${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
       } else {
-        sniperStatus = `<span style="color:var(--text-tertiary); font-size:9px; border:1px solid var(--border-bright); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Fired</span>`;
+        sniperStatus = `<span title="Target ${targetLabel}" style="color:var(--text-tertiary); font-size:9px; border:1px solid var(--border-bright); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Fired${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
       }
     }
 
@@ -2448,8 +2488,6 @@ function renderQueue() {
         // Jika sudah ada hasil, timer tidak perlu muncul lagi
         timeHtml = "";
       }
-      // Sembunyikan status Fired kalau hasil analisis sudah keluar agar tidak penuh
-      if (predictionBadge) sniperStatus = "";
     }
 
     html += `
@@ -2553,34 +2591,14 @@ function startSniper() {
   sniperInterval = setInterval(() => {
     let triggered = false;
     
-    const min5 = document.querySelector("#set5mMin");
-    const sec5 = document.querySelector("#set5mSec");
-    const min15 = document.querySelector("#set15mMin");
-    const sec15 = document.querySelector("#set15mSec");
-    const min1h = document.querySelector("#set1hMin");
-    const sec1h = document.querySelector("#set1hSec");
-    const hour4h = document.querySelector("#set4hHour");
-    const min4h = document.querySelector("#set4hMin");
-    const hour1d = document.querySelector("#set1dHour");
-    const min1d = document.querySelector("#set1dMin");
-    
-    const val5m = ((min5 && min5.value ? parseInt(min5.value) : 2) * 60) + (sec5 && sec5.value ? parseInt(sec5.value) : 0);
-    const val15m = ((min15 && min15.value ? parseInt(min15.value) : 6) * 60) + (sec15 && sec15.value ? parseInt(sec15.value) : 0);
-    const val1h = ((min1h && min1h.value ? parseInt(min1h.value) : 24) * 60) + (sec1h && sec1h.value ? parseInt(sec1h.value) : 0);
-    const val4h = ((hour4h && hour4h.value ? parseInt(hour4h.value) : 1) * 3600) + ((min4h && min4h.value ? parseInt(min4h.value) : 36) * 60);
-    const val1d = ((hour1d && hour1d.value ? parseInt(hour1d.value) : 9) * 3600) + ((min1d && min1d.value ? parseInt(min1d.value) : 36) * 60);
-    
     // 1. Cek market mana saja yang sudah masuk sweet spot
     analysisQueue.forEach(m => {
       if (!m.snipeFired && m.endDate) {
         const timeToClose = new Date(m.endDate).getTime() - Date.now();
-        let durationLimit = val5m * 1000;
-        if (m.duration_type === '15m') durationLimit = val15m * 1000;
-        else if (m.duration_type === '1h') durationLimit = val1h * 1000;
-        else if (m.duration_type === '4h') durationLimit = val4h * 1000;
-        else if (m.duration_type === '1d') durationLimit = val1d * 1000;
+        const durationLimit = sniperTriggerSeconds(m.duration_type) * 1000;
         // Fire when time is exactly at limit atau kurang, dan belum ditutup
         if (timeToClose > 0 && timeToClose <= durationLimit) {
+          m.snipeFiredAtRemainingSeconds = Math.floor(timeToClose / 1000);
           if (timeToClose < 90000) {
             // Jika kurang dari 1m 30s (90,000 ms), batal analisa karena udah mau closing (telat jauh)
             m.snipeFired = true;
@@ -4366,6 +4384,7 @@ if (btnSettings && settingsModal) {
   btnSaveSettings.addEventListener("click", () => {
     // Save sniper settings
     const sniperConf = {
+      version: SNIPER_CONFIG_VERSION,
       m5: { min: set5mMin?.value || 2, sec: set5mSec?.value || 0 },
       m15: { min: set15mMin?.value || 6, sec: set15mSec?.value || 0 },
       h1: { min: set1hMin?.value || 24, sec: set1hSec?.value || 0 },
@@ -4385,33 +4404,23 @@ if (btnSettings && settingsModal) {
 }
 
 function loadSniperConfig() {
+  let conf = defaultSniperConfig();
   try {
     const saved = localStorage.getItem("sniperConfig");
     if (saved) {
-      const conf = JSON.parse(saved);
-      let migrated = false;
-      if (Number(conf.m5?.min) === 4 && Number(conf.m5?.sec) === 45) {
-        conf.m5 = { min: 2, sec: 0 };
-        migrated = true;
-      }
-      if (Number(conf.m15?.min) === 13 && Number(conf.m15?.sec) === 30) {
-        conf.m15 = { min: 6, sec: 0 };
-        migrated = true;
-      }
-      if (Number(conf.h1?.min) === 55 && Number(conf.h1?.sec) === 0) {
-        conf.h1 = { min: 24, sec: 0 };
-        migrated = true;
-      }
-      if (!conf.h4) { conf.h4 = { hour: 1, min: 36 }; migrated = true; }
-      if (!conf.d1) { conf.d1 = { hour: 9, min: 36 }; migrated = true; }
-      if (migrated) localStorage.setItem("sniperConfig", JSON.stringify(conf));
-      if (set5mMin && conf.m5) { set5mMin.value = conf.m5.min; set5mSec.value = conf.m5.sec; }
-      if (set15mMin && conf.m15) { set15mMin.value = conf.m15.min; set15mSec.value = conf.m15.sec; }
-      if (set1hMin && conf.h1) { set1hMin.value = conf.h1.min; set1hSec.value = conf.h1.sec; }
-      if (set4hHour && conf.h4) { set4hHour.value = conf.h4.hour; set4hMin.value = conf.h4.min; }
-      if (set1dHour && conf.d1) { set1dHour.value = conf.d1.hour; set1dMin.value = conf.d1.min; }
+      const parsed = JSON.parse(saved);
+      if (parsed?.version === SNIPER_CONFIG_VERSION) conf = parsed;
     }
-  } catch (err) {}
+  } catch (err) {
+    conf = defaultSniperConfig();
+  }
+
+  localStorage.setItem("sniperConfig", JSON.stringify(conf));
+  if (set5mMin && conf.m5) { set5mMin.value = conf.m5.min; set5mSec.value = conf.m5.sec; }
+  if (set15mMin && conf.m15) { set15mMin.value = conf.m15.min; set15mSec.value = conf.m15.sec; }
+  if (set1hMin && conf.h1) { set1hMin.value = conf.h1.min; set1hSec.value = conf.h1.sec; }
+  if (set4hHour && conf.h4) { set4hHour.value = conf.h4.hour; set4hMin.value = conf.h4.min; }
+  if (set1dHour && conf.d1) { set1dHour.value = conf.d1.hour; set1dMin.value = conf.d1.min; }
 }
 
 /* --- Init --- */

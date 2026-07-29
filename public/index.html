@@ -1284,15 +1284,29 @@ html[data-font="inter"] {
                   <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
                     <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">15-Min Market</span>
                     <div style="display:flex; gap:8px; align-items:center;">
-                      <input type="number" id="set15mMin" value="13" min="0" max="14" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
-                      <input type="number" id="set15mSec" value="30" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
+                      <input type="number" id="set15mMin" value="6" min="0" max="14" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
+                      <input type="number" id="set15mSec" value="0" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
                     </div>
                   </div>
                   <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
                     <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">1-Hour Market</span>
                     <div style="display:flex; gap:8px; align-items:center;">
-                      <input type="number" id="set1hMin" value="55" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
+                      <input type="number" id="set1hMin" value="24" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
                       <input type="number" id="set1hSec" value="0" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
+                    </div>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
+                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">4-Hour Market</span>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                      <input type="number" id="set4hHour" value="1" min="0" max="3" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">h</span>
+                      <input type="number" id="set4hMin" value="36" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
+                    </div>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
+                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">1-Day Market</span>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                      <input type="number" id="set1dHour" value="9" min="0" max="23" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">h</span>
+                      <input type="number" id="set1dMin" value="36" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
                     </div>
                   </div>
                 </div>
@@ -1458,7 +1472,7 @@ html[data-font="inter"] {
       </div>
     </div>
 
-    <script src="/app.js?v=108-sniper-timing" type="module"></script>
+    <script src="/app.js?v=109-all-sniper-timing" type="module"></script>
   <!-- Agent Analysis Modal -->
   <div id="agentModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.8); backdrop-filter:blur(4px); align-items:center; justify-content:center;">
     <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; width:600px; max-width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.5); display:flex; flex-direction:column;">

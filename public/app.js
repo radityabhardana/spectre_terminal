@@ -2559,10 +2559,16 @@ function startSniper() {
     const sec15 = document.querySelector("#set15mSec");
     const min1h = document.querySelector("#set1hMin");
     const sec1h = document.querySelector("#set1hSec");
+    const hour4h = document.querySelector("#set4hHour");
+    const min4h = document.querySelector("#set4hMin");
+    const hour1d = document.querySelector("#set1dHour");
+    const min1d = document.querySelector("#set1dMin");
     
     const val5m = ((min5 && min5.value ? parseInt(min5.value) : 2) * 60) + (sec5 && sec5.value ? parseInt(sec5.value) : 0);
-    const val15m = ((min15 && min15.value ? parseInt(min15.value) : 13) * 60) + (sec15 && sec15.value ? parseInt(sec15.value) : 30);
-    const val1h = ((min1h && min1h.value ? parseInt(min1h.value) : 55) * 60) + (sec1h && sec1h.value ? parseInt(sec1h.value) : 0);
+    const val15m = ((min15 && min15.value ? parseInt(min15.value) : 6) * 60) + (sec15 && sec15.value ? parseInt(sec15.value) : 0);
+    const val1h = ((min1h && min1h.value ? parseInt(min1h.value) : 24) * 60) + (sec1h && sec1h.value ? parseInt(sec1h.value) : 0);
+    const val4h = ((hour4h && hour4h.value ? parseInt(hour4h.value) : 1) * 3600) + ((min4h && min4h.value ? parseInt(min4h.value) : 36) * 60);
+    const val1d = ((hour1d && hour1d.value ? parseInt(hour1d.value) : 9) * 3600) + ((min1d && min1d.value ? parseInt(min1d.value) : 36) * 60);
     
     // 1. Cek market mana saja yang sudah masuk sweet spot
     analysisQueue.forEach(m => {
@@ -2571,6 +2577,8 @@ function startSniper() {
         let durationLimit = val5m * 1000;
         if (m.duration_type === '15m') durationLimit = val15m * 1000;
         else if (m.duration_type === '1h') durationLimit = val1h * 1000;
+        else if (m.duration_type === '4h') durationLimit = val4h * 1000;
+        else if (m.duration_type === '1d') durationLimit = val1d * 1000;
         // Fire when time is exactly at limit atau kurang, dan belum ditutup
         if (timeToClose > 0 && timeToClose <= durationLimit) {
           if (timeToClose < 90000) {
@@ -4029,6 +4037,10 @@ const set15mMin = document.querySelector("#set15mMin");
 const set15mSec = document.querySelector("#set15mSec");
 const set1hMin = document.querySelector("#set1hMin");
 const set1hSec = document.querySelector("#set1hSec");
+const set4hHour = document.querySelector("#set4hHour");
+const set4hMin = document.querySelector("#set4hMin");
+const set1dHour = document.querySelector("#set1dHour");
+const set1dMin = document.querySelector("#set1dMin");
 
 // State
 
@@ -4355,8 +4367,10 @@ if (btnSettings && settingsModal) {
     // Save sniper settings
     const sniperConf = {
       m5: { min: set5mMin?.value || 2, sec: set5mSec?.value || 0 },
-      m15: { min: set15mMin?.value || 13, sec: set15mSec?.value || 30 },
-      h1: { min: set1hMin?.value || 55, sec: set1hSec?.value || 0 }
+      m15: { min: set15mMin?.value || 6, sec: set15mSec?.value || 0 },
+      h1: { min: set1hMin?.value || 24, sec: set1hSec?.value || 0 },
+      h4: { hour: set4hHour?.value || 1, min: set4hMin?.value || 36 },
+      d1: { hour: set1dHour?.value || 9, min: set1dMin?.value || 36 }
     };
     localStorage.setItem("sniperConfig", JSON.stringify(sniperConf));
     
@@ -4375,13 +4389,27 @@ function loadSniperConfig() {
     const saved = localStorage.getItem("sniperConfig");
     if (saved) {
       const conf = JSON.parse(saved);
+      let migrated = false;
       if (Number(conf.m5?.min) === 4 && Number(conf.m5?.sec) === 45) {
         conf.m5 = { min: 2, sec: 0 };
-        localStorage.setItem("sniperConfig", JSON.stringify(conf));
+        migrated = true;
       }
+      if (Number(conf.m15?.min) === 13 && Number(conf.m15?.sec) === 30) {
+        conf.m15 = { min: 6, sec: 0 };
+        migrated = true;
+      }
+      if (Number(conf.h1?.min) === 55 && Number(conf.h1?.sec) === 0) {
+        conf.h1 = { min: 24, sec: 0 };
+        migrated = true;
+      }
+      if (!conf.h4) { conf.h4 = { hour: 1, min: 36 }; migrated = true; }
+      if (!conf.d1) { conf.d1 = { hour: 9, min: 36 }; migrated = true; }
+      if (migrated) localStorage.setItem("sniperConfig", JSON.stringify(conf));
       if (set5mMin && conf.m5) { set5mMin.value = conf.m5.min; set5mSec.value = conf.m5.sec; }
       if (set15mMin && conf.m15) { set15mMin.value = conf.m15.min; set15mSec.value = conf.m15.sec; }
       if (set1hMin && conf.h1) { set1hMin.value = conf.h1.min; set1hSec.value = conf.h1.sec; }
+      if (set4hHour && conf.h4) { set4hHour.value = conf.h4.hour; set4hMin.value = conf.h4.min; }
+      if (set1dHour && conf.d1) { set1dHour.value = conf.d1.hour; set1dMin.value = conf.d1.min; }
     }
   } catch (err) {}
 }

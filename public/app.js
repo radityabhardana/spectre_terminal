@@ -2560,7 +2560,7 @@ function startSniper() {
     const min1h = document.querySelector("#set1hMin");
     const sec1h = document.querySelector("#set1hSec");
     
-    const val5m = ((min5 && min5.value ? parseInt(min5.value) : 4) * 60) + (sec5 && sec5.value ? parseInt(sec5.value) : 45);
+    const val5m = ((min5 && min5.value ? parseInt(min5.value) : 2) * 60) + (sec5 && sec5.value ? parseInt(sec5.value) : 0);
     const val15m = ((min15 && min15.value ? parseInt(min15.value) : 13) * 60) + (sec15 && sec15.value ? parseInt(sec15.value) : 30);
     const val1h = ((min1h && min1h.value ? parseInt(min1h.value) : 55) * 60) + (sec1h && sec1h.value ? parseInt(sec1h.value) : 0);
     
@@ -4354,7 +4354,7 @@ if (btnSettings && settingsModal) {
   btnSaveSettings.addEventListener("click", () => {
     // Save sniper settings
     const sniperConf = {
-      m5: { min: set5mMin?.value || 4, sec: set5mSec?.value || 45 },
+      m5: { min: set5mMin?.value || 2, sec: set5mSec?.value || 0 },
       m15: { min: set15mMin?.value || 13, sec: set15mSec?.value || 30 },
       h1: { min: set1hMin?.value || 55, sec: set1hSec?.value || 0 }
     };
@@ -4375,6 +4375,10 @@ function loadSniperConfig() {
     const saved = localStorage.getItem("sniperConfig");
     if (saved) {
       const conf = JSON.parse(saved);
+      if (Number(conf.m5?.min) === 4 && Number(conf.m5?.sec) === 45) {
+        conf.m5 = { min: 2, sec: 0 };
+        localStorage.setItem("sniperConfig", JSON.stringify(conf));
+      }
       if (set5mMin && conf.m5) { set5mMin.value = conf.m5.min; set5mSec.value = conf.m5.sec; }
       if (set15mMin && conf.m15) { set15mMin.value = conf.m15.min; set15mSec.value = conf.m15.sec; }
       if (set1hMin && conf.h1) { set1hMin.value = conf.h1.min; set1hSec.value = conf.h1.sec; }

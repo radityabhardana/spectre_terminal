@@ -1,3 +1,8 @@
+import {
+  DEFAULT_ENTRY_SCANNER_CONFIG,
+  advanceEntryScannerState,
+} from "./entry-scanner.js";
+
 /* ============================================================
    MVPM Terminal — Smart Input App Logic
    v31: Unified input system
@@ -44,7 +49,7 @@ const btnTop3 = document.querySelector("#btnTop3");
 const btnAnalyzeBest = document.querySelector("#btnAnalyzeBest");
 const btnAnalyzeAll = document.querySelector("#btnAnalyzeAll");
 
-const CLIENT_VERSION = "public-search-v2-event-wide-analysis-v17-visible-queue-results";
+const CLIENT_VERSION = "public-search-v2-event-wide-analysis-v18-dynamic-ev-scanner";
 let busy = false;
 let timerId = null;
 let startedAt = 0;
@@ -2067,12 +2072,19 @@ let currentShortMarkets = [];
 let activeShortAsset = 'btc';
 let activeShortDuration = '5m';
 
-const SNIPER_CONFIG_VERSION = 2;
+const SNIPER_CONFIG_VERSION = 3;
 
 function defaultSniperConfig() {
   return {
     version: SNIPER_CONFIG_VERSION,
-    m5: { min: 2, sec: 0 },
+    m5: {
+      scanStartSeconds: DEFAULT_ENTRY_SCANNER_CONFIG.scanStartSeconds,
+      scanStopSeconds: DEFAULT_ENTRY_SCANNER_CONFIG.scanStopSeconds,
+      minFairProbability: DEFAULT_ENTRY_SCANNER_CONFIG.minFairProbability,
+      minNetEvCents: DEFAULT_ENTRY_SCANNER_CONFIG.minNetEvCents,
+      maxAsk: DEFAULT_ENTRY_SCANNER_CONFIG.maxAsk,
+      confirmations: DEFAULT_ENTRY_SCANNER_CONFIG.confirmations,
+    },
     m15: { min: 6, sec: 0 },
     h1: { min: 24, sec: 0 },
     h4: { hour: 1, min: 36 },
@@ -2085,12 +2097,27 @@ function sniperInputNumber(id, fallback) {
   return Number.isInteger(value) && value >= 0 ? value : fallback;
 }
 
+function sniperInputDecimal(id, fallback) {
+  const value = Number.parseFloat(document.querySelector(`#${id}`)?.value);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function currentEntryScannerConfig() {
+  return {
+    ...DEFAULT_ENTRY_SCANNER_CONFIG,
+    minFairProbability: Math.min(90, Math.max(60, sniperInputDecimal('set5mMinFair', 60))),
+    minNetEvCents: Math.min(30, Math.max(8, sniperInputDecimal('set5mMinEv', 8))),
+    maxAsk: Math.min(0.65, Math.max(0.4, sniperInputDecimal('set5mMaxAsk', 0.65))),
+    confirmations: Math.min(4, Math.max(2, sniperInputNumber('set5mConfirmations', 2))),
+  };
+}
+
 function sniperTriggerSeconds(durationType) {
   if (durationType === '15m') return sniperInputNumber('set15mMin', 6) * 60 + sniperInputNumber('set15mSec', 0);
   if (durationType === '1h') return sniperInputNumber('set1hMin', 24) * 60 + sniperInputNumber('set1hSec', 0);
   if (durationType === '4h') return sniperInputNumber('set4hHour', 1) * 3600 + sniperInputNumber('set4hMin', 36) * 60;
   if (durationType === '1d') return sniperInputNumber('set1dHour', 9) * 3600 + sniperInputNumber('set1dMin', 36) * 60;
-  return sniperInputNumber('set5mMin', 2) * 60 + sniperInputNumber('set5mSec', 0);
+  return sniperInputNumber('set5mScanStart', 4) * 60;
 }
 
 function formatSniperCountdown(totalSeconds) {
@@ -2416,8 +2443,11 @@ window.addCardToQueue = function(card) {
 
 function renderQueue() {
   if (!queueDropzone || !queueEmpty) return;
-  
-  const completed = analysisQueue.filter(m => m.analysisCompleted || m.isFailed || m.isTooLate).length;
+
+  renderEntrySignalPanel();
+  const completed = analysisQueue.filter(m => isDynamicEntryItem(m)
+    ? dynamicEntryItemFinished(m)
+    : m.analysisCompleted || m.isFailed || m.isTooLate).length;
   const queueProgressText = document.querySelector("#queueProgressText");
   const queuePanelContent = document.querySelector("#queuePanelContent");
   
@@ -2466,7 +2496,26 @@ function renderQueue() {
     }
 
     let sniperStatus = "";
-    if (m.isFailed) {
+    let evMetrics = "";
+    if (isDynamicEntryItem(m)) {
+      const state = m.entryScanner || { status: "waiting", confirmationCount: 0 };
+      const statusStyles = {
+        waiting: [isSniperActive ? "WAITING 04→02" : "WINDOW 04→02", "var(--text-tertiary)"],
+        watching: [state.degraded ? "WATCH DEGRADED" : "WATCHING", "var(--neon-cyan)"],
+        candidate: [`CAND ${state.candidateDirection} ${state.confirmationCount}/${currentEntryScannerConfig().confirmations}`, "var(--neon-amber)"],
+        entry: [`ENTRY ${state.signal?.direction || ""}`, "var(--neon-green)"],
+        no_chase: ["NO CHASE", "var(--neon-red)"],
+        skipped: ["SKIP NO EDGE", "var(--text-tertiary)"],
+      };
+      const [label, color] = statusStyles[state.status] || statusStyles.waiting;
+      sniperStatus = `<span title="${state.reason || label}" style="color:${color}; font-size:9px; border:1px solid ${color}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; font-weight:700;">${label}</span>`;
+      const latestDirection = state.latestSnapshot?.forecastDirection;
+      const latestSide = latestDirection ? state.latestSnapshot?.sides?.[latestDirection] : null;
+      const side = state.candidate || state.signal || (latestSide ? { ...latestSide, direction: latestDirection } : null);
+      if (side && [side.ask, side.fairProbability, side.netEvCents].every(value => Number.isFinite(Number(value)))) {
+        evMetrics = `<span style="color:var(--text-tertiary); font:700 8px 'JetBrains Mono',monospace; margin-left:5px; white-space:nowrap;">$${Number(side.ask).toFixed(2)} · ${Number(side.fairProbability).toFixed(0)}% · <b style="color:${Number(side.netEvCents) >= 8 ? 'var(--neon-green)' : 'var(--neon-amber)'}">${Number(side.netEvCents) >= 0 ? '+' : ''}${Number(side.netEvCents).toFixed(1)}c</b></span>`;
+      }
+    } else if (m.isFailed) {
       sniperStatus = `<span title="Analisis Gagal" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="alert-triangle" style="width:8px; height:8px; margin-right:4px;"></i> Failed</span>`;
     } else if (m.isTooLate) {
       sniperStatus = `<span title="Terlewat (Sisa <= 30 detik)" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="x-circle" style="width:8px; height:8px; margin-right:4px;"></i> Skipped${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
@@ -2509,6 +2558,7 @@ function renderQueue() {
         <div style="display:flex; justify-content:space-between; align-items:center; flex:1; overflow:hidden;">
           <span style="font-size:10px; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">[${index+1}] ${m.question}</span>
           ${sniperStatus}
+          ${evMetrics}
           ${predictionBadge}
           ${resultBadge}
           ${timeHtml}
@@ -2567,7 +2617,11 @@ if (queueResizer && queuePanel) {
 
 let sniperExecutionQueue = [];
 let sniperBatchInFlight = false;
+let dynamicScanInFlightCount = 0;
+let dynamicScanCursor = 0;
+let sniperSessionId = 0;
 const MAX_SNIPER_ATTEMPTS = 3;
+const MAX_DYNAMIC_SCAN_CONCURRENCY = 3;
 
 async function processSniperExecutionQueue() {
   if (sniperBatchInFlight || busy || sniperExecutionQueue.length === 0) return;
@@ -2621,6 +2675,101 @@ async function processSniperExecutionQueue() {
   renderQueue();
 }
 
+function isDynamicEntryItem(item) {
+  return (item?.duration_type || item?.durationType) === "5m";
+}
+
+function finishDynamicScan(item, remainingSeconds) {
+  const latest = item.entryScanner?.latestSnapshot || {};
+  item.entryScanner = advanceEntryScannerState(item.entryScanner, {
+    ...latest,
+    capturedAt: new Date().toISOString(),
+    remainingSeconds,
+  }, currentEntryScannerConfig());
+  if (item.entryScanner.status === "skipped") {
+    item.isEvSkipped = true;
+    item.snipeFired = true;
+  }
+}
+
+async function scanDynamicEntryItem(item, sessionId = sniperSessionId) {
+  const now = Date.now();
+  const state = item.entryScanner || {};
+  const intervalMs = state.status === "entry" ? 2_000 : 5_000;
+  if (item.dynamicScanInFlight || dynamicScanInFlightCount >= MAX_DYNAMIC_SCAN_CONCURRENCY || now - Number(item.dynamicLastScanAt || 0) < intervalMs) return;
+
+  item.dynamicScanInFlight = true;
+  dynamicScanInFlightCount += 1;
+  item.dynamicLastScanAt = now;
+  try {
+    const response = await fetch("/api/short-entry-snapshot", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ marketId: String(item.id) }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok || !data.snapshot) throw new Error(data.error || "Snapshot entry gagal.");
+    if (!isSniperActive || sessionId !== sniperSessionId || !analysisQueue.includes(item)) return;
+
+    const previousStatus = item.entryScanner?.status;
+    item.entryScanner = advanceEntryScannerState(item.entryScanner, data.snapshot, currentEntryScannerConfig());
+    if (item.entryScanner.status === "entry" && !item.entrySignalTriggered) {
+      item.entrySignalTriggered = true;
+      item.snipeFired = true;
+      item.snipeFiredAtRemainingSeconds = Math.floor(data.snapshot.remainingSeconds);
+      showToast(`ENTRY ${item.entryScanner.signal.direction}: ask $${item.entryScanner.signal.ask.toFixed(2)}, EV +${item.entryScanner.signal.netEvCents.toFixed(1)}c`, "success", 10000);
+      playAlertSound();
+    } else if (previousStatus === "entry" && item.entryScanner.status === "no_chase") {
+      showToast(`${item.entryScanner.signal.direction} berubah NO CHASE: edge atau harga sudah tidak valid.`, "error", 10000);
+    }
+  } catch (error) {
+    if (isSniperActive && sessionId === sniperSessionId && analysisQueue.includes(item)) {
+      item.entryScanner = advanceEntryScannerState(item.entryScanner, {
+        error: error.message,
+        capturedAt: new Date().toISOString(),
+      }, currentEntryScannerConfig());
+    }
+  } finally {
+    item.dynamicScanInFlight = false;
+    dynamicScanInFlightCount = Math.max(0, dynamicScanInFlightCount - 1);
+    renderQueue();
+  }
+}
+
+function renderEntrySignalPanel() {
+  const panel = document.querySelector("#entrySignalPanel");
+  if (!panel) return;
+  const item = [...analysisQueue].reverse().find(entry => ["entry", "no_chase"].includes(entry.entryScanner?.status));
+  if (!item) {
+    panel.hidden = true;
+    return;
+  }
+
+  const state = item.entryScanner;
+  const signal = state.signal;
+  const latestSide = state.latestSnapshot?.sides?.[signal.direction] || {};
+  const ttlSeconds = Math.max(0, Math.ceil((signal.expiresAt - Date.now()) / 1000));
+  panel.hidden = false;
+  panel.classList.toggle("no-chase", state.status === "no_chase");
+  document.querySelector("#entrySignalStatus").textContent = state.status === "entry" ? "ENTRY VALID" : "NO CHASE";
+  document.querySelector("#entrySignalExpiry").textContent = state.status === "entry" ? `${ttlSeconds}s validity` : "edge closed";
+  const direction = document.querySelector("#entrySignalDirection");
+  direction.textContent = signal.direction;
+  direction.style.color = signal.direction === "UP" ? "var(--neon-green)" : "var(--neon-red)";
+  document.querySelector("#entrySignalAsk").textContent = Number.isFinite(Number(latestSide.ask)) ? `$${Number(latestSide.ask).toFixed(2)}` : `$${signal.ask.toFixed(2)}`;
+  document.querySelector("#entrySignalMaxAsk").textContent = `$${signal.maxEntryPrice.toFixed(2)}`;
+  document.querySelector("#entrySignalEv").textContent = `+${signal.netEvCents.toFixed(1)}c`;
+  document.querySelector("#entrySignalFair").textContent = `${signal.fairProbability.toFixed(1)}%`;
+}
+
+function dynamicEntryItemFinished(item) {
+  const status = item.entryScanner?.status;
+  if (status === "skipped") return true;
+  if (status === "no_chase") return true;
+  return false;
+}
+
 const btnSniperSettings = document.querySelector("#btnSniperSettings");
 const sniperSettingsPanel = document.querySelector("#sniperSettingsPanel");
 const btnMuteAudio = document.querySelector("#btnMuteAudio");
@@ -2663,9 +2812,47 @@ function runSniperTick() {
   let triggered = false;
 
   // 1. Cek market mana saja yang sudah masuk sweet spot
-  analysisQueue.forEach(m => {
-    if (!m.snipeFired && m.endDate) {
-      const timeToClose = new Date(m.endDate).getTime() - Date.now();
+  const queueLength = analysisQueue.length;
+  const queueForTick = queueLength
+    ? analysisQueue.slice(dynamicScanCursor).concat(analysisQueue.slice(0, dynamicScanCursor))
+    : [];
+  if (queueLength) dynamicScanCursor = (dynamicScanCursor + 1) % queueLength;
+  queueForTick.forEach(m => {
+    if (!m.endDate) return;
+    const timeToClose = new Date(m.endDate).getTime() - Date.now();
+
+    if (isDynamicEntryItem(m)) {
+      const remainingSeconds = timeToClose / 1000;
+      const config = currentEntryScannerConfig();
+      if (!m.entryScanner) m.entryScanner = { status: "waiting", confirmationCount: 0 };
+      if (remainingSeconds <= 0) {
+        finishDynamicScan(m, 0);
+        triggered = true;
+      } else if (m.entryScanner.status === "entry") {
+        if (Date.now() > m.entryScanner.signal.expiresAt) {
+          m.entryScanner = advanceEntryScannerState(m.entryScanner, {
+            error: "Signal TTL elapsed.",
+            capturedAt: new Date().toISOString(),
+          }, config);
+          triggered = true;
+        } else {
+          scanDynamicEntryItem(m);
+        }
+      } else if (!["no_chase", "skipped"].includes(m.entryScanner.status)) {
+        if (remainingSeconds <= config.scanStopSeconds) {
+          finishDynamicScan(m, remainingSeconds);
+          triggered = true;
+        } else if (remainingSeconds <= config.scanStartSeconds) {
+          scanDynamicEntryItem(m);
+        } else if (m.entryScanner.status !== "waiting") {
+          m.entryScanner = { status: "waiting", confirmationCount: 0 };
+          triggered = true;
+        }
+      }
+      return;
+    }
+
+    if (!m.snipeFired) {
       const durationLimit = sniperTriggerSeconds(m.duration_type) * 1000;
       if (timeToClose <= 0) {
         m.snipeFiredAtRemainingSeconds = 0;
@@ -2700,7 +2887,9 @@ function runSniperTick() {
 
   // 3. Auto-stop jika semua market di antrean sudah ditembak & dieksekusi
   if (analysisQueue.length > 0) {
-    const allFinished = analysisQueue.every(m => m.analysisCompleted || m.isFailed || m.isTooLate);
+    const allFinished = analysisQueue.every(m => isDynamicEntryItem(m)
+      ? dynamicEntryItemFinished(m)
+      : m.analysisCompleted || m.isFailed || m.isTooLate);
     if (allFinished && sniperExecutionQueue.length === 0 && !busy && !sniperBatchInFlight) {
       toggleSniper();
     }
@@ -2709,6 +2898,12 @@ function runSniperTick() {
 
 function startSniper() {
   if (sniperInterval) clearInterval(sniperInterval);
+  sniperSessionId += 1;
+  analysisQueue.forEach(item => {
+    if (isDynamicEntryItem(item) && ["waiting", "watching", "candidate"].includes(item.entryScanner?.status)) {
+      item.entryScanner = { status: "waiting", confirmationCount: 0 };
+    }
+  });
   sniperInterval = setInterval(runSniperTick, 1000);
   runSniperTick();
 }
@@ -2721,17 +2916,23 @@ window.addEventListener("focus", runSniperTick);
 function stopSniper() {
   if (sniperInterval) clearInterval(sniperInterval);
   sniperInterval = null;
+  sniperSessionId += 1;
+  analysisQueue.forEach(item => {
+    if (isDynamicEntryItem(item) && item.entryScanner?.status === "candidate") {
+      item.entryScanner = { status: "waiting", confirmationCount: 0 };
+    }
+  });
 }
 
 function toggleSniper() {
   isSniperActive = !isSniperActive;
   if (isSniperActive) {
-    btnRunQueue.innerHTML = `<i data-lucide="square" class="btn-icon" style="width:12px; height:12px;"></i> Stop Sniper`;
+    btnRunQueue.innerHTML = `<i data-lucide="square" class="btn-icon" style="width:12px; height:12px;"></i> Stop EV Scanner`;
     btnRunQueue.style.background = "rgba(245, 158, 11, 0.5)";
     btnRunQueue.style.color = "#fff";
     startSniper();
   } else {
-    btnRunQueue.innerHTML = `<i data-lucide="play" class="btn-icon" style="width:12px; height:12px;"></i> Start Sniper & Queue`;
+    btnRunQueue.innerHTML = `<i data-lucide="play" class="btn-icon" style="width:12px; height:12px;"></i> Start EV Scanner`;
     btnRunQueue.style.background = "rgba(245, 158, 11, 0.2)";
     btnRunQueue.style.color = "var(--neon-amber)";
     stopSniper();
@@ -2762,19 +2963,22 @@ function showSniperSummaryModal() {
   
   analysisQueue.forEach(m => {
     const historyItem = allHistoryEvents.find(h => String(h.market_id) === String(m.id));
+    const scannerSignal = m.entryScanner?.status === "entry" ? m.entryScanner.signal : null;
+    const prediction = historyItem?.prediction || scannerSignal?.direction || null;
+    const confidence = historyItem?.qwen_confidence || scannerSignal?.fairProbability || null;
     let title = m.groupItemTitle || m.question.replace(new RegExp(`(Bitcoin|Ethereum|Dogecoin) Up or Down -? ?`, 'i'), '').trim();
     
-    if (historyItem) {
+    if (prediction) {
       total++;
-      if (historyItem.prediction === 'UP') upCount++;
-      if (historyItem.prediction === 'DOWN') downCount++;
+      if (prediction === 'UP') upCount++;
+      if (prediction === 'DOWN') downCount++;
       
       let dirColor = "var(--text-secondary)";
       let dirBg = "rgba(255,255,255,0.05)";
-      if (historyItem.prediction === 'UP') {
+      if (prediction === 'UP') {
          dirColor = "var(--neon-green)";
          dirBg = "rgba(16,185,129,0.1)";
-      } else if (historyItem.prediction === 'DOWN') {
+      } else if (prediction === 'DOWN') {
          dirColor = "var(--neon-red)";
          dirBg = "rgba(239,68,68,0.1)";
       }
@@ -2786,9 +2990,9 @@ function showSniperSummaryModal() {
             <div style="font-size:10px; color:var(--text-tertiary); margin-top:2px;">${m.id}</div>
           </td>
           <td style="padding:10px 16px; text-align:center;">
-            <span style="background:${dirBg}; color:${dirColor}; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:11px;">${historyItem.prediction || '-'}</span>
+            <span style="background:${dirBg}; color:${dirColor}; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:11px;">${prediction}</span>
           </td>
-          <td style="padding:10px 16px; text-align:center; font-family:monospace; color:var(--neon-amber);">${historyItem.qwen_confidence ? historyItem.qwen_confidence + '%' : '-'}</td>
+          <td style="padding:10px 16px; text-align:center; font-family:monospace; color:var(--neon-amber);">${confidence ? Number(confidence).toFixed(1) + '%' : '-'}</td>
         </tr>
       `;
     } else {
@@ -2798,7 +3002,7 @@ function showSniperSummaryModal() {
             <div style="font-weight:600; color:#fff;">${title}</div>
           </td>
           <td style="padding:10px 16px; text-align:center;">-</td>
-          <td style="padding:10px 16px; text-align:center;">Belum Dianalisis / Gagal</td>
+          <td style="padding:10px 16px; text-align:center;">${m.entryScanner?.status === 'skipped' ? 'SKIP / NO VALID EDGE' : (m.entryScanner?.status === 'no_chase' ? 'NO CHASE / EXPIRED' : 'WAITING')}</td>
         </tr>
       `;
     }
@@ -2839,10 +3043,13 @@ function showSniperSummaryModal() {
       analysisQueue.forEach(m => {
         let title = m.groupItemTitle || m.question.replace(new RegExp(`(Bitcoin|Ethereum|Dogecoin) Up or Down -? ?`, 'i'), '').trim();
         const historyItem = allHistoryEvents.find(h => String(h.market_id) === String(m.id));
-        if (historyItem) {
-           txt += `- ${title}: ${historyItem.prediction} (${historyItem.qwen_confidence ? historyItem.qwen_confidence + '%' : ''})\n`;
+        const scannerSignal = m.entryScanner?.status === 'entry' ? m.entryScanner.signal : null;
+        if (historyItem || scannerSignal) {
+           const direction = historyItem?.prediction || scannerSignal.direction;
+           const confidence = historyItem?.qwen_confidence || scannerSignal.fairProbability;
+           txt += `- ${title}: ${direction} (${confidence ? Number(confidence).toFixed(1) + '%' : ''})\n`;
         } else {
-           txt += `- ${title}: FAILED/WAITING\n`;
+           txt += `- ${title}: ${m.entryScanner?.status === 'skipped' ? 'SKIP/NO EDGE' : (m.entryScanner?.status === 'no_chase' ? 'NO CHASE/EXPIRED' : 'WAITING')}\n`;
         }
       });
       navigator.clipboard.writeText(txt);
@@ -4125,8 +4332,12 @@ if (chkShortMarketLearning) {
 }
 
 // Sniper Settings Inputs
-const set5mMin = document.querySelector("#set5mMin");
-const set5mSec = document.querySelector("#set5mSec");
+const set5mScanStart = document.querySelector("#set5mScanStart");
+const set5mScanStop = document.querySelector("#set5mScanStop");
+const set5mMinFair = document.querySelector("#set5mMinFair");
+const set5mMinEv = document.querySelector("#set5mMinEv");
+const set5mMaxAsk = document.querySelector("#set5mMaxAsk");
+const set5mConfirmations = document.querySelector("#set5mConfirmations");
 const set15mMin = document.querySelector("#set15mMin");
 const set15mSec = document.querySelector("#set15mSec");
 const set1hMin = document.querySelector("#set1hMin");
@@ -4461,7 +4672,14 @@ if (btnSettings && settingsModal) {
     // Save sniper settings
     const sniperConf = {
       version: SNIPER_CONFIG_VERSION,
-      m5: { min: set5mMin?.value || 2, sec: set5mSec?.value || 0 },
+      m5: {
+        scanStartSeconds: (Number(set5mScanStart?.value) || 4) * 60,
+        scanStopSeconds: (Number(set5mScanStop?.value) || 2) * 60,
+        minFairProbability: Number(set5mMinFair?.value) || 60,
+        minNetEvCents: Number(set5mMinEv?.value) || 8,
+        maxAsk: Number(set5mMaxAsk?.value) || 0.65,
+        confirmations: Number(set5mConfirmations?.value) || 2,
+      },
       m15: { min: set15mMin?.value || 6, sec: set15mSec?.value || 0 },
       h1: { min: set1hMin?.value || 24, sec: set1hSec?.value || 0 },
       h4: { hour: set4hHour?.value || 1, min: set4hMin?.value || 36 },
@@ -4485,14 +4703,31 @@ function loadSniperConfig() {
     const saved = localStorage.getItem("sniperConfig");
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed?.version === SNIPER_CONFIG_VERSION) conf = parsed;
+      if (parsed?.version === SNIPER_CONFIG_VERSION) {
+        conf = parsed;
+      } else if (parsed?.version === 2) {
+        conf = {
+          ...conf,
+          m15: parsed.m15 || conf.m15,
+          h1: parsed.h1 || conf.h1,
+          h4: parsed.h4 || conf.h4,
+          d1: parsed.d1 || conf.d1,
+        };
+      }
     }
   } catch (err) {
     conf = defaultSniperConfig();
   }
 
   localStorage.setItem("sniperConfig", JSON.stringify(conf));
-  if (set5mMin && conf.m5) { set5mMin.value = conf.m5.min; set5mSec.value = conf.m5.sec; }
+  if (conf.m5) {
+    if (set5mScanStart) set5mScanStart.value = conf.m5.scanStartSeconds / 60;
+    if (set5mScanStop) set5mScanStop.value = conf.m5.scanStopSeconds / 60;
+    if (set5mMinFair) set5mMinFair.value = conf.m5.minFairProbability;
+    if (set5mMinEv) set5mMinEv.value = conf.m5.minNetEvCents;
+    if (set5mMaxAsk) set5mMaxAsk.value = conf.m5.maxAsk;
+    if (set5mConfirmations) set5mConfirmations.value = conf.m5.confirmations;
+  }
   if (set15mMin && conf.m15) { set15mMin.value = conf.m15.min; set15mSec.value = conf.m15.sec; }
   if (set1hMin && conf.h1) { set1hMin.value = conf.h1.min; set1hSec.value = conf.h1.sec; }
   if (set4hHour && conf.h4) { set4hHour.value = conf.h4.hour; set4hMin.value = conf.h4.min; }
@@ -6116,6 +6351,14 @@ async function populateTradePanel() {
         }
       } else {
         predictionText = item.status === "DONE" ? "WAITING FOR SYNC" : item.status;
+      }
+
+      if (isDynamicEntryItem(item)) {
+        const scannerSignal = item.entryScanner?.signal;
+        predictionText = scannerSignal
+          ? `${scannerSignal.direction} / ${item.entryScanner.status === "entry" ? "MANUAL ENTRY" : "NO CHASE"}`
+          : `${String(item.entryScanner?.status || "WAITING").toUpperCase()} / MANUAL ONLY`;
+        canTrade = false;
       }
       
       if (!canTrade) {

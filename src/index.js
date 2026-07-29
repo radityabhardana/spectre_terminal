@@ -232,15 +232,24 @@ function executableOrderBookPricing(book) {
   return { bestBid, bestAsk, midpoint };
 }
 
-async function refreshShortExecutionSnapshot(marketId, score) {
-  const freshMarket = await getMarketById(marketId, true).catch(() => null);
+async function refreshShortExecutionSnapshot(marketId, score, signal = null) {
+  const freshMarket = await getMarketById(marketId, true, signal).catch((error) => {
+    if (signal?.aborted) throw error;
+    return null;
+  });
   const freshTokens = freshMarket ? pickYesNoTokens(freshMarket) : null;
   const primaryTokenId = freshTokens?.yesTokenId || score.primaryTokenId;
   const secondaryTokenId = freshTokens?.noTokenId || score.secondaryTokenId;
   const [upBook, downBook] = await Promise.all([
-    primaryTokenId ? getOrderBook(primaryTokenId).catch(() => null) : Promise.resolve(null),
+    primaryTokenId ? getOrderBook(primaryTokenId, signal).catch((error) => {
+      if (signal?.aborted) throw error;
+      return null;
+    }) : Promise.resolve(null),
     secondaryTokenId
-      ? getOrderBook(secondaryTokenId).catch(() => null)
+      ? getOrderBook(secondaryTokenId, signal).catch((error) => {
+          if (signal?.aborted) throw error;
+          return null;
+        })
       : Promise.resolve(null),
   ]);
   const up = executableOrderBookPricing(upBook);
@@ -318,7 +327,7 @@ async function resolveAnalyzeInput(arg) {
   return { kind: "market", market, event: null };
 }
 
-async function scoreOneMarket(market) {
+async function scoreOneMarket(market, signal = null) {
   const tokens = pickYesNoTokens(market);
   if (!tokens.yesTokenId) {
     throw new Error(`Market ${market.id} tidak punya token utama.`);
@@ -329,11 +338,17 @@ async function scoreOneMarket(market) {
   let noBook = null;
   if (shortMarket) {
     [yesBook, noBook] = await Promise.all([
-      getOrderBook(tokens.yesTokenId).catch(() => null),
-      tokens.noTokenId ? getOrderBook(tokens.noTokenId).catch(() => null) : Promise.resolve(null),
+      getOrderBook(tokens.yesTokenId, signal).catch((error) => {
+        if (signal?.aborted) throw error;
+        return null;
+      }),
+      tokens.noTokenId ? getOrderBook(tokens.noTokenId, signal).catch((error) => {
+        if (signal?.aborted) throw error;
+        return null;
+      }) : Promise.resolve(null),
     ]);
   } else {
-    yesBook = await getOrderBook(tokens.yesTokenId);
+    yesBook = await getOrderBook(tokens.yesTokenId, signal);
   }
   const baseScore = scoreMarket({ market, yesBook });
   const clobMidpoint =
@@ -583,6 +598,59 @@ export function qwenResultFromShortEvaluation(shortRes) {
       bearishCase: [`Terminal DOWN probability: ${evaluation.primary_outcome_probability == null ? "n/a" : (100 - evaluation.primary_outcome_probability).toFixed(2)}%`],
     },
   };
+}
+
+export function entrySnapshotFromShortResult(shortRes, market) {
+  const evaluation = shortRes?.evaluation || {};
+  const snapshot = evaluation.deterministic_snapshot || {};
+  return {
+    marketId: String(market.id),
+    question: market.question,
+    endDate: market.endDate,
+    capturedAt: snapshot.capturedAt || new Date().toISOString(),
+    remainingSeconds: evaluation.remaining_ms == null ? snapshot.remainingSeconds ?? null : Number((evaluation.remaining_ms / 1000).toFixed(3)),
+    oracleAgeMs: evaluation.oracle_age_ms ?? null,
+    marketActive: snapshot.marketActive ?? market.active === true,
+    marketClosed: snapshot.marketClosed ?? market.closed === true,
+    acceptingOrders: snapshot.acceptingOrders ?? market.acceptingOrders === true,
+    feeBufferCents: snapshot.feeBufferCents ?? config.tradeFeeBufferCents,
+    forecastDirection: evaluation.forecast_direction || "NEUTRAL",
+    sides: evaluation.trade_pricing || {},
+    blockers: evaluation.guardrail_blockers || [],
+  };
+}
+
+export async function getFastShortEntrySnapshot(marketId, signal = null) {
+  const market = await getMarketById(String(marketId || "").trim(), true, signal);
+  if (!market) throw new Error("Market tidak ditemukan.");
+  if (market.durationType !== "5m" || !isShortCryptoMarket(market)) {
+    throw new Error("Dynamic EV hanya tersedia untuk short crypto market 5 menit.");
+  }
+  const closesAt = new Date(market.endDate).getTime();
+  if (market.closed || !market.active || !market.acceptingOrders || !Number.isFinite(closesAt) || closesAt <= Date.now()) {
+    throw new Error("Market sudah tutup atau tidak menerima order.");
+  }
+  const scored = await scoreOneMarket(market, signal);
+  const shortRes = await evaluateShortMarketCondition({
+    signal,
+    asset: shortCryptoAsset(scored.market.question),
+    marketQuestion: scored.market.question,
+    upTokenAsk: scored.score.shortBookPrices?.up.bestAsk,
+    downTokenAsk: scored.score.shortBookPrices?.down.bestAsk,
+    upTokenMidpoint: scored.score.shortBookPrices?.up.midpoint,
+    downTokenMidpoint: scored.score.shortBookPrices?.down.midpoint,
+    refreshMarketPrices: () => refreshShortExecutionSnapshot(scored.market.id, scored.score, signal),
+    marketActive: scored.market.active,
+    marketClosed: scored.market.closed,
+    acceptingOrders: scored.market.acceptingOrders,
+    durationType: scored.market.durationType,
+    startDate: scored.market.startDate,
+    endDate: scored.market.endDate,
+    resolutionSource: scored.market.resolutionSource,
+    includeAiExplanation: false,
+    persistHistory: false,
+  });
+  return entrySnapshotFromShortResult(shortRes, scored.market);
 }
 
 async function resolveEventInput(arg) {

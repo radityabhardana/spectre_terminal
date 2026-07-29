@@ -60,7 +60,7 @@ dns.lookup = function(hostname, options, callback) {
   return origLookup.call(this, hostname, options, callback);
 };
 
-async function fetchJson(url, forceRefresh = false, retries = 3) {
+async function fetchJson(url, forceRefresh = false, retries = 3, signal = null) {
   if (!forceRefresh) {
     const cached = getCache(url);
     if (cached) return cached;
@@ -68,12 +68,15 @@ async function fetchJson(url, forceRefresh = false, retries = 3) {
 
   for (let i = 0; i < retries; i++) {
     try {
+      const requestSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(config.polymarketRequestTimeoutMs)])
+        : AbortSignal.timeout(config.polymarketRequestTimeoutMs);
       const response = await fetch(url, {
         headers: {
           accept: "application/json",
           "user-agent": "polymarket-telegram-analyzer/0.1",
         },
-        signal: AbortSignal.timeout(config.polymarketRequestTimeoutMs),
+        signal: requestSignal,
       });
 
       if (!response.ok) {
@@ -85,6 +88,7 @@ async function fetchJson(url, forceRefresh = false, retries = 3) {
       setCache(url, json);
       return json;
     } catch (error) {
+      if (signal?.aborted) throw error;
       if (i === retries - 1) throw error;
       await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Exponential backoff
     }
@@ -101,7 +105,7 @@ function safeJsonParse(value, fallback) {
   }
 }
 
-export const SEARCH_ENGINE_VERSION = "public-search-v2-event-wide-analysis-v17-visible-queue-results";
+export const SEARCH_ENGINE_VERSION = "public-search-v2-event-wide-analysis-v18-dynamic-ev-scanner";
 
 function normalizeMarket(raw, event = null, eventSearchRank = 999) {
   const outcomes = safeJsonParse(raw.outcomes, raw.outcomes || []);
@@ -503,9 +507,9 @@ export async function getShortTermMarkets(asset = "btc") {
   return shortMarkets;
 }
 
-export async function getMarketById(marketId, forceRefresh = false) {
+export async function getMarketById(marketId, forceRefresh = false, signal = null) {
   const url = new URL(`/markets/${marketId}`, config.gammaUrl);
-  const data = await fetchJson(url.toString(), forceRefresh);
+  const data = await fetchJson(url.toString(), forceRefresh, 3, signal);
   return normalizeMarket(data);
 }
 
@@ -706,11 +710,11 @@ export async function getMarketsFromPolymarketLink(value) {
   return (await tryMarketSlug()) || (await tryEventSlug()) || (await trySearchSlug());
 }
 
-export async function getOrderBook(tokenId) {
+export async function getOrderBook(tokenId, signal = null) {
   const url = new URL("/book", config.clobUrl);
   url.searchParams.set("token_id", tokenId);
   // Orderbooks are time-sensitive; the general 60-second API cache is unsafe here.
-  return fetchJson(url.toString(), true);
+  return fetchJson(url.toString(), true, 3, signal);
 }
 
 export function pickYesNoTokens(market) {

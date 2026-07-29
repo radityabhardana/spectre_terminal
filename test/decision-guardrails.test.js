@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { calculateKelly } from "../src/analytics.js";
-import { qwenResultFromShortEvaluation, tradePricingForPrediction } from "../src/index.js";
+import { entrySnapshotFromShortResult, qwenResultFromShortEvaluation, tradePricingForPrediction } from "../src/index.js";
 import { formatAnalysis } from "../src/format.js";
 import { normalizeShortAnalysis, parseOpenAiResponse, requestAiText } from "../src/qwen.js";
 import {
@@ -103,6 +103,38 @@ test("Chainlink variants cover every listed short-market duration", () => {
   assert.equal(chainlinkVariant("1h"), "hourly");
   assert.equal(chainlinkVariant("4h"), "fourhour");
   assert.equal(chainlinkVariant("1d"), "daily");
+});
+
+test("fast entry snapshot exposes deterministic executable pricing without AI metadata", () => {
+  const result = entrySnapshotFromShortResult({
+    oraclePublishTime: "2026-07-29T06:00:01.000Z",
+    evaluation: {
+      forecast_direction: "UP",
+      primary_outcome_probability: 72,
+      expected_value_cents: 13,
+      oracle_age_ms: 2_000,
+      remaining_ms: 210_000,
+      guardrail_blockers: [],
+      trade_pricing: {
+        UP: { direction: "UP", fairProbability: 72, ask: 0.55, netEvCents: 13 },
+        DOWN: { direction: "DOWN", fairProbability: 28, ask: 0.46, netEvCents: -22 },
+      },
+      deterministic_snapshot: { capturedAt: "2026-07-29T06:00:03.000Z", feeBufferCents: 4 },
+    },
+  }, {
+    id: "market-1",
+    question: "Bitcoin Up or Down",
+    endDate: "2026-07-29T06:03:33.000Z",
+    active: true,
+    closed: false,
+    acceptingOrders: true,
+  });
+
+  assert.equal(result.marketId, "market-1");
+  assert.equal(result.remainingSeconds, 210);
+  assert.equal(result.sides.UP.ask, 0.55);
+  assert.equal(result.feeBufferCents, 4);
+  assert.equal("usage" in result, false);
 });
 
 function shortEvaluationResult(overrides = {}) {

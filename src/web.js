@@ -4,7 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
-import { handleCommand } from "./index.js";
+import { getFastShortEntrySnapshot, handleCommand } from "./index.js";
 import { enterCommandGuard, getCooldownState, releaseCommandGuard } from "./rate-limit.js";
 import { SEARCH_ENGINE_VERSION, getMarketById, getShortTermMarkets, pickYesNoTokens } from "./polymarket.js";
 import { ANALYSIS_STRATEGY_VERSION, completeTradeExecution, getAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, getReflectionByMarketId, getAllReflections, getAnalysisLogs, reserveTradeExecutions } from "./storage.js";
@@ -23,6 +23,10 @@ const tradeReadyPromise = config.enableLiveTrading && walletReady
   ? initTradeModule()
   : Promise.resolve(false);
 const tradeIdempotencyKeys = new Map();
+const shortSnapshotRequestTimes = new Map();
+let shortSnapshotInFlight = 0;
+const MAX_SHORT_SNAPSHOT_CONCURRENCY = 3;
+const MAX_SHORT_SNAPSHOT_REQUESTS_PER_10S = 30;
 
 const sseClients = new Set();
 
@@ -117,6 +121,28 @@ function validateTradeRequest(req) {
     const expectedOrigin = `http://${req.headers.host}`;
     if (origin !== expectedOrigin) throw Object.assign(new Error("Cross-origin trade request rejected"), { status: 403 });
   }
+}
+
+function validateShortSnapshotRequest(req) {
+  if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) {
+    throw Object.assign(new Error("Content-Type must be application/json"), { status: 415 });
+  }
+  const origin = req.headers.origin;
+  if (origin && new URL(origin).host !== req.headers.host) {
+    throw Object.assign(new Error("Cross-origin snapshot request rejected"), { status: 403 });
+  }
+  const key = req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  const recent = (shortSnapshotRequestTimes.get(key) || []).filter(timestamp => timestamp > now - 10_000);
+  if (recent.length >= MAX_SHORT_SNAPSHOT_REQUESTS_PER_10S) {
+    throw Object.assign(new Error("Snapshot request rate exceeded"), { status: 429 });
+  }
+  recent.push(now);
+  shortSnapshotRequestTimes.set(key, recent);
+  if (shortSnapshotInFlight >= MAX_SHORT_SNAPSHOT_CONCURRENCY) {
+    throw Object.assign(new Error("Snapshot scanner is at capacity"), { status: 429 });
+  }
+  shortSnapshotInFlight += 1;
 }
 
 function contentType(filePath) {
@@ -528,6 +554,27 @@ export function startWebServer(options = {}) {
         return;
       }
 
+      if (req.method === "POST" && req.url === "/api/short-entry-snapshot") {
+        let slotAcquired = false;
+        try {
+          validateShortSnapshotRequest(req);
+          slotAcquired = true;
+          const body = await readBody(req);
+          const marketId = String(body.marketId || "").trim();
+          if (!/^\d{1,30}$/.test(marketId)) {
+            sendJson(res, 400, { ok: false, error: "marketId tidak valid." });
+            return;
+          }
+          const snapshot = await getFastShortEntrySnapshot(marketId, AbortSignal.timeout(6_000));
+          sendJson(res, 200, { ok: true, snapshot });
+        } catch (error) {
+          sendJson(res, error.status || 422, { ok: false, error: error.message || String(error) });
+        } finally {
+          if (slotAcquired) shortSnapshotInFlight = Math.max(0, shortSnapshotInFlight - 1);
+        }
+        return;
+      }
+
       if (req.method === "GET" && req.url === "/api/history") {
         const logs = getAnalysisLogs(50);
         sendJson(res, 200, { ok: true, history: logs });
@@ -687,6 +734,7 @@ export function startWebServer(options = {}) {
             const marketId = marketIds[index];
             const market = await getMarketById(marketId, true);
             if (!market || market.closed || !market.active || !market.acceptingOrders) throw new Error(`${marketId}: market is not open for trading`);
+            if (market.durationType === "5m") throw new Error(`${marketId}: dynamic 5-minute signals are manual-entry only`);
             const closesAt = new Date(market.endDate).getTime();
             if (!Number.isFinite(closesAt) || closesAt - Date.now() < config.tradeMinSecondsToClose * 1000) {
               throw new Error(`${marketId}: market is too close to expiry`);

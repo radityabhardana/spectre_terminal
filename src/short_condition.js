@@ -21,6 +21,8 @@ const DURATION_MS = {
 const CHAINLINK_MAX_AGE_MS = 15_000;
 const MIN_DIRECTIONAL_PROBABILITY = 55;
 const MIN_NET_EV_CENTS = 5;
+const openingPriceCache = new Map();
+const technicalDataCache = new Map();
 // Brownian high-low range is about 1.596 standard deviations on average.
 const ATR_TO_SIGMA = 1 / 1.5958;
 
@@ -267,6 +269,8 @@ export function chainlinkVariant(durationType) {
 async function fetchChainlinkOpeningPrice(asset, startTimeMs, endTimeMs, durationType, signal) {
   const variant = chainlinkVariant(durationType);
   if (!variant || startTimeMs == null || endTimeMs == null) return null;
+  const cacheKey = `${asset}:${startTimeMs}:${endTimeMs}:${variant}`;
+  if (openingPriceCache.has(cacheKey)) return openingPriceCache.get(cacheKey);
   const url = new URL("https://polymarket.com/api/crypto/crypto-price");
   url.searchParams.set("symbol", asset);
   url.searchParams.set("eventStartTime", new Date(startTimeMs).toISOString());
@@ -281,7 +285,11 @@ async function fetchChainlinkOpeningPrice(asset, startTimeMs, endTimeMs, duratio
       if (response.ok) {
         const payload = await response.json();
         const price = Number(payload?.openPrice);
-        if (Number.isFinite(price) && price > 0) return price;
+        if (Number.isFinite(price) && price > 0) {
+          openingPriceCache.set(cacheKey, price);
+          if (openingPriceCache.size > 200) openingPriceCache.delete(openingPriceCache.keys().next().value);
+          return price;
+        }
       }
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -496,6 +504,9 @@ async function fetchChainlinkCandlePage(asset, interval, endTime, signal) {
 }
 
 export async function fetchChainlinkTechData(asset, durationType, signal = null) {
+  const cacheKey = `${asset}:${durationType}`;
+  const cached = technicalDataCache.get(cacheKey);
+  if (cached && Date.now() - cached.savedAt < 30_000) return cached.value;
   try {
     const interval = DURATION_MS[durationType] ? durationType : "5m";
     const latest = await fetchChainlinkCandlePage(asset, interval, null, signal);
@@ -510,7 +521,7 @@ export async function fetchChainlinkTechData(asset, durationType, signal = null)
       time: Number(candle.time) * 1000,
       volume: null,
     })));
-    return {
+    const result = {
       symbol: `${asset}USD`,
       interval,
       source: "chainlink",
@@ -521,6 +532,8 @@ export async function fetchChainlinkTechData(asset, durationType, signal = null)
       volume24h: null,
       ...indicators,
     };
+    technicalDataCache.set(cacheKey, { savedAt: Date.now(), value: result });
+    return result;
   } catch (error) {
     return null;
   }
@@ -721,6 +734,9 @@ export async function evaluateShortMarketCondition({
   startDate = null,
   endDate = null,
   resolutionSource = "",
+  includeAiExplanation = true,
+  persistHistory = true,
+  refreshFinalSnapshot = true,
 }) {
   const normalizedAsset = String(asset || "BTC").toUpperCase();
   const symbol = normalizedAsset === "ETH" ? "ETHUSDT" : normalizedAsset === "DOGE" ? "DOGEUSDT" : "BTCUSDT";
@@ -734,6 +750,7 @@ export async function evaluateShortMarketCondition({
 
   let initialOpeningPrice = null;
   let initialLivePrice = null;
+  const technicalDataPromise = fetchChainlinkTechData(normalizedAsset, normalizedDuration, signal);
   if (oracleSourceVerified) {
     [initialOpeningPrice, initialLivePrice] = await Promise.all([
       fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal).catch((error) => {
@@ -748,7 +765,7 @@ export async function evaluateShortMarketCondition({
   }
 
   const intervalMinutes = durationMs ? durationMs / 60_000 : 5;
-  let tickerData = await fetchChainlinkTechData(normalizedAsset, normalizedDuration, signal);
+  let tickerData = await technicalDataPromise;
   if (!tickerData) tickerData = await fetchBinanceTechData(symbol, intervalMinutes, signal);
   if (!tickerData) {
     tickerData = {
@@ -772,10 +789,12 @@ export async function evaluateShortMarketCondition({
     };
   }
 
-  const [longShort, fearGreed] = await Promise.all([
-    fetchLongShortRatio(symbol, signal),
-    fetchFearGreed(signal),
-  ]);
+  const [longShort, fearGreed] = includeAiExplanation
+    ? await Promise.all([
+        fetchLongShortRatio(symbol, signal),
+        fetchFearGreed(signal),
+      ])
+    : [null, null];
   const liqData = getRecentLiquidations(symbol, 15);
   const depthData = getOrderbookImbalance(symbol);
   const initialMarketPrices = {
@@ -814,7 +833,7 @@ export async function evaluateShortMarketCondition({
   let aiExplanationStatus = "not_requested";
   let aiExplanationError = null;
   let aiMetadata = {};
-  if (initialDecision.primary_outcome_probability != null) {
+  if (includeAiExplanation && initialDecision.primary_outcome_probability != null) {
     aiExplanationStatus = "pending";
     const aiSignal = signal
       ? AbortSignal.any([signal, AbortSignal.timeout(config.shortAiTimeoutMs)])
@@ -852,7 +871,7 @@ export async function evaluateShortMarketCondition({
   let finalOpeningPrice = initialOpeningPrice;
   let finalLivePrice = initialLivePrice;
   let finalMarketPrices = initialMarketPrices;
-  if (oracleSourceVerified) {
+  if (oracleSourceVerified && refreshFinalSnapshot) {
     try {
       const [openingPrice, livePrice, refreshedPrices] = await Promise.all([
         initialOpeningPrice
@@ -904,6 +923,9 @@ export async function evaluateShortMarketCondition({
     downMidpoint: finalMarketPrices.downMidpoint,
     feeBufferCents: config.tradeFeeBufferCents,
     maxEntryPrice: config.tradeMaxPrice,
+    marketActive: finalMarketPrices.marketActive ?? marketActive,
+    marketClosed: finalMarketPrices.marketClosed ?? marketClosed,
+    acceptingOrders: finalMarketPrices.acceptingOrders ?? acceptingOrders,
   };
   const changed = snapshotChanged(initialSnapshot, {
     currentPrice: finalSnapshot.currentPrice,
@@ -936,7 +958,7 @@ export async function evaluateShortMarketCondition({
     ...aiMetadata,
   };
 
-  saveShortConditionHistory(result, marketQuestion);
+  if (persistHistory) saveShortConditionHistory(result, marketQuestion);
   return {
     tickerData,
     techData: tickerData,

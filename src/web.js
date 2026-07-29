@@ -251,7 +251,9 @@ async function handleApiCommand(req, res) {
       handleCommand(commandText, { text: commandText, chat: { id: "web" } }, context)
     );
     const normalized = normalizeAnswer(answer);
-    pushMessage(messages, normalized.text, normalized.options);
+    if (normalized.result?.type !== "analysis_queue") {
+      pushMessage(messages, normalized.text, normalized.options);
+    }
 
     sendJson(res, 200, {
       ok: true,

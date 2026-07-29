@@ -44,7 +44,7 @@ const btnTop3 = document.querySelector("#btnTop3");
 const btnAnalyzeBest = document.querySelector("#btnAnalyzeBest");
 const btnAnalyzeAll = document.querySelector("#btnAnalyzeAll");
 
-const CLIENT_VERSION = "public-search-v2-event-wide-analysis-v15-reliable-queue";
+const CLIENT_VERSION = "public-search-v2-event-wide-analysis-v17-visible-queue-results";
 let busy = false;
 let timerId = null;
 let startedAt = 0;
@@ -938,7 +938,8 @@ function appendMessageElement(message) {
     // [STATIC PANEL INJECTION LOGIC]
     const staticPanel = document.getElementById("staticResultPanel");
     const staticContent = document.getElementById("staticResultContent");
-    if (staticPanel && staticContent && !marketSummaryClosed) {
+    const isQueueCompletionSummary = String(message.text || "").includes("Antrian Selesai Diproses");
+    if (staticPanel && staticContent && !marketSummaryClosed && !isQueueCompletionSummary) {
       staticPanel.classList.remove("hidden");
       if (html.includes('class="dash-agent-analysis"')) {
         // Real Qwen analysis result - show in static panel
@@ -1625,7 +1626,9 @@ async function executeCommand(commandText, isBackground = false) {
 
     if (!data.ok) {
       addError(data.error || "Request gagal.", tabInfo.id);
-      for (const msg of data.messages || []) addMessage(msg, tabInfo.id);
+      for (const msg of data.messages || []) {
+        if (!msg.deleted) addMessage(msg, tabInfo.id);
+      }
       if (!isBackground) markQueueItemsFailed(text);
       return { ok: false, deferred: false, data };
     }
@@ -1633,7 +1636,9 @@ async function executeCommand(commandText, isBackground = false) {
     if (data.result?.status === "rejected") {
       return { ok: false, deferred: true, data };
     }
-    for (const msg of data.messages || []) addMessage(msg, tabInfo.id);
+    for (const msg of data.messages || []) {
+      if (!msg.deleted) addMessage(msg, tabInfo.id);
+    }
     return { ok: true, deferred: false, data };
   } catch (error) {
     if (error.name === "AbortError") {
@@ -2464,7 +2469,7 @@ function renderQueue() {
     if (m.isFailed) {
       sniperStatus = `<span title="Analisis Gagal" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="alert-triangle" style="width:8px; height:8px; margin-right:4px;"></i> Failed</span>`;
     } else if (m.isTooLate) {
-      sniperStatus = `<span title="Terlewat (Sisa < 1m30s)" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="x-circle" style="width:8px; height:8px; margin-right:4px;"></i> Skipped${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
+      sniperStatus = `<span title="Terlewat (Sisa <= 30 detik)" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="x-circle" style="width:8px; height:8px; margin-right:4px;"></i> Skipped${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
     } else if (m.analysisCompleted) {
       sniperStatus = `<span title="Analisis selesai" style="color:var(--neon-green); font-size:9px; border:1px solid var(--neon-green); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Done</span>`;
     } else if (m.isAnalyzing) {
@@ -2651,53 +2656,67 @@ if (btnMuteAudio && iconMute) {
   });
 }
 
-function startSniper() {
-  if (sniperInterval) clearInterval(sniperInterval);
-  sniperInterval = setInterval(() => {
-    let triggered = false;
-    
-    // 1. Cek market mana saja yang sudah masuk sweet spot
-    analysisQueue.forEach(m => {
-      if (!m.snipeFired && m.endDate) {
-        const timeToClose = new Date(m.endDate).getTime() - Date.now();
-        const durationLimit = sniperTriggerSeconds(m.duration_type) * 1000;
-        // Fire when time is exactly at limit atau kurang, dan belum ditutup
-        if (timeToClose > 0 && timeToClose <= durationLimit) {
-          m.snipeFiredAtRemainingSeconds = Math.floor(timeToClose / 1000);
-          if (timeToClose < 90000) {
-            // Jika kurang dari 1m 30s (90,000 ms), batal analisa karena udah mau closing (telat jauh)
-            m.snipeFired = true;
-            m.isTooLate = true;
-            triggered = true;
-            const title = m.groupItemTitle || m.question.replace(new RegExp(`${activeShortAsset} Up or Down -? ?`, 'i'), '').trim();
-            showCustomAlert(`Analisis dibatalkan: Sisa waktu "${title}" kurang dari 1m 30s.`);
-          } else {
-            // Jika dieksekusi lebih dari 10 detik telat dari duration target, anggap Forced
-            if (timeToClose < durationLimit - 10000) {
-              m.isLateFired = true;
-            }
-            m.snipeFired = true;
-            sniperExecutionQueue.push(String(m.id));
-            triggered = true;
+const SNIPER_MIN_REMAINING_MS = 30_000;
+
+function runSniperTick() {
+  if (!isSniperActive) return;
+  let triggered = false;
+
+  // 1. Cek market mana saja yang sudah masuk sweet spot
+  analysisQueue.forEach(m => {
+    if (!m.snipeFired && m.endDate) {
+      const timeToClose = new Date(m.endDate).getTime() - Date.now();
+      const durationLimit = sniperTriggerSeconds(m.duration_type) * 1000;
+      if (timeToClose <= 0) {
+        m.snipeFiredAtRemainingSeconds = 0;
+        m.snipeFired = true;
+        m.isTooLate = true;
+        triggered = true;
+      } else if (timeToClose <= durationLimit) {
+        m.snipeFiredAtRemainingSeconds = Math.floor(timeToClose / 1000);
+        if (timeToClose <= SNIPER_MIN_REMAINING_MS) {
+          m.snipeFired = true;
+          m.isTooLate = true;
+          triggered = true;
+          const title = m.groupItemTitle || m.question.replace(new RegExp(`${activeShortAsset} Up or Down -? ?`, 'i'), '').trim();
+          showCustomAlert(`Analisis dibatalkan: Sisa waktu "${title}" tinggal 30 detik atau kurang.`);
+        } else {
+          // Tandai terlambat untuk informasi, tetapi tetap analisis selama masih aman.
+          if (timeToClose < durationLimit - 10000) {
+            m.isLateFired = true;
           }
+          m.snipeFired = true;
+          sniperExecutionQueue.push(String(m.id));
+          triggered = true;
         }
       }
-    });
-
-    if (triggered) renderQueue();
-
-    // 2. Eksekusi tembakan jika UI tidak sedang sibuk
-    if (!busy && sniperExecutionQueue.length > 0) processSniperExecutionQueue();
-    
-    // 3. Auto-stop jika semua market di antrean sudah ditembak & dieksekusi
-    if (isSniperActive && analysisQueue.length > 0) {
-      const allFinished = analysisQueue.every(m => m.analysisCompleted || m.isFailed || m.isTooLate);
-      if (allFinished && sniperExecutionQueue.length === 0 && !busy && !sniperBatchInFlight) {
-        toggleSniper();
-      }
     }
-  }, 1000);
+  });
+
+  if (triggered) renderQueue();
+
+  // 2. Eksekusi tembakan jika UI tidak sedang sibuk
+  if (!busy && sniperExecutionQueue.length > 0) processSniperExecutionQueue();
+
+  // 3. Auto-stop jika semua market di antrean sudah ditembak & dieksekusi
+  if (analysisQueue.length > 0) {
+    const allFinished = analysisQueue.every(m => m.analysisCompleted || m.isFailed || m.isTooLate);
+    if (allFinished && sniperExecutionQueue.length === 0 && !busy && !sniperBatchInFlight) {
+      toggleSniper();
+    }
+  }
 }
+
+function startSniper() {
+  if (sniperInterval) clearInterval(sniperInterval);
+  sniperInterval = setInterval(runSniperTick, 1000);
+  runSniperTick();
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) runSniperTick();
+});
+window.addEventListener("focus", runSniperTick);
 
 function stopSniper() {
   if (sniperInterval) clearInterval(sniperInterval);

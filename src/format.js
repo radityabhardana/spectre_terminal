@@ -149,20 +149,6 @@ function researchLines(qwenResult) {
     ].filter((line) => line != null && line !== false);
   }
 
-  if (research.type === "sports_ufc") {
-    return [
-      "RESEARCH CONTEXT",
-      `Provider: ${research.provider || "n/a"}`,
-      `Status: ${research.status || "n/a"}`,
-      `Category: Sports / UFC`,
-      `Fighters detected: ${(research.fighters || []).map(f => f.fighter || f.name).join(", ") || "n/a"}`,
-      `Matchup Stats: ${research.summary || "n/a"}`,
-      research.newsSummary ? `News/Catalyst: ${research.newsSummary}` : null,
-      research.fetchedAt ? `Fetched: ${research.fetchedAt}` : null,
-      "",
-    ].filter((line) => line != null && line !== false);
-  }
-
   return [];
 }
 
@@ -258,7 +244,7 @@ export function formatHelp() {
     "/top3 <link/slug event> - tampilkan 3 pilihan teratas tanpa Qwen",
     "/analyzebest <link/slug event> - pilih kandidat paling worth it dari event",
     "/analyzeall <link event Polymarket> - jelaskan semua pilihan aktif satu per satu",
-    "/book <tokenId, marketId, atau link Polymarket> - cek orderbook token CLOB",
+    "/book <marketId atau link Polymarket> - cek orderbook token CLOB",
     "/example - contoh alur pakai bot",
     "",
     "Qwen pipeline: fast scout -> analyst reviewer -> final judge.",
@@ -470,7 +456,6 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
   // Detect market type for context-aware display
   const researchType = qwenResult?.researchContext?.type || "general";
   const isCryptoMarket = researchType === "crypto";
-  const isUfcMarket = researchType === "sports_ufc";
   const isShortCrypto = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*(up|down|above|below)/i.test(market.question || "");
   const isTerminalShortCrypto = /(bitcoin|btc|ethereum|eth|doge|dogecoin).*up or down/i.test(market.question || "");
   const verdict = isTerminalShortCrypto ? qwen.verdict || "SKIP" : finalVerdict(score, qwen);
@@ -496,7 +481,7 @@ export function formatAnalysis({ market, score, qwenResult, finalPrediction, ana
       else shownDirection = "NETRAL";
     }
   }
-  // If finalPrediction is explicitly passed (e.g. from Aggressive Mode override), use it!
+  // Prefer an explicitly validated prediction when the caller supplies one.
   if (finalPrediction) {
     shownDirection = finalPrediction === "=" ? "NETRAL" : finalPrediction;
   }

@@ -8,6 +8,7 @@ const qwenInFlight = new Map();
 const FREE_COMMANDS = new Set(["/start", "/help", "/version", "/example"]);
 const QWEN_COMMANDS = new Set([
   "/analyze",
+  "/shortanalyze",
   "/analyzebest",
   "/analyzeall",
   "/analyzequeue",

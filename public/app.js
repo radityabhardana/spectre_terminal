@@ -1,7 +1,20 @@
 import {
   DEFAULT_ENTRY_SCANNER_CONFIG,
   advanceEntryScannerState,
+  normalizeEntryScannerResult,
+  resetEntryScannerItem,
+  selectNewestEntryScannerItem,
+  summarizeEntryScannerSession,
+  terminalizeEntryScannerState,
 } from "./entry-scanner.js";
+import {
+  escapeHtml,
+  formatLimitedRichText,
+  formatStoredRichText,
+  polymarketEventUrl,
+  sanitizeHttpUrl,
+} from "./render-safety.js";
+import { buildMarketSummaryHtml } from "./market-summary.js";
 
 /* ============================================================
    MVPM Terminal — Smart Input App Logic
@@ -9,11 +22,6 @@ import {
    ============================================================ */
 
 /* --- DOM Elements --- */
-const commandInput = document.querySelector("#commandInput");
-const runButton = document.querySelector("#runButton");
-const runLabel = document.querySelector("#runLabel");
-const runIcon = document.querySelector("#runIcon");
-const clearButton = document.querySelector("#clearButton");
 const deckTabsEl = document.querySelector("#deckTabs");
 const messagesEl = document.querySelector("#messages");
 const emptyState = document.querySelector("#emptyState");
@@ -26,8 +34,6 @@ const polyFrame = document.querySelector("#polyFrame");
 const polyEmpty = document.querySelector("#polyEmpty");
 const polyTitle = document.querySelector("#polyTitle");
 const polyOpenLink = document.querySelector("#polyOpenLink");
-const inputDetected = document.querySelector("#inputDetected");
-const smartHint = document.querySelector("#smartHint");
 const guardDot = document.querySelector("#guardDot");
 const guardStatus = document.querySelector("#guardStatus");
 
@@ -39,15 +45,6 @@ const sbQwenDot = document.querySelector("#sbQwenDot");
 const sbQwenLabel = document.querySelector("#sbQwenLabel");
 const sbLatency = document.querySelector("#sbLatency");
 const clockTime = document.querySelector("#clockTime");
-
-// Smart action buttons
-const btnAnalyze = document.querySelector("#btnAnalyze");
-const btnSearch = document.querySelector("#btnSearch");
-const btnBook = document.querySelector("#btnBook");
-const btnQuickscan = document.querySelector("#btnQuickscan");
-const btnTop3 = document.querySelector("#btnTop3");
-const btnAnalyzeBest = document.querySelector("#btnAnalyzeBest");
-const btnAnalyzeAll = document.querySelector("#btnAnalyzeAll");
 
 const CLIENT_VERSION = "public-search-v2-event-wide-analysis-v18-dynamic-ev-scanner";
 let busy = false;
@@ -64,9 +61,6 @@ let duplicateCommandCooldownMs = 3000;
 const outputTabs = new Map();
 let activeTabId = "";
 let marketSummaryClosed = false;
-
-// Smart input state
-let selectedAction = "analyze"; // default action
 
 /* --- Local Storage State --- */
 function saveState() {
@@ -192,8 +186,8 @@ setInterval(updateClock, 1000);
   });
 
   // Restore from localStorage
-  const savedMode = localStorage.getItem("razorbot_mode") || "dark";
-  const savedFont = localStorage.getItem("razorbot_font") || "padre";
+  const savedMode = "dark";
+  const savedFont = "geist";
   const savedLang = localStorage.getItem("razorbot_lang") || "Indonesia";
   
   applyMode(savedMode);
@@ -282,141 +276,6 @@ setInterval(updateClock, 1000);
     html.setAttribute("data-font", font);
   }
 })();
-
-/* --- Input Detection --- */
-function detectInputType(value) {
-  const text = String(value || "").trim();
-  if (!text) return { type: "empty", label: "" };
-
-  // Slash command
-  if (text.startsWith("/")) {
-    return { type: "command", label: `⌘ Command: ${text.split(/\s+/)[0]}` };
-  }
-
-  // Polymarket event URL
-  if (/polymarket\.com\/event\//i.test(text)) {
-    return { type: "event-url", label: "🔗 Polymarket event link detected" };
-  }
-
-  // Polymarket market URL
-  if (/polymarket\.com\//i.test(text)) {
-    return { type: "market-url", label: "🔗 Polymarket market link detected" };
-  }
-
-  // Any URL
-  if (/^https?:\/\//i.test(text)) {
-    return { type: "url", label: "🔗 URL detected" };
-  }
-
-  // Market ID (numeric)
-  if (/^\d{1,10}$/.test(text)) {
-    return { type: "market-id", label: `🆔 Market ID: ${text}` };
-  }
-
-  // Slug-like (event slug)
-  if (/^[a-z0-9-]{5,}$/.test(text)) {
-    return { type: "event-slug", label: `📂 Event slug: ${text}` };
-  }
-
-  // Keyword
-  return { type: "keyword", label: `🔍 Keyword search: "${text}"` };
-}
-
-function updateInputDetection() {
-  const value = commandInput.value;
-  const detection = detectInputType(value);
-
-  // Update detection label
-  if (inputDetected) {
-    inputDetected.textContent = detection.label;
-  }
-
-  // Update hint
-  if (smartHint) {
-    if (detection.type === "empty") {
-      smartHint.textContent = "Paste link atau ketik keyword di atas, lalu pilih aksi:";
-    } else if (detection.type === "command") {
-      smartHint.textContent = "Command langsung akan dikirim apa adanya.";
-    } else {
-      smartHint.textContent = "Pilih aksi yang ingin dilakukan:";
-    }
-  }
-
-  // Highlight relevant action groups
-  const isEvent = ["event-url", "event-slug"].includes(detection.type);
-  const isMarket = ["market-url", "market-id"].includes(detection.type);
-  const isKeyword = detection.type === "keyword";
-  const isEmpty = detection.type === "empty";
-  const isCommand = detection.type === "command";
-
-  // Update action chip visibility/relevance
-  highlightRelevantActions(detection.type);
-  if (cooldownTimerId) updateCooldownUI(); // Update UI in case the new intended command is blocked
-}
-
-function highlightRelevantActions(inputType) {
-  // All action buttons
-  const allActions = [btnAnalyze, btnSearch, btnBook, btnQuickscan, btnTop3, btnAnalyzeBest, btnAnalyzeAll];
-
-  // Reset all
-  allActions.forEach(btn => {
-    if (btn) {
-      btn.classList.remove("selected");
-      btn.style.opacity = "";
-    }
-  });
-
-  if (inputType === "empty" || inputType === "command") {
-    // Dim all when empty or using raw command
-    allActions.forEach(btn => {
-      if (btn) btn.style.opacity = inputType === "empty" ? "0.4" : "0.5";
-    });
-    return;
-  }
-
-  // Highlight best action based on input type
-  if (["event-url", "event-slug"].includes(inputType)) {
-    // Event inputs → highlight event actions, dim market-only
-    [btnSearch].forEach(btn => { if (btn) btn.style.opacity = "0.4"; });
-    if (btnAnalyzeBest) btnAnalyzeBest.classList.add("selected");
-    selectedAction = "analyzebest";
-  } else if (["market-url", "market-id"].includes(inputType)) {
-    // Market inputs → highlight market actions, dim event-only
-    [btnQuickscan, btnTop3, btnAnalyzeBest, btnAnalyzeAll].forEach(btn => {
-      if (btn) btn.style.opacity = "0.4";
-    });
-    if (btnAnalyze) btnAnalyze.classList.add("selected");
-    selectedAction = "analyze";
-  } else if (inputType === "keyword") {
-    // Keywords → search first, analyze second
-    if (btnSearch) btnSearch.classList.add("selected");
-    selectedAction = "search";
-  } else {
-    if (btnAnalyze) btnAnalyze.classList.add("selected");
-    selectedAction = "analyze";
-  }
-}
-
-/* --- Build command from action + input --- */
-function buildCommand(action, inputText) {
-  const text = String(inputText || "").trim();
-
-  // If input is already a slash command, send as-is
-  if (text.startsWith("/")) return text;
-
-  const commandMap = {
-    analyze: "/analyze",
-    search: "/search",
-    book: "/book",
-    quickscan: "/quickscan",
-    top3: "/top3",
-    analyzebest: "/analyzebest",
-    analyzeall: "/analyzeall",
-  };
-
-  const prefix = commandMap[action] || "";
-  return prefix ? `${prefix} ${text}` : text;
-}
 
 /* --- Helpers --- */
 function shortLabel(value, max = 34) {
@@ -540,14 +399,7 @@ const pipelineStages = [
 
 function setBusy(nextBusy) {
   busy = nextBusy;
-  runButton.disabled = false;
-  commandInput.disabled = busy;
   loadingState.classList.toggle("hidden", !busy);
-  runButton.classList.toggle("cancel", busy);
-  runButton.classList.remove("cooldown");
-  if (runLabel) runLabel.textContent = busy ? "Cancel" : "Run";
-  if (runIcon) runIcon.textContent = busy ? "■" : "▶";
-  runButton.setAttribute("aria-label", busy ? "Cancel" : "Run analysis");
 
   if (busy) {
     marketSummaryClosed = false;
@@ -642,29 +494,10 @@ function setCooldown(ms, isQwen = false) {
 
 function updateCooldownUI() {
   const now = Date.now();
-  // Which command is the user about to run?
-  const text = commandInput.value.trim();
-  const command = text.startsWith("/") ? text : buildCommand(selectedAction, text);
-  
-  // Calculate remaining ms for the intended command
-  const remainingMs = getCooldownRemaining(command);
-  const remaining = Math.ceil(remainingMs / 1000);
 
-  // We should also display if ANY cooldown is active on the Guard Rail
+  // Display if ANY cooldown is active on the Guard Rail
   const maxRemainingMs = Math.max(0, qwenCooldownUntil - now, commandCooldownUntil - now);
   const maxRemaining = Math.ceil(maxRemainingMs / 1000);
-
-  if (remaining > 0) {
-    runButton.disabled = true;
-    runButton.classList.remove("cancel");
-    runButton.classList.add("cooldown");
-  } else if (!busy) {
-    runButton.disabled = false;
-    runButton.classList.remove("cooldown");
-  }
-
-  if (runLabel) runLabel.textContent = remaining > 0 ? `${remaining}s` : (busy ? "Cancel" : "Run");
-  if (runIcon) runIcon.textContent = remaining > 0 ? "⏳" : (busy ? "■" : "▶");
 
   if (guardStatus) {
     if (maxRemaining > 0) {
@@ -689,16 +522,6 @@ function updateCooldownUI() {
 function cancelActiveRequest() {
   if (!activeRequest) return;
   activeRequest.abort();
-}
-
-function clearAll() {
-  commandInput.value = "";
-  const tab = activeTab();
-  if (tab) tab.messages = [];
-  renderMessages();
-  updateInputDetection();
-  commandInput.focus();
-  saveState();
 }
 
 /* --- Polymarket Embed --- */
@@ -870,29 +693,30 @@ function appendMessageElement(message) {
       // All-caps headers (e.g. MARKET SUMMARY, KESIMPULAN CEPAT)
       if (/^[A-Z0-9 \-&/]{3,}$/.test(line.trim())) {
         flushSection();
-        currentSection = line.trim();
+        currentSection = escapeHtml(line.trim());
       } 
       else if (/^([A-Za-z0-9 \(\)-]+):(.*)$/.test(line) && !line.startsWith("http")) {
         const match = line.match(/^([A-Za-z0-9 \(\)-]+):(.*)$/);
         const key = match[1].trim();
-        let val = match[2].trim();
+        const rawVal = match[2].trim();
+        const safeKey = escapeHtml(key);
 
-        if (key === "Realtime Ticker" && val.length > 0) {
-          const payload = val;
+        if (key === "Realtime Ticker" && rawVal.length > 0) {
+          const payload = escapeHtml(rawVal);
           sectionContent += `<div class="msg-kv realtime-ticker-kv"><span class="live-ticker" data-tokens="${payload}">⏳ Syncing CLOB & Crypto Feed...</span></div>`;
           continue;
         }
 
         // Visual progress bar handling
-        if (key.startsWith("Confidence") && val.includes(" | ")) {
-           let part1 = `${key}: ${val.split(" | ")[0]}`;
-           let part2 = val.split(" | ")[1];
+        if (key.startsWith("Confidence") && rawVal.includes(" | ")) {
+           let part1 = `${key}: ${rawVal.split(" | ")[0]}`;
+           let part2 = rawVal.split(" | ")[1];
            let pct1 = part1.match(/(\d+(\.\d+)?)%/);
            let pct2 = part2.match(/(\d+(\.\d+)?)%/);
            if (pct1 && pct2) {
              let p1 = parseFloat(pct1[1]);
              let p2 = parseFloat(pct2[1]);
-             sectionContent += `<div style="font-size:10px; color:var(--text-tertiary); margin-top:8px; display:flex; justify-content:space-between;"><span>${part1.split(':')[0]}</span><span>${part2.split(':')[0]}</span></div>`;
+              sectionContent += `<div style="font-size:10px; color:var(--text-tertiary); margin-top:8px; display:flex; justify-content:space-between;"><span>${escapeHtml(part1.split(':')[0])}</span><span>${escapeHtml(part2.split(':')[0])}</span></div>`;
              sectionContent += `<div class="visual-bar-container">
                <div class="visual-bar-fill" style="width:${p1}%">${p1}%</div>
                <div class="visual-bar-fill secondary" style="width:${p2}%">${p2}%</div>
@@ -902,14 +726,14 @@ function appendMessageElement(message) {
         }
 
         // Highlight percentages and money
-        val = val.replace(/(\$[\d,]+(\.\d+)?|\d+(\.\d+)?%)/g, '<span class="hl-val">$1</span>');
+        const val = escapeHtml(rawVal).replace(/(\$[\d,]+(\.\d+)?|\d+(\.\d+)?%)/g, '<span class="hl-val">$1</span>');
         
         if (currentSection === "SNAPSHOT DATA" && (key === "Liquidity" || key === "Gamma volume" || key.startsWith("Orderbook"))) {
-          metricGrid += `<div class="dash-box"><div class="dash-label">${key}</div><div class="dash-val" style="font-size:12px; color:var(--text-primary); font-family:'JetBrains Mono', monospace;">${val}</div></div>`;
+          metricGrid += `<div class="dash-box"><div class="dash-label">${safeKey}</div><div class="dash-val" style="font-size:12px; color:var(--text-primary); font-family:'JetBrains Mono', monospace;">${val}</div></div>`;
         } else {
            sectionContent += `
-             <div class="dash-box" style="margin-bottom:2px;">
-               <div class="dash-label">${key}</div>
+              <div class="dash-box" style="margin-bottom:2px;">
+                <div class="dash-label">${safeKey}</div>
                <div class="dash-val" style="font-size:12px; white-space:normal; line-height:1.4; color:var(--text-secondary); font-family:'JetBrains Mono', monospace;">${val}</div>
              </div>
            `;
@@ -917,15 +741,11 @@ function appendMessageElement(message) {
       } 
       // List items
       else if (line.startsWith("- ") || line.startsWith("* ")) {
-        sectionContent += `<div style="font-size:11px; color:var(--text-secondary); margin-bottom:6px; line-height:1.5; padding-left:12px; position:relative;"><span style="position:absolute; left:0; color:var(--neon-purple);">&bull;</span> ${line.substring(2)}</div>`;
+        sectionContent += `<div style="font-size:11px; color:var(--text-secondary); margin-bottom:6px; line-height:1.5; padding-left:12px; position:relative;"><span style="position:absolute; left:0; color:var(--neon-purple);">&bull;</span> ${escapeHtml(line.substring(2))}</div>`;
       } 
       // Normal text
       else {
-        let htmlLine = line
-          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-          .replace(/\*(.*?)\*/g, '<strong>$1</strong>')
-          .replace(/_(.*?)_/g, '<em>$1</em>')
-          .replace(/`([^`]+)`/g, '<code>$1</code>');
+        const htmlLine = formatLimitedRichText(line);
         sectionContent += `<div class="msg-text">${htmlLine}</div>`;
       }
     }
@@ -949,7 +769,7 @@ function appendMessageElement(message) {
       if (html.includes('class="dash-agent-analysis"')) {
         // Real Qwen analysis result - show in static panel
         if (message.text && message.text.includes("MARKET SUMMARY")) {
-          const bentoHtml = typeof buildBentoGrid === "function" ? buildBentoGrid(message.text) : html;
+          const bentoHtml = buildMarketSummaryHtml(message.text);
           staticContent.style.overflowY = "auto";
           staticContent.innerHTML = bentoHtml;
           // Store the report HTML globally so openFullReportModal() can access it
@@ -1559,7 +1379,7 @@ function syncRateLimit(data = {}) {
 
 function isQwenCommand(commandText) {
   const lower = String(commandText || "").trim().toLowerCase();
-  const QWEN_COMMANDS = ["/analyze", "/analyzebest", "/analyzeall", "/analyzequeue", "/eventmarket", "/eventbest", "/eventall"];
+  const QWEN_COMMANDS = ["/analyze", "/shortanalyze", "/analyzebest", "/analyzeall", "/analyzequeue", "/eventmarket", "/eventbest", "/eventall"];
   const [cmdName, ...args] = lower.split(/\s+/);
   return QWEN_COMMANDS.includes(cmdName) && args.length > 0;
 }
@@ -1674,24 +1494,6 @@ async function executeCommand(commandText, isBackground = false) {
       setCooldown(ms, isQwen);
     }
   }
-}
-
-/* --- Run button: build command from selected action + input --- */
-function runFromInput() {
-  const text = commandInput.value.trim();
-  if (!text) {
-    commandInput.focus();
-    return;
-  }
-
-  // If it's already a slash command, send directly
-  if (text.startsWith("/")) {
-    executeCommand(text);
-    return;
-  }
-
-  const command = buildCommand(selectedAction, text);
-  executeCommand(command);
 }
 
 /* --- Real-Time WS Status Polling --- */
@@ -1917,58 +1719,12 @@ if (qwenStatus) {
   });
 }
 
-// Run button
-runButton.addEventListener("click", () => {
-  if (busy) { cancelActiveRequest(); return; }
-  runFromInput();
-});
-
-// Clear button
-clearButton.addEventListener("click", clearAll);
-
-// Ctrl+Enter to run
-commandInput.addEventListener("keydown", (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-    event.preventDefault();
-    runFromInput();
-  }
-});
-
-// Input change detection
-commandInput.addEventListener("input", updateInputDetection);
-commandInput.addEventListener("paste", () => {
-  // Delay to let paste complete
-  setTimeout(updateInputDetection, 50);
-});
-
 // Discover chips (no input needed, run immediately)
 document.querySelectorAll("[data-command]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const command = btn.dataset.command;
     if (command) {
       executeCommand(command);
-    }
-  });
-});
-
-// Smart action buttons (set selected action, then optionally run)
-[btnAnalyze, btnSearch, btnBook, btnQuickscan, btnTop3, btnAnalyzeBest, btnAnalyzeAll].forEach(btn => {
-  if (!btn) return;
-  btn.addEventListener("click", () => {
-    const action = btn.dataset.action;
-    if (!action) return;
-
-    // Set as selected action
-    selectedAction = action;
-
-    // Update visual selection
-    document.querySelectorAll("[data-action]").forEach(b => b.classList.remove("selected"));
-    btn.classList.add("selected");
-
-    // Hanya select action, jangan otomatis jalan biar user bisa teken RUN
-    const text = commandInput.value.trim();
-    if (!text) {
-      commandInput.focus();
     }
   });
 });
@@ -2045,32 +1801,443 @@ if (menuBtnX) {
   menuBtnX.addEventListener("click", () => showPanel('x'));
 }
 
-
-
-
-/* --- Short Market Logic --- */
-const btnShortMarket = document.querySelector("#btnShortMarket");
+/* --- Short Market Events (sidebar) --- */
 const shortMarketPanel = document.querySelector("#shortMarketPanel");
 const btnRefreshShortMarket = document.querySelector("#btnRefreshShortMarket");
-const btnBulkAddQueue = document.querySelector("#btnBulkAddQueue");
-const bulkAddDropdown = document.querySelector("#bulkAddDropdown");
-const btnConfirmBulkAdd = document.querySelector("#btnConfirmBulkAdd");
-const inputBulkCount = document.querySelector("#inputBulkCount");
-const selectBulkStart = document.querySelector("#selectBulkStart");
-const btnCheckShortCondition = document.querySelector("#btnCheckShortCondition");
 const shortMarketList = document.querySelector("#shortMarketList");
 const shortMarketStatus = document.querySelector("#shortMarketStatus");
 
 const tabAssetBtc = document.querySelector("#tabAssetBtc");
 const tabAssetEth = document.querySelector("#tabAssetEth");
 const tabAssetDoge = document.querySelector("#tabAssetDoge");
-const shortDurationSelect = document.querySelector("#shortDurationSelect");
 
 let shortMarketTimer = null;
 let shortMarketRealtimeInterval = null;
 let currentShortMarkets = [];
 let activeShortAsset = 'btc';
 let activeShortDuration = '5m';
+
+function updateActiveAssetTab() {
+  if (tabAssetBtc) {
+    tabAssetBtc.style.color = activeShortAsset === 'btc' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+    tabAssetBtc.style.background = activeShortAsset === 'btc' ? 'rgba(245,158,11,0.1)' : 'transparent';
+  }
+  if (tabAssetEth) {
+    tabAssetEth.style.color = activeShortAsset === 'eth' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+    tabAssetEth.style.background = activeShortAsset === 'eth' ? 'rgba(245,158,11,0.1)' : 'transparent';
+  }
+  if (tabAssetDoge) {
+    tabAssetDoge.style.color = activeShortAsset === 'doge' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
+    tabAssetDoge.style.background = activeShortAsset === 'doge' ? 'rgba(245,158,11,0.1)' : 'transparent';
+  }
+}
+
+function updateActiveDurationTab() {
+  const tabs = {
+    '5m': document.getElementById('tabDuration5m'),
+    '15m': document.getElementById('tabDuration15m'),
+    '1h': document.getElementById('tabDuration1h'),
+    '4h': document.getElementById('tabDuration4h'),
+    '1d': document.getElementById('tabDuration1d')
+  };
+
+  Object.keys(tabs).forEach(dur => {
+    const tab = tabs[dur];
+    if (!tab) return;
+    if (dur === activeShortDuration) {
+      tab.style.color = '#ccc';
+      tab.style.background = 'rgba(255,255,255,0.05)';
+    } else {
+      tab.style.color = '#555';
+      tab.style.background = 'transparent';
+    }
+  });
+}
+
+// Auto-load short markets on page start
+(function initShortMarket() {
+  activeShortAsset = "btc";
+  activeShortDuration = "5m";
+  updateActiveAssetTab();
+  updateActiveDurationTab();
+  fetchShortMarkets();
+  startShortRealtimeTimer();
+})();
+
+if (tabAssetBtc) tabAssetBtc.addEventListener("click", () => { activeShortAsset = 'btc'; updateActiveAssetTab(); fetchShortMarkets(); });
+if (tabAssetEth) tabAssetEth.addEventListener("click", () => { activeShortAsset = 'eth'; updateActiveAssetTab(); fetchShortMarkets(); });
+if (tabAssetDoge) tabAssetDoge.addEventListener("click", () => { activeShortAsset = 'doge'; updateActiveAssetTab(); fetchShortMarkets(); });
+
+const setDurationTab = (dur) => {
+  activeShortDuration = dur;
+  updateActiveDurationTab();
+  renderShortMarkets(currentShortMarkets);
+};
+const t5 = document.getElementById('tabDuration5m');
+if (t5) t5.addEventListener("click", () => setDurationTab('5m'));
+const t15 = document.getElementById('tabDuration15m');
+if (t15) t15.addEventListener("click", () => setDurationTab('15m'));
+const t1h = document.getElementById('tabDuration1h');
+if (t1h) t1h.addEventListener("click", () => setDurationTab('1h'));
+const t4h = document.getElementById('tabDuration4h');
+if (t4h) t4h.addEventListener("click", () => setDurationTab('4h'));
+const t1d = document.getElementById('tabDuration1d');
+if (t1d) t1d.addEventListener("click", () => setDurationTab('1d'));
+
+if (btnRefreshShortMarket) {
+  btnRefreshShortMarket.addEventListener("click", () => {
+    fetchShortMarkets();
+  });
+}
+
+async function fetchShortMarkets() {
+  if (shortMarketStatus) shortMarketStatus.textContent = "Updating...";
+  try {
+    const res = await fetch(`/api/short-term?asset=${activeShortAsset}`);
+    const data = await res.json();
+    if (data.ok) {
+      currentShortMarkets = data.markets || [];
+      renderShortMarkets(currentShortMarkets);
+      if (shortMarketStatus) {
+        const now = new Date();
+        shortMarketStatus.textContent = `Last update: ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+      }
+    } else {
+      if (shortMarketStatus) shortMarketStatus.textContent = "Error updating";
+    }
+  } catch (error) {
+    console.error("Failed to fetch short markets:", error);
+    if (shortMarketStatus) shortMarketStatus.textContent = "Network error";
+    if (shortMarketList) {
+      shortMarketList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--neon-red);"><i data-lucide="wifi-off" style="width:24px; height:24px; margin-bottom:8px;"></i><br><b>Gagal memuat data.</b><br><br><span style="font-size:10px; color:var(--text-tertiary);">Error: ${error.message}<br>Kemungkinan penyebab:<br>1. Jaringan terputus<br>2. Server backend mati/restart<br>3. Blocked by browser extension</span></div>`;
+      if (window.lucide) window.lucide.createIcons();
+    }
+  }
+
+  // Auto refresh panel every 60 seconds (SSE handles live prices)
+  if (shortMarketTimer) clearTimeout(shortMarketTimer);
+  shortMarketTimer = setTimeout(fetchShortMarkets, 60000);
+}
+
+const queueBtnStyle = document.createElement('style');
+queueBtnStyle.textContent = `
+  body:not(.queue-open) .btn-add-to-queue { display: none !important; }
+  body.queue-open .btn-add-to-queue { display: flex !important; }
+`;
+document.head.appendChild(queueBtnStyle);
+
+window.handleDragStart = function(event, element) {
+  const id = element.getAttribute("data-id");
+  const url = element.getAttribute("data-url");
+  const question = element.getAttribute("data-question");
+  const endDate = element.getAttribute("data-end-date") || element.querySelector(".short-market-timer")?.getAttribute("data-end-date");
+  const duration_type = element.getAttribute("data-duration-type") || activeShortDuration || "5m";
+  event.dataTransfer.setData("text/plain", JSON.stringify({ id, url, question, endDate, duration_type }));
+  element.style.opacity = "0.5";
+};
+
+window.handleDragEnd = function(event) {
+  event.currentTarget.style.opacity = "1";
+};
+
+window.addCardToQueue = function(card) {
+  if (!card) return;
+  const id = card.getAttribute("data-id");
+  const url = card.getAttribute("data-url");
+  const question = card.getAttribute("data-question");
+  const endDate = card.getAttribute("data-end-date") || card.querySelector(".short-market-timer")?.getAttribute("data-end-date");
+  const duration_type = card.getAttribute("data-duration-type") || activeShortDuration || "5m";
+  if (id) addToQueue({ id, url, question, endDate, duration_type });
+};
+
+// Bulk Add Dropdown & Selection Panel Logic
+function populateBulkStartOptions() {
+  const customBulkStartOptions = document.querySelector("#customBulkStartOptions");
+  if (!customBulkStartOptions || !shortMarketList) return;
+  const cards = Array.from(shortMarketList.querySelectorAll(".btc5m-card"));
+  const activeCards = cards.filter(card => {
+    const timerText = card.querySelector(".short-market-timer")?.textContent || "";
+    return !timerText.includes("Closed") && !timerText.includes("Won:");
+  });
+
+  if (!activeCards.length) {
+    customBulkStartOptions.innerHTML = `<div style="padding:6px 8px; font-size:10px; color:var(--text-tertiary);">Tidak ada market aktif</div>`;
+    return;
+  }
+
+  customBulkStartOptions.innerHTML = activeCards.map((card, idx) => {
+    const title = (card.getAttribute("data-question") || card.querySelector("span")?.textContent || `Market ${idx + 1}`).trim();
+    const timeText = card.querySelector(".short-market-timer")?.textContent || "";
+    return `<div class="bulk-start-item" data-index="${idx}" style="padding:6px 8px; font-size:10px; cursor:pointer; color:var(--text-primary); border-bottom:1px solid rgba(255,255,255,0.03); display:flex; justify-content:space-between; align-items:center;" onmouseover="this.style.background='rgba(245,158,11,0.2)'" onmouseout="this.style.background='transparent'" onclick="selectBulkStartItem(${idx}, '${title.replace(/'/g, "\\'")}')">
+      <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px;">${idx + 1}. ${escapePulseHtml(title)}</span>
+      <span style="font-size:9px; color:var(--neon-green); font-weight:bold;">${escapePulseHtml(timeText)}</span>
+    </div>`;
+  }).join("");
+}
+
+window.selectBulkStartItem = function(index, title) {
+  const selectBulkStart = document.querySelector("#selectBulkStart");
+  const customBulkStartText = document.querySelector("#customBulkStartText");
+  const customBulkStartOptions = document.querySelector("#customBulkStartOptions");
+  if (selectBulkStart) selectBulkStart.value = index;
+  if (customBulkStartText) customBulkStartText.textContent = `${index + 1}. ${title}`;
+  if (customBulkStartOptions) customBulkStartOptions.style.display = "none";
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+  const btnBulkAddShort = document.querySelector("#btnBulkAddShort");
+  const bulkAddDropdown = document.querySelector("#bulkAddDropdown");
+  const customBulkStartDisplay = document.querySelector("#customBulkStartDisplay");
+  const customBulkStartText = document.querySelector("#customBulkStartText");
+  const customBulkStartOptions = document.querySelector("#customBulkStartOptions");
+  const selectBulkStart = document.querySelector("#selectBulkStart");
+  const inputBulkCount = document.querySelector("#inputBulkCount");
+  const btnConfirmBulkAdd = document.querySelector("#btnConfirmBulkAdd");
+
+  if (btnBulkAddShort && bulkAddDropdown) {
+    btnBulkAddShort.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isVisible = bulkAddDropdown.style.display === "flex" || bulkAddDropdown.style.display === "block";
+      if (!isVisible) {
+        populateBulkStartOptions();
+        const firstItem = customBulkStartOptions?.querySelector(".bulk-start-item");
+        if (firstItem) {
+          firstItem.click();
+        } else {
+          if (customBulkStartText) customBulkStartText.textContent = "Pilih market...";
+          if (selectBulkStart) selectBulkStart.value = "0";
+        }
+        bulkAddDropdown.style.display = "flex";
+      } else {
+        bulkAddDropdown.style.display = "none";
+      }
+    });
+
+    document.addEventListener("click", (e) => {
+      if (bulkAddDropdown.style.display !== "none" && !bulkAddDropdown.contains(e.target) && e.target !== btnBulkAddShort && !btnBulkAddShort.contains(e.target)) {
+        bulkAddDropdown.style.display = "none";
+      }
+    });
+  }
+
+  if (customBulkStartDisplay && customBulkStartOptions) {
+    customBulkStartDisplay.addEventListener("click", (e) => {
+      e.stopPropagation();
+      customBulkStartOptions.style.display = customBulkStartOptions.style.display === "flex" || customBulkStartOptions.style.display === "block" ? "none" : "flex";
+    });
+  }
+
+  if (btnConfirmBulkAdd) {
+    btnConfirmBulkAdd.addEventListener("click", () => {
+      if (!shortMarketList) return;
+      const cards = Array.from(shortMarketList.querySelectorAll(".btc5m-card"));
+      const activeCards = cards.filter(card => {
+        const timerText = card.querySelector(".short-market-timer")?.textContent || "";
+        return !timerText.includes("Closed") && !timerText.includes("Won:");
+      });
+
+      if (!activeCards.length) {
+        showCustomAlert("Tidak ada market aktif untuk ditambahkan.");
+        if (bulkAddDropdown) bulkAddDropdown.style.display = "none";
+        return;
+      }
+
+      const startIndex = parseInt(selectBulkStart?.value || "0", 10) || 0;
+      const countVal = inputBulkCount?.value || "all";
+      const numToTake = countVal === "all" ? activeCards.length : parseInt(countVal, 10);
+
+      const sliceToTake = activeCards.slice(startIndex, startIndex + numToTake);
+      let addedCount = 0;
+      sliceToTake.forEach(card => {
+        window.addCardToQueue(card);
+        addedCount++;
+      });
+
+      if (bulkAddDropdown) bulkAddDropdown.style.display = "none";
+
+      if (addedCount > 0) {
+        showCustomAlert(`🎯 Bulk Add: ${addedCount} market berhasil dimasukkan ke antrean!`);
+      } else {
+        showCustomAlert("Market yang dipilih sudah ada di antrean.");
+      }
+    });
+  }
+});
+
+function renderShortMarkets(markets) {
+  if (!shortMarketList) return;
+  if (!markets || !markets.length) {
+    shortMarketList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-tertiary);">No active ${activeShortAsset.toUpperCase()} markets found right now.</div>`;
+    return;
+  }
+
+  const renderCard = (m) => {
+    const timeToClose = new Date(m.endDate).getTime() - Date.now();
+
+    let durationLimit = 5 * 60 * 1000;
+    if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
+    else if (activeShortDuration === '1h') durationLimit = 60 * 60 * 1000;
+    else if (activeShortDuration === '4h') durationLimit = 4 * 60 * 60 * 1000;
+    else if (activeShortDuration === '1d') durationLimit = 24 * 60 * 60 * 1000;
+
+    const isFuture = timeToClose > (durationLimit + 30000);
+    const isClosed = timeToClose <= 0;
+    const isLockedOut = !isFuture && !isClosed && timeToClose <= 60 * 1000; // Under 1 min
+    const isClosingSoon = !isFuture && !isClosed && !isLockedOut && timeToClose < 2 * 60 * 1000;
+
+    const pYes = m.outcomePrices[0] ? Math.round(m.outcomePrices[0] * 100) : 0;
+    const pNo = m.outcomePrices[1] ? Math.round(m.outcomePrices[1] * 100) : 0;
+
+    const labelYes = m.outcomes[0] || "Up";
+    const labelNo = m.outcomes[1] || "Down";
+
+    let timeColor = isClosed ? "var(--text-tertiary)" : (isFuture ? "var(--text-tertiary)" : (isLockedOut ? "var(--neon-red)" : (isClosingSoon ? "var(--neon-amber)" : "var(--neon-green)")));
+    let timeText = isClosed ? "Closed" : (isFuture ? "Wait " + Math.floor((timeToClose - durationLimit) / 60000) + "m" : Math.floor(timeToClose / 60000) + "m " + Math.floor((timeToClose % 60000) / 1000) + "s");
+
+    if (isClosed) {
+      if (pYes >= 90) {
+        timeText = `Won: ${labelYes.toUpperCase()} 📈`;
+        timeColor = "var(--neon-green)";
+      } else if (pNo >= 90) {
+        timeText = `Won: ${labelNo.toUpperCase()} 📉`;
+        timeColor = "var(--neon-red)";
+      } else {
+        timeText = "Resolving ⏳";
+        timeColor = "var(--neon-cyan)";
+      }
+    }
+
+    const cardOpacity = (isFuture || isLockedOut) ? "0.5" : "1";
+    const cardCursor = (isFuture || isLockedOut) ? "not-allowed" : "pointer";
+    const cardBg = isFuture ? "rgba(0,0,0,0.3)" : (isLockedOut ? "rgba(220,38,38,0.1)" : "rgba(0,0,0,0.15)");
+    const cardBorder = isFuture ? "rgba(255,255,255,0.02)" : (isLockedOut ? "rgba(220,38,38,0.2)" : "rgba(255,255,255,0.05)");
+    const cardHoverBorder = isFuture ? "rgba(255,255,255,0.1)" : (isLockedOut ? "rgba(220,38,38,0.4)" : "rgba(245,158,11,0.3)");
+    const onClickAttr = isClosed
+      ? `onclick="showCustomAlert('Event sudah ditutup dan tidak dapat dianalisis lagi.')"`
+      : isFuture
+        ? `onclick="showCustomAlert('Market belum aktif. Drag ke antrean (Sniper) untuk dianalisis otomatis nanti.')"`
+        : isLockedOut
+          ? `onclick="showCustomAlert('Waktu tersisa kurang dari 1 menit! Market sudah dikunci (locked out) dan terlalu berisiko untuk dibeli.')"`
+          : `onclick="analyzeShortMarket('${m.id}', '${m.url}')"`;
+    const onDragAttr = (isClosed || isLockedOut)
+      ? `draggable="false"`
+      : `draggable="true" ondragstart="handleDragStart(event, this)" ondragend="handleDragEnd(event)"`;
+
+    const isSnipeBtn = isFuture;
+    const btnClass = isSnipeBtn ? "btn-snipe-market" : "btn-add-to-queue";
+    const btnDisplay = isSnipeBtn ? "flex" : "none";
+    const btnIcon = isSnipeBtn ? "crosshair" : "plus";
+    const btnTitle = isSnipeBtn ? "Snipe Market (Auto-Analyze when active)" : "Add to Queue";
+    const btnColor = isSnipeBtn ? "var(--neon-amber)" : "var(--text-secondary)";
+
+    const addBtnHtml = !isClosed ? `<button class="${btnClass}" style="display:${btnDisplay}; height:20px; width:20px; padding:0; border-radius:4px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:${btnColor}; cursor:pointer; align-items:center; justify-content:center; margin-left:8px; flex-shrink:0; transition:all 0.2s;" onmouseover="this.style.background='rgba(245,158,11,0.2)'; this.style.color='var(--neon-amber)'; this.style.borderColor='rgba(245,158,11,0.5)';" onmouseout="this.style.background='rgba(255,255,255,0.05)'; this.style.color='${btnColor}'; this.style.borderColor='rgba(255,255,255,0.1)';" onclick="event.stopPropagation(); window.addCardToQueue(this.closest('.btc5m-card')); if('${btnClass}' === 'btn-snipe-market') { this.innerHTML='<i data-lucide=&quot;loader&quot; style=&quot;width:12px; height:12px; animation: spin 2s linear infinite;&quot;></i>'; if(typeof lucide !== 'undefined') lucide.createIcons({root:this}); this.style.pointerEvents='none'; this.style.color='var(--neon-green)'; this.style.borderColor='rgba(16,185,129,0.5)'; showCustomAlert('🎯 Market dimasukkan ke antrean Sniper!'); }" title="${btnTitle}"><i data-lucide="${btnIcon}" style="width:12px; height:12px;"></i></button>` : '';
+
+    return `
+      <div class="btc5m-card" ${onDragAttr} data-id="${m.id}" data-url="${m.url}" data-question="${(m.question || '').replace(/"/g, '&quot;')}" data-end-date="${m.endDate || ''}" data-duration-type="${m.duration_type || activeShortDuration || '5m'}" style="padding:8px 10px; border:1px solid ${cardBorder}; border-radius:4px; background:${cardBg}; opacity:${cardOpacity}; cursor:${cardCursor}; transition:all 0.2s;" ${isFuture ? '' : `onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='${cardHoverBorder}';" onmouseout="this.style.background='${cardBg}'; this.style.borderColor='${cardBorder}';"`} ${onClickAttr}>
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px; align-items:flex-start;">
+          <span style="font-weight:600; color:var(--text-primary); font-size:11px; flex:1; min-width:0; word-wrap:break-word;">${(m.groupItemTitle || m.question || '').trim()}</span>
+          <div style="display:flex; align-items:center;">
+            <span class="short-market-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${labelYes}" data-l-no="${labelNo}" data-is-future="${isFuture}" style="color:${timeColor}; font-weight:700; font-size:10px; white-space:nowrap; flex-shrink:0; text-align:right; margin-left:8px;">${timeText}</span>
+            ${addBtnHtml}
+          </div>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="display:flex; gap:8px;">
+            <span style="color:var(--neon-green); font-size:10px;">${labelYes}: ${pYes}c</span>
+            <span style="color:var(--neon-red); font-size:10px;">${labelNo}: ${pNo}c</span>
+          </div>
+        </div>
+      </div>
+    `;
+  };
+
+  let targetMarkets = markets.filter(m => m.duration_type === activeShortDuration);
+
+  // Fallback if the active duration is '5m' but the market doesn't have duration_type explicit
+  if (activeShortDuration === '5m' && targetMarkets.length === 0) {
+     targetMarkets = markets.filter(m => m.duration_type === '5m' || !m.duration_type);
+  }
+
+  let html = "";
+
+  if (targetMarkets.length) {
+    html += targetMarkets.map(renderCard).join("");
+  } else {
+    html = `<div style="text-align:center; padding:20px; color:var(--text-tertiary);">No active ${activeShortAsset.toUpperCase()} ${activeShortDuration} markets right now.</div>`;
+  }
+
+  shortMarketList.innerHTML = html;
+  if (typeof lucide !== 'undefined') lucide.createIcons({ root: shortMarketList });
+}
+
+function startShortRealtimeTimer() {
+  if (shortMarketRealtimeInterval) clearInterval(shortMarketRealtimeInterval);
+  shortMarketRealtimeInterval = setInterval(() => {
+    document.querySelectorAll(".short-market-timer").forEach(el => {
+      const endDate = el.getAttribute("data-end-date");
+      if (!endDate) return;
+
+      const timeToClose = new Date(endDate).getTime() - Date.now();
+
+      let durationLimit = 5 * 60 * 1000;
+      if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
+      else if (activeShortDuration === '1h') durationLimit = 60 * 60 * 1000;
+      else if (activeShortDuration === '4h') durationLimit = 4 * 60 * 60 * 1000;
+      else if (activeShortDuration === '1d') durationLimit = 24 * 60 * 60 * 1000;
+
+      const isFuture = timeToClose > (durationLimit + 30000);
+      const isClosingSoon = timeToClose > 0 && timeToClose < 2 * 60 * 1000 && !isFuture;
+      const isClosed = timeToClose <= 0;
+
+      let timeColor = isClosed ? "var(--text-tertiary)" : (isFuture ? "var(--text-tertiary)" : (isClosingSoon ? "var(--neon-amber)" : "var(--neon-green)"));
+      let timeText = isClosed ? "Closed" : (isFuture ? "Wait " + Math.floor((timeToClose - durationLimit) / 60000) + "m" : Math.floor(timeToClose / 60000) + "m " + Math.floor((timeToClose % 60000) / 1000) + "s");
+
+      if (isClosed) {
+        const pYes = parseInt(el.getAttribute("data-p-yes")) || 0;
+        const pNo = parseInt(el.getAttribute("data-p-no")) || 0;
+        const lYes = el.getAttribute("data-l-yes") || "UP";
+        const lNo = el.getAttribute("data-l-no") || "DOWN";
+
+        if (pYes >= 90) {
+          timeText = `Won: ${lYes.toUpperCase()} 📈`;
+          timeColor = "var(--neon-green)";
+        } else if (pNo >= 90) {
+          timeText = `Won: ${lNo.toUpperCase()} 📉`;
+          timeColor = "var(--neon-red)";
+        } else {
+          timeText = "Resolving ⏳";
+          timeColor = "var(--neon-cyan)";
+        }
+      }
+
+      const prevIsFuture = el.getAttribute("data-is-future") === "true";
+      if (prevIsFuture !== isFuture && currentShortMarkets && currentShortMarkets.length > 0) {
+        // State has changed from future to active!
+        // We must re-render so that buttons and click handlers are updated.
+        renderShortMarkets(currentShortMarkets);
+        return; // Break out of this interval tick since we just re-rendered the whole list
+      }
+
+      el.style.color = timeColor;
+      el.textContent = timeText;
+    });
+  }, 1000);
+}
+
+function stopShortRealtimeTimer() {
+  if (shortMarketRealtimeInterval) {
+    clearInterval(shortMarketRealtimeInterval);
+    shortMarketRealtimeInterval = null;
+  }
+}
+
+window.analyzeShortMarket = function(marketId, url) {
+  if (busy) {
+    showCustomAlert("⚠️ Analisis sedang berjalan. Mohon tunggu sampai selesai, atau masukkan ke antrean (Queue).");
+    return;
+  }
+  executeCommand(`/shortanalyze ${url || marketId}`);
+};
 
 const SNIPER_CONFIG_VERSION = 3;
 
@@ -2127,86 +2294,6 @@ function formatSniperCountdown(totalSeconds) {
   const remainder = seconds % 60;
   if (hours > 0) return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
   return `${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}`;
-}
-
-function updateActiveAssetTab() {
-  if (tabAssetBtc) {
-    tabAssetBtc.style.color = activeShortAsset === 'btc' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
-    tabAssetBtc.style.background = activeShortAsset === 'btc' ? 'rgba(245,158,11,0.1)' : 'transparent';
-  }
-  if (tabAssetEth) {
-    tabAssetEth.style.color = activeShortAsset === 'eth' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
-    tabAssetEth.style.background = activeShortAsset === 'eth' ? 'rgba(245,158,11,0.1)' : 'transparent';
-  }
-  if (tabAssetDoge) {
-    tabAssetDoge.style.color = activeShortAsset === 'doge' ? 'var(--neon-amber)' : 'var(--text-tertiary)';
-    tabAssetDoge.style.background = activeShortAsset === 'doge' ? 'rgba(245,158,11,0.1)' : 'transparent';
-  }
-}
-
-function updateActiveDurationTab() {
-  const tabs = {
-    '5m': document.getElementById('tabDuration5m'),
-    '15m': document.getElementById('tabDuration15m'),
-    '1h': document.getElementById('tabDuration1h'),
-    '4h': document.getElementById('tabDuration4h'),
-    '1d': document.getElementById('tabDuration1d')
-  };
-  
-  Object.keys(tabs).forEach(dur => {
-    const tab = tabs[dur];
-    if (!tab) return;
-    if (dur === activeShortDuration) {
-      tab.style.color = '#ccc';
-      tab.style.background = 'rgba(255,255,255,0.05)';
-    } else {
-      tab.style.color = '#555';
-      tab.style.background = 'transparent';
-    }
-  });
-}
-
-// Short Market Panel is a permanent sidebar widget - auto-load on startup
-if (btnShortMarket) {
-  btnShortMarket.addEventListener("click", (e) => {
-    e.stopPropagation();
-    // Button just refreshes the data
-    fetchShortMarkets();
-    startShortRealtimeTimer();
-  });
-}
-
-// Auto-load short markets on page start
-(function initShortMarket() {
-  activeShortAsset = "btc";
-  activeShortDuration = "5m";
-  updateActiveAssetTab();
-  updateActiveDurationTab();
-  fetchShortMarkets();
-  startShortRealtimeTimer();
-})();
-
-
-if (btnCheckShortCondition) {
-  btnCheckShortCondition.addEventListener("click", (e) => {
-    e.stopPropagation();
-    
-    // Pass live BTC price from websocket if available
-    const liveBTC = document.querySelector("#priceBTC")?.textContent.replace(/[^0-9.]/g, '');
-    if (liveBTC && liveBTC !== "") {
-      commandInput.value = `/shortcondition ${liveBTC}`;
-    } else {
-      commandInput.value = "/shortcondition";
-    }
-    
-    runButton.click();
-    
-    // Optionally close the panel
-    if (shortMarketPanel) {
-      shortMarketPanel.style.display = "none";
-      stopShortRealtimeTimer();
-    }
-  });
 }
 
 /* --- Queue Panel Logic --- */
@@ -2291,6 +2378,17 @@ if (queuePanel && queuePanelHeader) {
   let offsetX, offsetY;
 
   queuePanelHeader.addEventListener("mousedown", (e) => {
+    // Stop dragging if clicking interactive control elements inside header (e.g. trash icon, buttons)
+    if (e.target.closest("button, input, select, a, [role='button']")) return;
+    
+    // If panel is docked inside execution rail, do not allow drag offset calculations that fling it off-screen
+    if (queuePanel.closest("#executionRail")) {
+      queuePanel.style.left = "";
+      queuePanel.style.top = "";
+      queuePanel.style.right = "";
+      return;
+    }
+
     isDragging = true;
     offsetX = e.clientX - queuePanel.getBoundingClientRect().left;
     offsetY = e.clientY - queuePanel.getBoundingClientRect().top;
@@ -2300,9 +2398,14 @@ if (queuePanel && queuePanelHeader) {
 
   document.addEventListener("mousemove", (e) => {
     if (!isDragging) return;
+    if (queuePanel.closest("#executionRail")) {
+      isDragging = false;
+      queuePanel.style.left = "";
+      queuePanel.style.top = "";
+      queuePanel.style.right = "";
+      return;
+    }
     
-    // Karena panel berada di dalam container dengan position: relative, 
-    // koordinat clientX/Y harus dikurangi dengan posisi offsetParent.
     let parentLeft = 0;
     let parentTop = 0;
     if (queuePanel.offsetParent) {
@@ -2311,8 +2414,10 @@ if (queuePanel && queuePanelHeader) {
       parentTop = parentRect.top;
     }
 
-    queuePanel.style.left = `${e.clientX - parentLeft - offsetX}px`;
-    queuePanel.style.top = `${e.clientY - parentTop - offsetY}px`;
+    const calculatedLeft = e.clientX - parentLeft - offsetX;
+    const calculatedTop = e.clientY - parentTop - offsetY;
+    queuePanel.style.left = `${Math.max(0, calculatedLeft)}px`;
+    queuePanel.style.top = `${Math.max(0, calculatedTop)}px`;
     queuePanel.style.right = "auto";
   });
 
@@ -2324,6 +2429,7 @@ if (queuePanel && queuePanelHeader) {
     }
   });
 }
+
 
 // Resizable Panel (Bottom-Left)
 
@@ -2383,18 +2489,6 @@ if (queuePanel && queueResizeHandleSW) {
   });
 }
 
-window.handleDragStart = function(event, element) {
-  const id = element.getAttribute("data-id");
-  const url = element.getAttribute("data-url");
-  const question = element.getAttribute("data-question");
-  event.dataTransfer.setData("text/plain", JSON.stringify({ id, url, question }));
-  element.style.opacity = "0.5";
-};
-
-window.handleDragEnd = function(event) {
-  event.currentTarget.style.opacity = "1";
-};
-
 if (queueDropzone) {
   queueDropzone.addEventListener("dragover", (event) => {
     event.preventDefault();
@@ -2425,28 +2519,201 @@ function addToQueue(marketData) {
     return;
   }
   
-  // Ambil data market penuh dari list kalau ada, supaya bisa render jam
-  const fullMarket = currentShortMarkets.find(m => m.id === marketData.id);
-  const queueItem = fullMarket || marketData;
-  
-  analysisQueue.push(queueItem);
+  analysisQueue.push(marketData);
   renderQueue();
 }
 
-window.addCardToQueue = function(card) {
-  if (!card) return;
-  const id = card.getAttribute("data-id");
-  const url = card.getAttribute("data-url");
-  const question = card.getAttribute("data-question");
-  if (id) addToQueue({ id, url, question });
-};
+window.addToQueue = addToQueue;
+
+function hasScannerNumber(value) {
+  return value != null && value !== "" && Number.isFinite(Number(value));
+}
+
+function formatScannerPrice(value) {
+  return hasScannerNumber(value) ? `$${Number(value).toFixed(2)}` : "-";
+}
+
+function formatScannerPercent(value) {
+  return hasScannerNumber(value) ? `${Number(value).toFixed(1)}%` : "-";
+}
+
+function formatScannerCents(value) {
+  if (!hasScannerNumber(value)) return "-";
+  const number = Number(value);
+  return `${number >= 0 ? "+" : ""}${number.toFixed(1)}c`;
+}
+
+function scannerGateMessages(result) {
+  const messages = (result?.failedGates || [])
+    .map(failure => failure?.message)
+    .filter(Boolean);
+  if (messages.length === 0 && result?.reason) messages.push(result.reason);
+  return messages;
+}
+
+function scannerObservationText(result) {
+  const observed = result?.outcome === "ENTRY" ? result.issuedSignal || result.bestObserved : result?.bestObserved;
+  if (!observed) return "No complete observation";
+  return `${observed.direction} | Fair ${formatScannerPercent(observed.fairProbability)} | Ask ${formatScannerPrice(observed.ask)} | Gross EV ${formatScannerCents(observed.grossEvCents)} | Net EV ${formatScannerCents(observed.netEvCents)}`;
+}
+
+function scannerDirectionLabel(direction) {
+  return direction === "UP" || direction === "DOWN" ? direction : "NO SIGNAL";
+}
+
+function historyPredictionLabel(prediction) {
+  const value = String(prediction || "").trim().toUpperCase();
+  return ["=", "SKIP", "NETRAL", "NEUTRAL", "WATCHLIST"].includes(value) ? "NO SIGNAL" : value || "-";
+}
+
+function historyResultLabel(result) {
+  const value = String(result || "").trim().toUpperCase();
+  return ["NETRAL", "NEUTRAL"].includes(value) ? "NO ENTRY" : value || "-";
+}
+
+function scannerResultReportLines(item, result) {
+  const gates = scannerGateMessages(result);
+  return [
+    `- ${item.groupItemTitle || item.question || item.id || "Unknown market"}`,
+    `  Outcome: ${result.outcome || "INCOMPLETE"}`,
+    `  Diagnostic lean: ${scannerDirectionLabel(result.diagnosticLean)}`,
+    `  Entries issued / best observed: ${scannerObservationText(result)}`,
+    `  Confirmations: ${result.maxConfirmationCount}/${result.requiredConfirmations}`,
+    `  Data: ${result.dataStatus}`,
+    `  Gates: ${gates.length ? gates.join(" | ") : "None"}`,
+  ];
+}
+
+function scannerOutcomeClass(outcome) {
+  if (outcome === "ENTRY") return "is-entry";
+  if (outcome === "NO_CHASE") return "is-no-chase";
+  return "is-no-entry";
+}
+
+function buildDynamicScannerResultHtml(item) {
+  const result = normalizeEntryScannerResult(item?.entryScanner);
+  const observed = result.bestObserved;
+  const gates = scannerGateMessages(result);
+  const question = escapePulseHtml(item?.groupItemTitle || item?.question || item?.id || "Unknown market");
+  const outcome = escapePulseHtml(result.outcome || "INCOMPLETE");
+  const lean = escapePulseHtml(scannerDirectionLabel(result.diagnosticLean));
+  const observedDirection = escapePulseHtml(observed?.direction || "-");
+  const dataStatus = escapePulseHtml(result.dataStatus);
+  const gateHtml = gates.length
+    ? gates.map(message => `<li>${escapePulseHtml(message)}</li>`).join("")
+    : "<li>None</li>";
+
+  return `
+    <article class="dynamic-ev-result ${scannerOutcomeClass(result.outcome)}">
+      <div class="dynamic-ev-result-head">
+        <div>
+          <span class="dynamic-ev-kicker">DETERMINISTIC DYNAMIC EV</span>
+          <h3>${question}</h3>
+        </div>
+        <span class="dynamic-ev-outcome">${outcome}</span>
+      </div>
+      <div class="dynamic-ev-grid">
+        <div><span>Diagnostic Lean</span><strong>${lean}</strong></div>
+        <div><span>Best Observed</span><strong>${observedDirection}</strong></div>
+        <div><span>Fair</span><strong>${formatScannerPercent(observed?.fairProbability)}</strong></div>
+        <div><span>Ask</span><strong>${formatScannerPrice(observed?.ask)}</strong></div>
+        <div><span>Gross EV</span><strong>${formatScannerCents(observed?.grossEvCents)}</strong></div>
+        <div><span>Net EV</span><strong>${formatScannerCents(observed?.netEvCents)}</strong></div>
+        <div><span>Confirmations</span><strong>${result.maxConfirmationCount}/${result.requiredConfirmations}</strong></div>
+        <div><span>Data</span><strong>${dataStatus}</strong></div>
+      </div>
+      <div class="dynamic-ev-gates"><span>Exact Gates</span><ul>${gateHtml}</ul></div>
+      <div class="dynamic-ev-manual">${result.outcome === "ENTRY" ? "MANUAL ENTRY ONLY" : "NO TRADE"}</div>
+    </article>`;
+}
+
+function populateStaticScannerContent(html) {
+  const panel = document.getElementById("staticResultPanel");
+  const content = document.getElementById("staticResultContent");
+  if (!panel || !content) return;
+  marketSummaryClosed = false;
+  panel.classList.remove("hidden");
+  content.style.overflowY = "auto";
+  content.innerHTML = html;
+}
+
+function showDynamicScannerResult(item) {
+  populateStaticScannerContent(`
+    <div class="dynamic-ev-static-head">
+      <span>Dynamic EV Result</span>
+      <button type="button" onclick="closeStaticPanel()" aria-label="Close Dynamic EV result"><i data-lucide="x"></i></button>
+    </div>
+    ${buildDynamicScannerResultHtml(item)}`);
+  const content = document.getElementById("staticResultContent");
+  if (window.lucide && content) window.lucide.createIcons({ root: content });
+}
+
+function showDynamicScannerSessionSummary() {
+  const summary = summarizeEntryScannerSession(analysisQueue);
+  const completedItems = analysisQueue.filter(item => normalizeEntryScannerResult(item?.entryScanner).completed);
+  populateStaticScannerContent(`
+    <div class="dynamic-ev-static-head">
+      <span>Dynamic EV Session Summary</span>
+      <button type="button" onclick="closeStaticPanel()" aria-label="Close Dynamic EV session summary"><i data-lucide="x"></i></button>
+    </div>
+    <div class="dynamic-ev-summary-counts">
+      <div><span>Completed</span><strong>${summary.completed}</strong></div>
+      <div><span>Entries Issued</span><strong>${summary.entries}</strong></div>
+      <div><span>No Entry</span><strong>${summary.noEntry}</strong></div>
+      <div><span>No Chase</span><strong>${summary.noChase}</strong></div>
+      <div><span>Lean Up</span><strong>${summary.up}</strong></div>
+      <div><span>Lean Down</span><strong>${summary.down}</strong></div>
+    </div>
+    <div class="dynamic-ev-session-results">${completedItems.map(buildDynamicScannerResultHtml).join("")}</div>`);
+  const content = document.getElementById("staticResultContent");
+  if (window.lucide && content) window.lucide.createIcons({ root: content });
+}
+
+function showDynamicScannerTransition(item, previousStatus) {
+  const result = normalizeEntryScannerResult(item?.entryScanner);
+  if (result.completed && item.entryScanner?.status !== previousStatus) showDynamicScannerResult(item);
+}
+
+function getMarketEndDate(m) {
+  const dateVal = m.endDate || m.end_date_iso || m.endDateIso || m.end_date;
+  if (dateVal) {
+    const t = new Date(dateVal).getTime();
+    if (!isNaN(t)) return t;
+  }
+  const text = (m.question || m.title || "").toString();
+  const match = text.match(/(\d{1,2}):(\d{2})\s*(am|pm)?\s*-\s*(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+  if (match) {
+    let endHour = parseInt(match[4], 10);
+    const endMin = parseInt(match[5], 10);
+    const ampm = (match[6] || match[3] || "").toUpperCase();
+    if (ampm === "PM" && endHour < 12) endHour += 12;
+    if (ampm === "AM" && endHour === 12) endHour = 0;
+    
+    const now = new Date();
+    const endUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), endHour, endMin, 0));
+    
+    let diffMs = endUtc.getTime() - now.getTime();
+    if (diffMs < -12 * 3600 * 1000) {
+      endUtc.setUTCDate(endUtc.getUTCDate() + 1);
+    } else if (diffMs > 12 * 3600 * 1000) {
+      endUtc.setUTCDate(endUtc.getUTCDate() - 1);
+    }
+    return endUtc.getTime();
+  }
+  return null;
+}
 
 function renderQueue() {
   if (!queueDropzone || !queueEmpty) return;
 
+  if (btnRunQueue) {
+    btnRunQueue.disabled = analysisQueue.length === 0;
+    btnRunQueue.setAttribute("aria-disabled", String(btnRunQueue.disabled));
+  }
+
   renderEntrySignalPanel();
   const completed = analysisQueue.filter(m => isDynamicEntryItem(m)
-    ? dynamicEntryItemFinished(m)
+    ? normalizeEntryScannerResult(m.entryScanner).completed
     : m.analysisCompleted || m.isFailed || m.isTooLate).length;
   const queueProgressText = document.querySelector("#queueProgressText");
   const queuePanelContent = document.querySelector("#queuePanelContent");
@@ -2475,46 +2742,62 @@ function renderQueue() {
   queueEmpty.style.display = "none";
   let html = "";
   analysisQueue.forEach((m, index) => {
-    const targetLabel = formatSniperCountdown(sniperTriggerSeconds(m.duration_type));
+    const targetSec = sniperTriggerSeconds(m.duration_type);
+    const targetLabel = formatSniperCountdown(targetSec);
     const firedLabel = Number.isFinite(m.snipeFiredAtRemainingSeconds)
       ? formatSniperCountdown(m.snipeFiredAtRemainingSeconds)
       : null;
+    
+    let timeToCloseMs = 0;
+    let timeToCloseSec = 0;
     let timeHtml = "";
-    if (m.endDate) {
-      const timeToClose = new Date(m.endDate).getTime() - Date.now();
-      const isClosingSoon = timeToClose > 0 && timeToClose < 2 * 60 * 1000;
-      const isClosed = timeToClose <= 0;
+    const endMs = getMarketEndDate(m);
+    if (endMs) {
+      timeToCloseMs = endMs - Date.now();
+      timeToCloseSec = Math.max(0, Math.floor(timeToCloseMs / 1000));
+      const isClosingSoon = timeToCloseMs > 0 && timeToCloseMs < 2 * 60 * 1000;
+      const isClosed = timeToCloseMs <= 0;
       let timeColor = isClosed ? "var(--text-tertiary)" : (isClosingSoon ? "var(--neon-amber)" : "var(--neon-green)");
-      let timeText = isClosed ? "Closed" : Math.floor(timeToClose / 60000) + "m " + Math.floor((timeToClose % 60000) / 1000) + "s";
+      let timeText = isClosed ? "Closed" : formatSniperCountdown(timeToCloseSec);
       
       const pYes = m.outcomePrices && m.outcomePrices[0] ? Math.round(m.outcomePrices[0] * 100) : 0;
       const pNo = m.outcomePrices && m.outcomePrices[1] ? Math.round(m.outcomePrices[1] * 100) : 0;
       const lYes = m.outcomes && m.outcomes[0] ? m.outcomes[0] : "UP";
       const lNo = m.outcomes && m.outcomes[1] ? m.outcomes[1] : "DOWN";
 
-      timeHtml = `<span class="btc5m-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${lYes}" data-l-no="${lNo}" style="color:${timeColor}; font-weight:bold; font-size:9px; margin-left:8px; flex-shrink:0;">${timeText}</span>`;
+      timeHtml = `<span class="btc5m-timer" data-end-date="${escapePulseHtml(m.endDate || new Date(endMs).toISOString())}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${escapePulseHtml(lYes)}" data-l-no="${escapePulseHtml(lNo)}" style="color:${timeColor}; font-weight:bold; font-size:9px; margin-left:8px; flex-shrink:0;">${timeText}</span>`;
     }
 
     let sniperStatus = "";
     let evMetrics = "";
+    let dynamicDetails = "";
     if (isDynamicEntryItem(m)) {
-      const state = m.entryScanner || { status: "waiting", confirmationCount: 0 };
+      const state = m.entryScanner || { status: "waiting", confirmationCount: 0, requiredConfirmations: currentEntryScannerConfig().confirmations };
+      const result = normalizeEntryScannerResult(state);
       const statusStyles = {
-        waiting: [isSniperActive ? "WAITING 04→02" : "WINDOW 04→02", "var(--text-tertiary)"],
+        waiting: [isSniperActive ? "WAITING 05→02:30" : "WINDOW 05→02:30", "var(--text-tertiary)"],
         watching: [state.degraded ? "WATCH DEGRADED" : "WATCHING", "var(--neon-cyan)"],
-        candidate: [`CAND ${state.candidateDirection} ${state.confirmationCount}/${currentEntryScannerConfig().confirmations}`, "var(--neon-amber)"],
+        candidate: [`CAND ${state.candidateDirection} ${state.confirmationCount}/${result.requiredConfirmations}`, "var(--neon-amber)"],
         entry: [`ENTRY ${state.signal?.direction || ""}`, "var(--neon-green)"],
         no_chase: ["NO CHASE", "var(--neon-red)"],
-        skipped: ["SKIP NO EDGE", "var(--text-tertiary)"],
+        skipped: ["NO ENTRY", "var(--text-tertiary)"],
       };
       const [label, color] = statusStyles[state.status] || statusStyles.waiting;
-      sniperStatus = `<span title="${state.reason || label}" style="color:${color}; font-size:9px; border:1px solid ${color}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; font-weight:700;">${label}</span>`;
-      const latestDirection = state.latestSnapshot?.forecastDirection;
-      const latestSide = latestDirection ? state.latestSnapshot?.sides?.[latestDirection] : null;
-      const side = state.candidate || state.signal || (latestSide ? { ...latestSide, direction: latestDirection } : null);
-      if (side && [side.ask, side.fairProbability, side.netEvCents].every(value => Number.isFinite(Number(value)))) {
-        evMetrics = `<span style="color:var(--text-tertiary); font:700 8px 'JetBrains Mono',monospace; margin-left:5px; white-space:nowrap;">$${Number(side.ask).toFixed(2)} · ${Number(side.fairProbability).toFixed(0)}% · <b style="color:${Number(side.netEvCents) >= 8 ? 'var(--neon-green)' : 'var(--neon-amber)'}">${Number(side.netEvCents) >= 0 ? '+' : ''}${Number(side.netEvCents).toFixed(1)}c</b></span>`;
-      }
+      sniperStatus = `<span title="${escapePulseHtml(result.reason || label)}" style="color:${color}; font-size:9px; border:1px solid ${color}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; font-weight:700;">${escapePulseHtml(label)}</span>`;
+      evMetrics = `<span class="dynamic-queue-lean">DIAGNOSTIC ${escapePulseHtml(scannerDirectionLabel(result.diagnosticLean))}</span>`;
+      const observed = result.bestObserved;
+      const gateMessages = scannerGateMessages(result);
+      dynamicDetails = `
+        <div class="dynamic-queue-details">
+          <span>BEST ${escapePulseHtml(observed?.direction || "-")}</span>
+          <span>FAIR ${formatScannerPercent(observed?.fairProbability)}</span>
+          <span>ASK ${formatScannerPrice(observed?.ask)}</span>
+          <span>GROSS ${formatScannerCents(observed?.grossEvCents)}</span>
+          <span>NET ${formatScannerCents(observed?.netEvCents)}</span>
+          <span>CONF ${result.maxConfirmationCount}/${result.requiredConfirmations}</span>
+          <span>DATA ${escapePulseHtml(result.dataStatus)}</span>
+        </div>
+        ${gateMessages.length ? `<div class="dynamic-queue-gates"><b>FAILED GATES</b>${gateMessages.map(message => `<span>${escapePulseHtml(message)}</span>`).join("")}</div>` : ""}`;
     } else if (m.isFailed) {
       sniperStatus = `<span title="Analisis Gagal" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="alert-triangle" style="width:8px; height:8px; margin-right:4px;"></i> Failed</span>`;
     } else if (m.isTooLate) {
@@ -2525,7 +2808,14 @@ function renderQueue() {
       sniperStatus = `<span title="Sedang dianalisis" style="color:var(--neon-cyan); font-size:9px; border:1px solid var(--neon-cyan); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Analyzing</span>`;
     } else if (!m.snipeFired) {
       const targetColor = isSniperActive ? 'var(--neon-amber)' : 'var(--text-tertiary)';
-      sniperStatus = `<span title="Sniper akan menganalisis saat hitung mundur ${targetLabel}" style="color:${targetColor}; font-size:9px; border:1px solid ${targetColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">Target ${targetLabel}</span>`;
+      const secToTrigger = (timeToCloseSec > targetSec) ? (timeToCloseSec - targetSec) : 0;
+      let targetText = `Target ${targetLabel}`;
+      if (secToTrigger > 0) {
+        targetText += ` (${formatSniperCountdown(secToTrigger)})`;
+      } else if (timeToCloseSec > 0 && timeToCloseSec <= targetSec) {
+        targetText += ` (Ready)`;
+      }
+      sniperStatus = `<span title="Sniper akan menganalisis saat hitung mundur ${targetLabel}" style="color:${targetColor}; font-size:9px; border:1px solid ${targetColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">${escapePulseHtml(targetText)}</span>`;
     } else {
       if (m.isLateFired) {
         sniperStatus = `<span title="Target ${targetLabel}; menunggu giliran setelah terlambat" style="color:var(--neon-cyan); font-size:9px; border:1px solid var(--neon-cyan); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="clock-4" style="width:8px; height:8px; margin-right:4px;"></i> Queued${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
@@ -2538,32 +2828,36 @@ function renderQueue() {
     const historyItem = allHistoryEvents ? allHistoryEvents.find(e => e.market_id === m.id) : null;
     let predictionBadge = "";
     let resultBadge = "";
-    if (historyItem) {
+    if (!isDynamicEntryItem(m) && historyItem) {
       if (historyItem.prediction) {
         const p = historyItem.prediction.toUpperCase();
         const pColor = (p === 'UP' || p === 'YES') ? 'var(--neon-green)' : ((p === 'DOWN' || p === 'NO') ? 'var(--neon-red)' : 'var(--text-tertiary)');
-        predictionBadge = `<span title="Prediksi AI" style="color:${pColor}; font-weight:bold; font-size:9px; border:1px solid ${pColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="bot" style="width:10px; height:10px; margin-right:4px;"></i> ${p}</span>`;
+        predictionBadge = `<span title="Prediksi AI" style="color:${pColor}; font-weight:bold; font-size:9px; border:1px solid ${pColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="bot" style="width:10px; height:10px; margin-right:4px;"></i> ${historyPredictionLabel(p)}</span>`;
       }
       if (historyItem.result && historyItem.result !== 'menunggu hasil') {
         const r = historyItem.result.toUpperCase();
         const rColor = (r === 'MENANG') ? 'var(--neon-green)' : ((r === 'KALAH') ? 'var(--neon-red)' : ((r === 'NETRAL') ? 'var(--neon-amber)' : 'var(--text-tertiary)'));
-        resultBadge = `<span title="Hasil Aktual" style="color:${rColor}; font-weight:bold; font-size:9px; border:1px solid ${rColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="flag" style="width:10px; height:10px; margin-right:4px;"></i> ${r}</span>`;
+        resultBadge = `<span title="Hasil Aktual" style="color:${rColor}; font-weight:bold; font-size:9px; border:1px solid ${rColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="flag" style="width:10px; height:10px; margin-right:4px;"></i> ${historyResultLabel(r)}</span>`;
         // Jika sudah ada hasil, timer tidak perlu muncul lagi
         timeHtml = "";
       }
     }
 
+    const safeQuestion = escapePulseHtml(m.question || m.id || "Unknown market");
     html += `
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 8px; background:rgba(0,0,0,0.2); border:1px solid rgba(16,185,129,0.2); border-radius:4px;">
+      <div style="display:flex; flex-direction:column; padding:6px 8px; background:rgba(0,0,0,0.2); border:1px solid rgba(16,185,129,0.2); border-radius:4px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex:1; overflow:hidden;">
-          <span style="font-size:10px; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">[${index+1}] ${m.question}</span>
+          <span style="font-size:10px; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">[${index+1}] ${safeQuestion}</span>
           ${sniperStatus}
           ${evMetrics}
           ${predictionBadge}
           ${resultBadge}
           ${timeHtml}
         </div>
-        <button type="button" onclick="removeFromQueue('${m.id}')" style="background:none; border:none; color:var(--neon-red); cursor:pointer; padding:2px; margin-left:8px;"><i data-lucide="x" style="width:10px; height:10px;"></i></button>
+        <button type="button" data-queue-id="${escapePulseHtml(m.id)}" onclick="removeFromQueue(this.dataset.queueId)" style="background:none; border:none; color:var(--neon-red); cursor:pointer; padding:2px; margin-left:8px;"><i data-lucide="x" style="width:10px; height:10px;"></i></button>
+        </div>
+        ${dynamicDetails}
       </div>
     `;
   });
@@ -2582,11 +2876,15 @@ window.removeFromQueue = function(id) {
 };
 
 if (btnClearQueue) {
-  btnClearQueue.addEventListener("click", () => {
+  btnClearQueue.addEventListener("click", (e) => {
+    e.stopPropagation();
     analysisQueue = [];
     sniperExecutionQueue = [];
     if (isSniperActive) toggleSniper();
     renderQueue();
+  });
+  btnClearQueue.addEventListener("mousedown", (e) => {
+    e.stopPropagation();
   });
 }
 
@@ -2680,21 +2978,24 @@ function isDynamicEntryItem(item) {
 }
 
 function finishDynamicScan(item, remainingSeconds) {
-  const latest = item.entryScanner?.latestSnapshot || {};
-  item.entryScanner = advanceEntryScannerState(item.entryScanner, {
-    ...latest,
-    capturedAt: new Date().toISOString(),
+  const previousStatus = item.entryScanner?.status;
+  item.entryScanner = terminalizeEntryScannerState(
+    item.entryScanner,
     remainingSeconds,
-  }, currentEntryScannerConfig());
+    new Date().toISOString(),
+    currentEntryScannerConfig(),
+  );
   if (item.entryScanner.status === "skipped") {
     item.isEvSkipped = true;
     item.snipeFired = true;
   }
+  showDynamicScannerTransition(item, previousStatus);
 }
 
 async function scanDynamicEntryItem(item, sessionId = sniperSessionId) {
   const now = Date.now();
   const state = item.entryScanner || {};
+  const previousStatus = state.status;
   const intervalMs = state.status === "entry" ? 2_000 : 5_000;
   if (item.dynamicScanInFlight || dynamicScanInFlightCount >= MAX_DYNAMIC_SCAN_CONCURRENCY || now - Number(item.dynamicLastScanAt || 0) < intervalMs) return;
 
@@ -2712,8 +3013,8 @@ async function scanDynamicEntryItem(item, sessionId = sniperSessionId) {
     if (!response.ok || !data.ok || !data.snapshot) throw new Error(data.error || "Snapshot entry gagal.");
     if (!isSniperActive || sessionId !== sniperSessionId || !analysisQueue.includes(item)) return;
 
-    const previousStatus = item.entryScanner?.status;
     item.entryScanner = advanceEntryScannerState(item.entryScanner, data.snapshot, currentEntryScannerConfig());
+    showDynamicScannerTransition(item, previousStatus);
     if (item.entryScanner.status === "entry" && !item.entrySignalTriggered) {
       item.entrySignalTriggered = true;
       item.snipeFired = true;
@@ -2721,7 +3022,7 @@ async function scanDynamicEntryItem(item, sessionId = sniperSessionId) {
       showToast(`ENTRY ${item.entryScanner.signal.direction}: ask $${item.entryScanner.signal.ask.toFixed(2)}, EV +${item.entryScanner.signal.netEvCents.toFixed(1)}c`, "success", 10000);
       playAlertSound();
     } else if (previousStatus === "entry" && item.entryScanner.status === "no_chase") {
-      showToast(`${item.entryScanner.signal.direction} berubah NO CHASE: edge atau harga sudah tidak valid.`, "error", 10000);
+      showToast(`${item.entryScanner.signal.direction} berubah NO CHASE: ${item.entryScanner.reason}`, "error", 10000);
     }
   } catch (error) {
     if (isSniperActive && sessionId === sniperSessionId && analysisQueue.includes(item)) {
@@ -2729,9 +3030,10 @@ async function scanDynamicEntryItem(item, sessionId = sniperSessionId) {
         error: error.message,
         capturedAt: new Date().toISOString(),
       }, currentEntryScannerConfig());
+      showDynamicScannerTransition(item, previousStatus);
     }
   } finally {
-    item.dynamicScanInFlight = false;
+    if (sessionId === sniperSessionId) item.dynamicScanInFlight = false;
     dynamicScanInFlightCount = Math.max(0, dynamicScanInFlightCount - 1);
     renderQueue();
   }
@@ -2740,34 +3042,41 @@ async function scanDynamicEntryItem(item, sessionId = sniperSessionId) {
 function renderEntrySignalPanel() {
   const panel = document.querySelector("#entrySignalPanel");
   if (!panel) return;
-  const item = [...analysisQueue].reverse().find(entry => ["entry", "no_chase"].includes(entry.entryScanner?.status));
+  const item = selectNewestEntryScannerItem(analysisQueue.filter(isDynamicEntryItem));
   if (!item) {
     panel.hidden = true;
     return;
   }
 
-  const state = item.entryScanner;
-  const signal = state.signal;
-  const latestSide = state.latestSnapshot?.sides?.[signal.direction] || {};
-  const ttlSeconds = Math.max(0, Math.ceil((signal.expiresAt - Date.now()) / 1000));
+  const result = normalizeEntryScannerResult(item.entryScanner);
+  const observed = result.outcome === "ENTRY" ? result.issuedSignal || result.bestObserved : result.bestObserved;
+  const latestSide = result.outcome === "ENTRY"
+    ? item.entryScanner?.latestSnapshot?.sides?.[result.issuedSignal?.direction] || {}
+    : {};
+  const ttlSeconds = result.issuedSignal
+    ? Math.max(0, Math.ceil((result.issuedSignal.expiresAt - Date.now()) / 1000))
+    : 0;
+  const isNoTrade = result.outcome !== "ENTRY";
   panel.hidden = false;
-  panel.classList.toggle("no-chase", state.status === "no_chase");
-  document.querySelector("#entrySignalStatus").textContent = state.status === "entry" ? "ENTRY VALID" : "NO CHASE";
-  document.querySelector("#entrySignalExpiry").textContent = state.status === "entry" ? `${ttlSeconds}s validity` : "edge closed";
-  const direction = document.querySelector("#entrySignalDirection");
-  direction.textContent = signal.direction;
-  direction.style.color = signal.direction === "UP" ? "var(--neon-green)" : "var(--neon-red)";
-  document.querySelector("#entrySignalAsk").textContent = Number.isFinite(Number(latestSide.ask)) ? `$${Number(latestSide.ask).toFixed(2)}` : `$${signal.ask.toFixed(2)}`;
-  document.querySelector("#entrySignalMaxAsk").textContent = `$${signal.maxEntryPrice.toFixed(2)}`;
-  document.querySelector("#entrySignalEv").textContent = `+${signal.netEvCents.toFixed(1)}c`;
-  document.querySelector("#entrySignalFair").textContent = `${signal.fairProbability.toFixed(1)}%`;
+  panel.classList.toggle("no-chase", isNoTrade);
+  document.querySelector("#entrySignalStatus").textContent = result.outcome;
+  document.querySelector("#entrySignalExpiry").textContent = isNoTrade ? "MANUAL / NO TRADE" : `MANUAL ENTRY · ${ttlSeconds}s validity`;
+  document.querySelector("#entrySignalMarket").textContent = item.groupItemTitle || item.question || item.id || "Unknown market";
+  const lean = document.querySelector("#entrySignalDirection");
+  lean.textContent = scannerDirectionLabel(result.diagnosticLean);
+  lean.style.color = result.diagnosticLean === "UP" ? "var(--neon-green)" : result.diagnosticLean === "DOWN" ? "var(--neon-red)" : "var(--neon-amber)";
+  document.querySelector("#entrySignalObserved").textContent = observed?.direction || "-";
+  document.querySelector("#entrySignalAsk").textContent = formatScannerPrice(hasScannerNumber(latestSide.ask) ? latestSide.ask : observed?.ask);
+  document.querySelector("#entrySignalGrossEv").textContent = formatScannerCents(observed?.grossEvCents);
+  document.querySelector("#entrySignalEv").textContent = formatScannerCents(observed?.netEvCents);
+  document.querySelector("#entrySignalFair").textContent = formatScannerPercent(observed?.fairProbability);
+  document.querySelector("#entrySignalConfirmations").textContent = `${result.maxConfirmationCount}/${result.requiredConfirmations}`;
+  document.querySelector("#entrySignalData").textContent = result.dataStatus;
+  document.querySelector("#entrySignalGates").textContent = scannerGateMessages(result).join(" · ") || "No failed gates.";
 }
 
 function dynamicEntryItemFinished(item) {
-  const status = item.entryScanner?.status;
-  if (status === "skipped") return true;
-  if (status === "no_chase") return true;
-  return false;
+  return normalizeEntryScannerResult(item.entryScanner).completed;
 }
 
 const btnSniperSettings = document.querySelector("#btnSniperSettings");
@@ -2784,10 +3093,7 @@ if (btnSniperSettings && sniperSettingsPanel) {
 // Global timer to update queue countdown visually
 setInterval(() => {
   if (analysisQueue.length > 0) {
-    // Only re-render if the panel is actually visible to save CPU
-    if (queuePanel && queuePanel.style.display !== "none") {
-      renderQueue();
-    }
+    renderQueue();
   }
 }, 1000);
 
@@ -2824,16 +3130,18 @@ function runSniperTick() {
     if (isDynamicEntryItem(m)) {
       const remainingSeconds = timeToClose / 1000;
       const config = currentEntryScannerConfig();
-      if (!m.entryScanner) m.entryScanner = { status: "waiting", confirmationCount: 0 };
+      if (!m.entryScanner) m.entryScanner = { status: "waiting", confirmationCount: 0, requiredConfirmations: config.confirmations };
       if (remainingSeconds <= 0) {
         finishDynamicScan(m, 0);
         triggered = true;
       } else if (m.entryScanner.status === "entry") {
         if (Date.now() > m.entryScanner.signal.expiresAt) {
+          const previousStatus = m.entryScanner.status;
           m.entryScanner = advanceEntryScannerState(m.entryScanner, {
             error: "Signal TTL elapsed.",
             capturedAt: new Date().toISOString(),
           }, config);
+          showDynamicScannerTransition(m, previousStatus);
           triggered = true;
         } else {
           scanDynamicEntryItem(m);
@@ -2845,7 +3153,7 @@ function runSniperTick() {
         } else if (remainingSeconds <= config.scanStartSeconds) {
           scanDynamicEntryItem(m);
         } else if (m.entryScanner.status !== "waiting") {
-          m.entryScanner = { status: "waiting", confirmationCount: 0 };
+          m.entryScanner = { status: "waiting", confirmationCount: 0, requiredConfirmations: config.confirmations };
           triggered = true;
         }
       }
@@ -2865,7 +3173,7 @@ function runSniperTick() {
           m.snipeFired = true;
           m.isTooLate = true;
           triggered = true;
-          const title = m.groupItemTitle || m.question.replace(new RegExp(`${activeShortAsset} Up or Down -? ?`, 'i'), '').trim();
+          const title = m.groupItemTitle || m.question.replace(/Up or Down -? ?/i, '').trim();
           showCustomAlert(`Analisis dibatalkan: Sisa waktu "${title}" tinggal 30 detik atau kurang.`);
         } else {
           // Tandai terlambat untuk informasi, tetapi tetap analisis selama masih aman.
@@ -2891,6 +3199,7 @@ function runSniperTick() {
       ? dynamicEntryItemFinished(m)
       : m.analysisCompleted || m.isFailed || m.isTooLate);
     if (allFinished && sniperExecutionQueue.length === 0 && !busy && !sniperBatchInFlight) {
+      if (analysisQueue.some(isDynamicEntryItem)) showDynamicScannerSessionSummary();
       toggleSniper();
     }
   }
@@ -2899,11 +3208,13 @@ function runSniperTick() {
 function startSniper() {
   if (sniperInterval) clearInterval(sniperInterval);
   sniperSessionId += 1;
+  const config = currentEntryScannerConfig();
   analysisQueue.forEach(item => {
-    if (isDynamicEntryItem(item) && ["waiting", "watching", "candidate"].includes(item.entryScanner?.status)) {
-      item.entryScanner = { status: "waiting", confirmationCount: 0 };
-    }
+    if (!isDynamicEntryItem(item)) return;
+    resetEntryScannerItem(item, config.confirmations);
   });
+  dynamicScanInFlightCount = 0;
+  dynamicScanCursor = 0;
   sniperInterval = setInterval(runSniperTick, 1000);
   runSniperTick();
 }
@@ -2917,9 +3228,10 @@ function stopSniper() {
   if (sniperInterval) clearInterval(sniperInterval);
   sniperInterval = null;
   sniperSessionId += 1;
+  const config = currentEntryScannerConfig();
   analysisQueue.forEach(item => {
     if (isDynamicEntryItem(item) && item.entryScanner?.status === "candidate") {
-      item.entryScanner = { status: "waiting", confirmationCount: 0 };
+      item.entryScanner = { status: "waiting", confirmationCount: 0, requiredConfirmations: config.confirmations };
     }
   });
 }
@@ -2955,104 +3267,102 @@ function showSniperSummaryModal() {
   const tbody = document.getElementById("sniperSummaryTableBody");
   const metrics = document.getElementById("sniperSummaryMetrics");
   if (!modal || !tbody) return;
-  
+
+  const summary = summarizeEntryScannerSession(analysisQueue);
   let html = "";
-  let total = 0;
-  let upCount = 0;
-  let downCount = 0;
-  
+
   analysisQueue.forEach(m => {
-    const historyItem = allHistoryEvents.find(h => String(h.market_id) === String(m.id));
-    const scannerSignal = m.entryScanner?.status === "entry" ? m.entryScanner.signal : null;
-    const prediction = historyItem?.prediction || scannerSignal?.direction || null;
-    const confidence = historyItem?.qwen_confidence || scannerSignal?.fairProbability || null;
-    let title = m.groupItemTitle || m.question.replace(new RegExp(`(Bitcoin|Ethereum|Dogecoin) Up or Down -? ?`, 'i'), '').trim();
-    
-    if (prediction) {
-      total++;
-      if (prediction === 'UP') upCount++;
-      if (prediction === 'DOWN') downCount++;
-      
-      let dirColor = "var(--text-secondary)";
-      let dirBg = "rgba(255,255,255,0.05)";
-      if (prediction === 'UP') {
-         dirColor = "var(--neon-green)";
-         dirBg = "rgba(16,185,129,0.1)";
-      } else if (prediction === 'DOWN') {
-         dirColor = "var(--neon-red)";
-         dirBg = "rgba(239,68,68,0.1)";
-      }
-      
+    const rawTitle = m.groupItemTitle || String(m.question || "").replace(new RegExp(`(Bitcoin|Ethereum|Dogecoin) Up or Down -? ?`, "i"), "").trim() || m.id;
+    const title = escapePulseHtml(rawTitle);
+    const marketId = escapePulseHtml(m.id);
+
+    if (isDynamicEntryItem(m)) {
+      const result = normalizeEntryScannerResult(m.entryScanner);
+      const observed = result.outcome === "ENTRY" ? result.issuedSignal || result.bestObserved : result.bestObserved;
+      const gates = scannerGateMessages(result);
+      const outcome = result.outcome || "INCOMPLETE";
+      const outcomeColor = outcome === "ENTRY" ? "var(--neon-green)" : outcome === "NO_CHASE" ? "var(--neon-red)" : "var(--neon-amber)";
+      const leanColor = result.diagnosticLean === "UP" ? "var(--neon-green)" : result.diagnosticLean === "DOWN" ? "var(--neon-red)" : "var(--neon-amber)";
       html += `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
           <td style="padding:10px 16px;">
             <div style="font-weight:600; color:#fff;">${title}</div>
-            <div style="font-size:10px; color:var(--text-tertiary); margin-top:2px;">${m.id}</div>
+            <div style="font-size:10px; color:var(--text-tertiary); margin-top:2px;">${marketId}</div>
           </td>
           <td style="padding:10px 16px; text-align:center;">
-            <span style="background:${dirBg}; color:${dirColor}; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:11px;">${prediction}</span>
+            <span style="color:${outcomeColor}; font-weight:800;">${escapePulseHtml(outcome)}</span>
           </td>
-          <td style="padding:10px 16px; text-align:center; font-family:monospace; color:var(--neon-amber);">${confidence ? Number(confidence).toFixed(1) + '%' : '-'}</td>
+          <td style="padding:10px 16px; text-align:center; color:${leanColor}; font-weight:800;">${escapePulseHtml(scannerDirectionLabel(result.diagnosticLean))}</td>
+          <td style="padding:10px 16px; font-family:'JetBrains Mono',monospace; font-size:10px; line-height:1.5;">
+            <strong>${escapePulseHtml(observed?.direction || "-")}</strong> · Fair ${formatScannerPercent(observed?.fairProbability)} · Ask ${formatScannerPrice(observed?.ask)} · Gross ${formatScannerCents(observed?.grossEvCents)} · Net ${formatScannerCents(observed?.netEvCents)}
+            <div style="color:var(--text-tertiary);">Confirmations ${result.maxConfirmationCount}/${result.requiredConfirmations} · Data ${escapePulseHtml(result.dataStatus)}</div>
+            <div style="color:${gates.length ? 'var(--neon-amber)' : 'var(--text-tertiary)'};">Gates: ${gates.length ? gates.map(escapePulseHtml).join(" · ") : "None"}</div>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    const historyItem = allHistoryEvents.find(h => String(h.market_id) === String(m.id));
+    const prediction = historyItem?.prediction || null;
+    const confidence = historyItem?.qwen_confidence || null;
+    const legacyOutcome = m.analysisCompleted ? "ANALYZED" : m.isFailed ? "FAILED" : m.isTooLate ? "SKIPPED" : "WAITING";
+    if (prediction) {
+      html += `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+          <td style="padding:10px 16px;">
+            <div style="font-weight:600; color:#fff;">${title}</div>
+            <div style="font-size:10px; color:var(--text-tertiary); margin-top:2px;">${marketId}</div>
+          </td>
+          <td style="padding:10px 16px; text-align:center;">${legacyOutcome}</td>
+          <td style="padding:10px 16px; text-align:center; font-weight:800;">${escapePulseHtml(prediction)}</td>
+          <td style="padding:10px 16px; text-align:center; font-family:monospace; color:var(--neon-amber);">${hasScannerNumber(confidence) ? `${Number(confidence).toFixed(1)}%` : "-"}</td>
         </tr>
       `;
     } else {
-      html += `
-        <tr style="border-bottom:1px solid rgba(255,255,255,0.05); opacity:0.5;">
-          <td style="padding:10px 16px;">
-            <div style="font-weight:600; color:#fff;">${title}</div>
-          </td>
-          <td style="padding:10px 16px; text-align:center;">-</td>
-          <td style="padding:10px 16px; text-align:center;">${m.entryScanner?.status === 'skipped' ? 'SKIP / NO VALID EDGE' : (m.entryScanner?.status === 'no_chase' ? 'NO CHASE / EXPIRED' : 'WAITING')}</td>
-        </tr>
-      `;
+      html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05); opacity:0.5;"><td style="padding:10px 16px;"><div style="font-weight:600; color:#fff;">${title}</div></td><td style="padding:10px 16px; text-align:center;">${legacyOutcome}</td><td style="padding:10px 16px; text-align:center;">-</td><td style="padding:10px 16px; text-align:center;">-</td></tr>`;
     }
   });
-  
+
   if (html === "") {
-    html = `<tr><td colspan="3" style="padding:20px; text-align:center; color:var(--text-tertiary);">Tidak ada data summary.</td></tr>`;
+    html = `<tr><td colspan="4" style="padding:20px; text-align:center; color:var(--text-tertiary);">Tidak ada data summary.</td></tr>`;
   }
-  
+
   tbody.innerHTML = html;
-  
+
   if (metrics) {
     metrics.innerHTML = `
-      <div style="background:rgba(0,0,0,0.2); border:1px solid var(--border); padding:8px 12px; border-radius:6px; flex:1;">
-        <div style="font-size:10px; color:var(--text-tertiary); text-transform:uppercase;">Total Analyzed</div>
-        <div style="font-size:18px; font-weight:bold; color:#fff;">${total}</div>
-      </div>
-      <div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.2); padding:8px 12px; border-radius:6px; flex:1;">
-        <div style="font-size:10px; color:var(--neon-green); text-transform:uppercase;">UP Signals</div>
-        <div style="font-size:18px; font-weight:bold; color:var(--neon-green);">${upCount}</div>
-      </div>
-      <div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); padding:8px 12px; border-radius:6px; flex:1;">
-        <div style="font-size:10px; color:var(--neon-red); text-transform:uppercase;">DOWN Signals</div>
-        <div style="font-size:18px; font-weight:bold; color:var(--neon-red);">${downCount}</div>
-      </div>
+      <div><span>Completed</span><strong>${summary.completed}</strong></div>
+      <div><span>Entries Issued</span><strong>${summary.entries}</strong></div>
+      <div><span>No Entry</span><strong>${summary.noEntry}</strong></div>
+      <div><span>No Chase</span><strong>${summary.noChase}</strong></div>
+      <div><span>Lean Up</span><strong>${summary.up}</strong></div>
+      <div><span>Lean Down</span><strong>${summary.down}</strong></div>
     `;
   }
-  
+
   modal.style.display = "flex";
   if (typeof lucide !== 'undefined') lucide.createIcons();
-  
-  // Wire up the copy button
+
   const btnCopy = document.getElementById("btnCopySniperSummary");
   if (btnCopy) {
     btnCopy.onclick = () => {
-      let txt = "Sniper Session Summary:\n";
-      txt += `Total: ${total} | UP: ${upCount} | DOWN: ${downCount}\n\n`;
+      const lines = [
+        "Sniper Session Summary:",
+        `Completed: ${summary.completed} | Entries Issued: ${summary.entries} | No Entry: ${summary.noEntry} | No Chase: ${summary.noChase}`,
+        `Diagnostic lean: UP ${summary.up} | DOWN ${summary.down}`,
+        "",
+      ];
       analysisQueue.forEach(m => {
-        let title = m.groupItemTitle || m.question.replace(new RegExp(`(Bitcoin|Ethereum|Dogecoin) Up or Down -? ?`, 'i'), '').trim();
-        const historyItem = allHistoryEvents.find(h => String(h.market_id) === String(m.id));
-        const scannerSignal = m.entryScanner?.status === 'entry' ? m.entryScanner.signal : null;
-        if (historyItem || scannerSignal) {
-           const direction = historyItem?.prediction || scannerSignal.direction;
-           const confidence = historyItem?.qwen_confidence || scannerSignal.fairProbability;
-           txt += `- ${title}: ${direction} (${confidence ? Number(confidence).toFixed(1) + '%' : ''})\n`;
-        } else {
-           txt += `- ${title}: ${m.entryScanner?.status === 'skipped' ? 'SKIP/NO EDGE' : (m.entryScanner?.status === 'no_chase' ? 'NO CHASE/EXPIRED' : 'WAITING')}\n`;
+        if (isDynamicEntryItem(m)) {
+          lines.push(...scannerResultReportLines(m, normalizeEntryScannerResult(m.entryScanner)));
+          return;
         }
+        const historyItem = allHistoryEvents.find(h => String(h.market_id) === String(m.id));
+        const title = m.groupItemTitle || m.question || m.id || "Unknown market";
+        lines.push(`- ${title}: ${historyItem?.prediction || "NO RESULT"}${hasScannerNumber(historyItem?.qwen_confidence) ? ` (${Number(historyItem.qwen_confidence).toFixed(1)}%)` : ""}`);
       });
-      navigator.clipboard.writeText(txt);
+      navigator.clipboard.writeText(lines.join("\n"));
       btnCopy.innerHTML = `<i data-lucide="check" style="width:14px; height:14px; margin-right:6px; color:var(--neon-green);"></i>Copied`;
       if (typeof lucide !== 'undefined') lucide.createIcons();
       setTimeout(() => {
@@ -3073,418 +3383,6 @@ if (btnRunQueue) {
   });
 }
 
-
-if (tabAssetBtc) tabAssetBtc.addEventListener("click", () => { activeShortAsset = 'btc'; updateActiveAssetTab(); fetchShortMarkets(); });
-if (tabAssetEth) tabAssetEth.addEventListener("click", () => { activeShortAsset = 'eth'; updateActiveAssetTab(); fetchShortMarkets(); });
-if (tabAssetDoge) tabAssetDoge.addEventListener("click", () => { activeShortAsset = 'doge'; updateActiveAssetTab(); fetchShortMarkets(); });
-
-const setDurationTab = (dur) => {
-  activeShortDuration = dur;
-  updateActiveDurationTab();
-  renderShortMarkets(currentShortMarkets);
-};
-const t5 = document.getElementById('tabDuration5m');
-if (t5) t5.addEventListener("click", () => setDurationTab('5m'));
-const t15 = document.getElementById('tabDuration15m');
-if (t15) t15.addEventListener("click", () => setDurationTab('15m'));
-const t1h = document.getElementById('tabDuration1h');
-if (t1h) t1h.addEventListener("click", () => setDurationTab('1h'));
-const t4h = document.getElementById('tabDuration4h');
-if (t4h) t4h.addEventListener("click", () => setDurationTab('4h'));
-const t1d = document.getElementById('tabDuration1d');
-if (t1d) t1d.addEventListener("click", () => setDurationTab('1d'));
-
-if (btnRefreshShortMarket) {
-  btnRefreshShortMarket.addEventListener("click", () => {
-    fetchShortMarkets();
-  });
-}
-
-const btnBulkAddShort = document.querySelector("#btnBulkAddShort");
-
-if (btnBulkAddShort && bulkAddDropdown) {
-  btnBulkAddShort.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const isHidden = bulkAddDropdown.style.display === "none";
-    bulkAddDropdown.style.display = isHidden ? "flex" : "none";
-    
-    const selectBulkStart = document.querySelector("#selectBulkStart");
-    const customBulkStartDisplay = document.querySelector("#customBulkStartDisplay");
-    const customBulkStartText = document.querySelector("#customBulkStartText");
-    const customBulkStartOptions = document.querySelector("#customBulkStartOptions");
-
-    if (isHidden && customBulkStartOptions && customBulkStartText && selectBulkStart) {
-      customBulkStartOptions.innerHTML = "";
-      
-      let durationLimit = 5 * 60 * 1000;
-      if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
-      else if (activeShortDuration === '1h') durationLimit = 60 * 60 * 1000;
-
-      const validMarkets = currentShortMarkets.filter(m => {
-        if (m.duration_type && m.duration_type !== activeShortDuration) return false;
-        const timeToClose = new Date(m.endDate).getTime() - Date.now();
-        return timeToClose > 0;
-      });
-
-      validMarkets.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
-      
-      if (validMarkets.length === 0) {
-        customBulkStartOptions.innerHTML = `<div style="padding:8px; font-size:11px; color:var(--text-tertiary); text-align:center;">Tidak ada market valid</div>`;
-        customBulkStartText.textContent = "Tidak ada market valid";
-        selectBulkStart.value = "0";
-      } else {
-        validMarkets.forEach((m, index) => {
-          const rawTitle = m.groupItemTitle || m.question || "";
-          const cleanTitle = rawTitle.replace(/(Bitcoin|BTC|Ethereum|ETH|Dogecoin|DOGE) Up or Down -? ?/i, '').trim() || "Unknown Event";
-          
-          const optDiv = document.createElement("div");
-          optDiv.style.padding = "8px 10px";
-          optDiv.style.fontSize = "11px";
-          optDiv.style.color = "var(--text-primary)";
-          optDiv.style.cursor = "pointer";
-          optDiv.style.borderBottom = "1px solid rgba(255,255,255,0.05)";
-          optDiv.style.transition = "background 0.2s, color 0.2s";
-          optDiv.textContent = cleanTitle;
-          optDiv.onmouseover = () => { optDiv.style.background = "var(--bg-elevated)"; optDiv.style.color = "var(--neon-purple)"; };
-          optDiv.onmouseout = () => { optDiv.style.background = "transparent"; optDiv.style.color = "var(--text-primary)"; };
-          optDiv.onclick = (e) => {
-            e.stopPropagation();
-            customBulkStartText.textContent = cleanTitle;
-            selectBulkStart.value = index;
-            customBulkStartOptions.style.display = "none";
-            if (customBulkStartDisplay) customBulkStartDisplay.style.borderColor = "var(--border-bright)";
-          };
-          
-          if (index === 0) {
-            customBulkStartText.textContent = cleanTitle;
-            selectBulkStart.value = index;
-          }
-          
-          customBulkStartOptions.appendChild(optDiv);
-        });
-      }
-    }
-  });
-  
-  const customBulkStartDisplay = document.querySelector("#customBulkStartDisplay");
-  const customBulkStartOptions = document.querySelector("#customBulkStartOptions");
-  if (customBulkStartDisplay && customBulkStartOptions) {
-    customBulkStartDisplay.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const isOptionsHidden = customBulkStartOptions.style.display === "none" || customBulkStartOptions.style.display === "";
-      customBulkStartOptions.style.display = isOptionsHidden ? "flex" : "none";
-      customBulkStartDisplay.style.borderColor = isOptionsHidden ? "var(--neon-purple)" : "var(--border-bright)";
-    });
-  }
-  
-  // Close when clicking outside
-  document.addEventListener("click", (e) => {
-    if (!bulkAddDropdown.contains(e.target) && e.target !== btnBulkAddShort && !btnBulkAddShort.contains(e.target)) {
-      bulkAddDropdown.style.display = "none";
-    }
-    if (customBulkStartOptions && customBulkStartDisplay && !customBulkStartDisplay.contains(e.target) && !customBulkStartOptions.contains(e.target)) {
-      customBulkStartOptions.style.display = "none";
-      customBulkStartDisplay.style.borderColor = "var(--border-bright)";
-    }
-  });
-}
-
-if (btnConfirmBulkAdd && inputBulkCount) {
-  btnConfirmBulkAdd.addEventListener("click", () => {
-    bulkAddDropdown.style.display = "none";
-    if (!currentShortMarkets || currentShortMarkets.length === 0) {
-      showCustomAlert("Tidak ada market yang tersedia untuk ditambahkan.");
-      return;
-    }
-    const countStr = inputBulkCount.value;
-    const skipStr = selectBulkStart ? selectBulkStart.value : "0";
-    if (!countStr) return;
-    const count = parseInt(countStr);
-    const skip = parseInt(skipStr) || 0;
-    if (isNaN(count) || count <= 0) {
-      showCustomAlert("Jumlah tidak valid.");
-      return;
-    }
-
-    let durationLimit = 5 * 60 * 1000;
-    if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
-    else if (activeShortDuration === '1h') durationLimit = 60 * 60 * 1000;
-    else if (activeShortDuration === '4h') durationLimit = 4 * 60 * 60 * 1000;
-    else if (activeShortDuration === '1d') durationLimit = 24 * 60 * 60 * 1000;
-
-    const validMarkets = currentShortMarkets.filter(m => {
-      if (m.duration_type && m.duration_type !== activeShortDuration) return false;
-      const timeToClose = new Date(m.endDate).getTime() - Date.now();
-      return timeToClose > 0;
-    });
-
-    validMarkets.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
-
-    const toAdd = validMarkets.slice(skip, skip + Math.min(count, 50));
-    let addedCount = 0;
-    for (const m of toAdd) {
-      if (!analysisQueue.some(q => String(q.id) === String(m.id))) {
-        if (analysisQueue.length >= 50) break;
-        analysisQueue.push(m);
-        addedCount++;
-      }
-    }
-    
-    if (addedCount > 0) {
-      renderQueue();
-      showCustomAlert(`Berhasil menambahkan ${addedCount} market ke antrean.`);
-      
-      // Auto-open Queue Panel
-      const queuePanel = document.querySelector("#queuePanel");
-      if (queuePanel && (queuePanel.style.display === "none" || queuePanel.style.display === "")) {
-        queuePanel.style.display = "flex";
-        document.body.classList.add("queue-open");
-      }
-      
-      // Auto-start Sniper
-      const btnRunQueue = document.querySelector("#btnRunQueue");
-      if (btnRunQueue && typeof isSniperActive !== 'undefined' && !isSniperActive) {
-        btnRunQueue.click();
-      }
-      
-      if (typeof queueDropzone !== 'undefined' && queueDropzone) {
-        queueDropzone.scrollIntoView({ behavior: 'smooth' });
-      }
-    } else {
-      showCustomAlert("Tidak ada market baru yang ditambahkan (antrean mungkin sudah penuh atau market sudah ada).");
-    }
-  });
-}
-
-async function fetchShortMarkets() {
-  if (shortMarketStatus) shortMarketStatus.textContent = "Updating...";
-  try {
-    const res = await fetch(`/api/short-term?asset=${activeShortAsset}`);
-    const data = await res.json();
-    if (data.ok) {
-      currentShortMarkets = data.markets || [];
-      renderShortMarkets(currentShortMarkets);
-      if (shortMarketStatus) {
-        const now = new Date();
-        shortMarketStatus.textContent = `Last update: ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-      }
-    } else {
-      if (shortMarketStatus) shortMarketStatus.textContent = "Error updating";
-    }
-  } catch (error) {
-    console.error("Failed to fetch short markets:", error);
-    if (shortMarketStatus) shortMarketStatus.textContent = "Network error";
-    if (shortMarketList) {
-      shortMarketList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--neon-red);"><i data-lucide="wifi-off" style="width:24px; height:24px; margin-bottom:8px;"></i><br><b>Gagal memuat data.</b><br><br><span style="font-size:10px; color:var(--text-tertiary);">Error: ${error.message}<br>Kemungkinan penyebab:<br>1. Jaringan terputus<br>2. Server backend mati/restart<br>3. Blocked by browser extension</span></div>`;
-      if (window.lucide) window.lucide.createIcons();
-    }
-  }
-
-  // Auto refresh if panel is open
-  if (shortMarketPanel && shortMarketPanel.style.display === "block") {
-    if (shortMarketTimer) clearTimeout(shortMarketTimer);
-    shortMarketTimer = setTimeout(fetchShortMarkets, 60000); // 60 detik (SSE handles live prices)
-  }
-}
-
-const queueBtnStyle = document.createElement('style');
-queueBtnStyle.textContent = `
-  body:not(.queue-open) .btn-add-to-queue { display: none !important; }
-  body.queue-open .btn-add-to-queue { display: flex !important; }
-`;
-document.head.appendChild(queueBtnStyle);
-
-function renderShortMarkets(markets) {
-  if (!shortMarketList) return;
-  if (!markets || !markets.length) {
-    shortMarketList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-tertiary);">No active ${activeShortAsset.toUpperCase()} markets found right now.</div>`;
-    return;
-  }
-
-  const renderCard = (m) => {
-    const timeToClose = new Date(m.endDate).getTime() - Date.now();
-    
-    let durationLimit = 5 * 60 * 1000;
-    if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
-    else if (activeShortDuration === '1h') durationLimit = 60 * 60 * 1000;
-    else if (activeShortDuration === '4h') durationLimit = 4 * 60 * 60 * 1000;
-    else if (activeShortDuration === '1d') durationLimit = 24 * 60 * 60 * 1000;
-    
-    const isFuture = timeToClose > (durationLimit + 30000);
-    const isClosed = timeToClose <= 0;
-    const isLockedOut = !isFuture && !isClosed && timeToClose <= 60 * 1000; // Under 1 min
-    const isClosingSoon = !isFuture && !isClosed && !isLockedOut && timeToClose < 2 * 60 * 1000;
-    
-    const pYes = m.outcomePrices[0] ? Math.round(m.outcomePrices[0] * 100) : 0;
-    const pNo = m.outcomePrices[1] ? Math.round(m.outcomePrices[1] * 100) : 0;
-    
-    const labelYes = m.outcomes[0] || "Up";
-    const labelNo = m.outcomes[1] || "Down";
-
-    let timeColor = isClosed ? "var(--text-tertiary)" : (isFuture ? "var(--text-tertiary)" : (isLockedOut ? "var(--neon-red)" : (isClosingSoon ? "var(--neon-amber)" : "var(--neon-green)")));
-    let timeText = isClosed ? "Closed" : (isFuture ? "Wait " + Math.floor((timeToClose - durationLimit) / 60000) + "m" : Math.floor(timeToClose / 60000) + "m " + Math.floor((timeToClose % 60000) / 1000) + "s");
-    
-    if (isClosed) {
-      if (pYes >= 90) {
-        timeText = `Won: ${labelYes.toUpperCase()} 📈`;
-        timeColor = "var(--neon-green)";
-      } else if (pNo >= 90) {
-        timeText = `Won: ${labelNo.toUpperCase()} 📉`;
-        timeColor = "var(--neon-red)";
-      } else {
-        timeText = "Resolving ⏳";
-        timeColor = "var(--neon-cyan)";
-      }
-    }
-    
-    const cardOpacity = (isFuture || isLockedOut) ? "0.5" : "1";
-    const cardCursor = (isFuture || isLockedOut) ? "not-allowed" : "pointer";
-    const cardBg = isFuture ? "rgba(0,0,0,0.3)" : (isLockedOut ? "rgba(220,38,38,0.1)" : "rgba(0,0,0,0.15)");
-    const cardBorder = isFuture ? "rgba(255,255,255,0.02)" : (isLockedOut ? "rgba(220,38,38,0.2)" : "rgba(255,255,255,0.05)");
-    const cardHoverBorder = isFuture ? "rgba(255,255,255,0.1)" : (isLockedOut ? "rgba(220,38,38,0.4)" : "rgba(245,158,11,0.3)");
-    const onClickAttr = isClosed 
-      ? `onclick="showCustomAlert('Event sudah ditutup dan tidak dapat dianalisis lagi.')"` 
-      : isFuture 
-        ? `onclick="showCustomAlert('Market belum aktif. Drag ke antrean (Sniper) untuk dianalisis otomatis nanti.')"` 
-        : isLockedOut
-          ? `onclick="showCustomAlert('Waktu tersisa kurang dari 1 menit! Market sudah dikunci (locked out) dan terlalu berisiko untuk dibeli.')"`
-          : `onclick="analyzeShortMarket('${m.id}', '${m.url}')"`;
-    const onDragAttr = (isClosed || isLockedOut) 
-      ? `draggable="false"` 
-      : `draggable="true" ondragstart="handleDragStart(event, this)" ondragend="handleDragEnd(event)"`;
-
-    let priceInfo = "";
-
-
-    const isSnipeBtn = isFuture;
-    const btnClass = isSnipeBtn ? "btn-snipe-market" : "btn-add-to-queue";
-    const btnDisplay = isSnipeBtn ? "flex" : "none";
-    const btnIcon = isSnipeBtn ? "crosshair" : "plus"; 
-    const btnTitle = isSnipeBtn ? "Snipe Market (Auto-Analyze when active)" : "Add to Queue";
-    const btnColor = isSnipeBtn ? "var(--neon-amber)" : "var(--text-secondary)";
-    
-    const addBtnHtml = !isClosed ? `<button class="${btnClass}" style="display:${btnDisplay}; height:20px; width:20px; padding:0; border-radius:4px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:${btnColor}; cursor:pointer; align-items:center; justify-content:center; margin-left:8px; flex-shrink:0; transition:all 0.2s;" onmouseover="this.style.background='rgba(245,158,11,0.2)'; this.style.color='var(--neon-amber)'; this.style.borderColor='rgba(245,158,11,0.5)';" onmouseout="this.style.background='rgba(255,255,255,0.05)'; this.style.color='${btnColor}'; this.style.borderColor='rgba(255,255,255,0.1)';" onclick="event.stopPropagation(); window.addCardToQueue(this.closest('.btc5m-card')); if('${btnClass}' === 'btn-snipe-market') { this.innerHTML='<i data-lucide=&quot;loader&quot; style=&quot;width:12px; height:12px; animation: spin 2s linear infinite;&quot;></i>'; if(typeof lucide !== 'undefined') lucide.createIcons({root:this}); this.style.pointerEvents='none'; this.style.color='var(--neon-green)'; this.style.borderColor='rgba(16,185,129,0.5)'; showCustomAlert('🎯 Market dimasukkan ke antrean Sniper!'); }" title="${btnTitle}"><i data-lucide="${btnIcon}" style="width:12px; height:12px;"></i></button>` : '';
-
-    return `
-      <div class="btc5m-card" ${onDragAttr} data-id="${m.id}" data-url="${m.url}" data-question="${(m.question || '').replace(/"/g, '&quot;')}" style="padding:8px 10px; border:1px solid ${cardBorder}; border-radius:4px; background:${cardBg}; opacity:${cardOpacity}; cursor:${cardCursor}; transition:all 0.2s;" ${isFuture ? '' : `onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='${cardHoverBorder}';" onmouseout="this.style.background='${cardBg}'; this.style.borderColor='${cardBorder}';"`} ${onClickAttr}>
-        <div style="display:flex; justify-content:space-between; margin-bottom:4px; align-items:flex-start;">
-          <span style="font-weight:600; color:var(--text-primary); font-size:11px; flex:1; min-width:0; word-wrap:break-word;">${(m.groupItemTitle || m.question || '').trim()}</span>
-          <div style="display:flex; align-items:center;">
-            <span class="short-market-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${labelYes}" data-l-no="${labelNo}" data-is-future="${isFuture}" style="color:${timeColor}; font-weight:700; font-size:10px; white-space:nowrap; flex-shrink:0; text-align:right; margin-left:8px;">${timeText}</span>
-            ${addBtnHtml}
-          </div>
-        </div>
-        ${priceInfo}
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div style="display:flex; gap:8px;">
-            <span style="color:var(--neon-green); font-size:10px;">${labelYes}: ${pYes}c</span>
-            <span style="color:var(--neon-red); font-size:10px;">${labelNo}: ${pNo}c</span>
-          </div>
-        </div>
-      </div>
-    `;
-  };
-
-  let targetMarkets = markets.filter(m => m.duration_type === activeShortDuration);
-  
-  // Fallback if the active duration is '5m' but the market doesn't have duration_type explicit
-  if (activeShortDuration === '5m' && targetMarkets.length === 0) {
-     targetMarkets = markets.filter(m => m.duration_type === '5m' || !m.duration_type);
-  }
-
-  let html = "";
-  
-  if (targetMarkets.length) {
-    html += targetMarkets.map(renderCard).join("");
-  } else {
-    html = `<div style="text-align:center; padding:20px; color:var(--text-tertiary);">No active ${activeShortAsset.toUpperCase()} ${activeShortDuration} markets right now.</div>`;
-  }
-
-  shortMarketList.innerHTML = html;
-  if (typeof lucide !== 'undefined') lucide.createIcons({ root: shortMarketList });
-}
-
-function startShortRealtimeTimer() {
-  if (shortMarketRealtimeInterval) clearInterval(shortMarketRealtimeInterval);
-  shortMarketRealtimeInterval = setInterval(() => {
-    document.querySelectorAll(".short-market-timer").forEach(el => {
-      const endDate = el.getAttribute("data-end-date");
-      if (!endDate) return;
-      
-      const timeToClose = new Date(endDate).getTime() - Date.now();
-      
-      let durationLimit = 5 * 60 * 1000;
-      if (activeShortDuration === '15m') durationLimit = 15 * 60 * 1000;
-      else if (activeShortDuration === '1h') durationLimit = 60 * 60 * 1000;
-      else if (activeShortDuration === '4h') durationLimit = 4 * 60 * 60 * 1000;
-      else if (activeShortDuration === '1d') durationLimit = 24 * 60 * 60 * 1000;
-      
-      const isFuture = timeToClose > (durationLimit + 30000);
-      const isClosingSoon = timeToClose > 0 && timeToClose < 2 * 60 * 1000 && !isFuture;
-      const isClosed = timeToClose <= 0;
-      
-      let timeColor = isClosed ? "var(--text-tertiary)" : (isFuture ? "var(--text-tertiary)" : (isClosingSoon ? "var(--neon-amber)" : "var(--neon-green)"));
-      let timeText = isClosed ? "Closed" : (isFuture ? "Wait " + Math.floor((timeToClose - durationLimit) / 60000) + "m" : Math.floor(timeToClose / 60000) + "m " + Math.floor((timeToClose % 60000) / 1000) + "s");
-      
-      if (isClosed) {
-        const pYes = parseInt(el.getAttribute("data-p-yes")) || 0;
-        const pNo = parseInt(el.getAttribute("data-p-no")) || 0;
-        const lYes = el.getAttribute("data-l-yes") || "UP";
-        const lNo = el.getAttribute("data-l-no") || "DOWN";
-        
-        if (pYes >= 90) {
-          timeText = `Won: ${lYes.toUpperCase()} 📈`;
-          timeColor = "var(--neon-green)";
-        } else if (pNo >= 90) {
-          timeText = `Won: ${lNo.toUpperCase()} 📉`;
-          timeColor = "var(--neon-red)";
-        } else {
-          timeText = "Resolving ⏳";
-          timeColor = "var(--neon-cyan)";
-        }
-      }
-      
-      const prevIsFuture = el.getAttribute("data-is-future") === "true";
-      if (prevIsFuture !== isFuture && shortMarketsCache && shortMarketsCache.length > 0) {
-        // State has changed from future to active! 
-        // We must re-render so that buttons and click handlers are updated.
-        renderShortMarkets(shortMarketsCache);
-        return; // Break out of this interval tick since we just re-rendered the whole list
-      }
-      
-      el.style.color = timeColor;
-      el.textContent = timeText;
-    });
-  }, 1000);
-}
-
-function stopShortRealtimeTimer() {
-  if (shortMarketRealtimeInterval) {
-    clearInterval(shortMarketRealtimeInterval);
-    shortMarketRealtimeInterval = null;
-  }
-}
-
-window.analyzeShortMarket = function(marketId, url) {
-  if (busy) {
-    showCustomAlert("⚠️ Analisis sedang berjalan. Mohon tunggu sampai selesai, atau masukkan ke antrean (Queue).");
-    return;
-  }
-  const input = document.querySelector("#commandInput");
-  if (input) {
-    input.value = url || marketId;
-    // Set action to analyze and trigger click
-    const btnAnalyze = document.querySelector("#btnAnalyze");
-    if (btnAnalyze) {
-      btnAnalyze.click();
-      setTimeout(() => {
-        const btnRun = document.querySelector("#runButton");
-        if (btnRun) btnRun.click();
-      }, 100);
-    }
-  }
-};
-
 /* --- Analyzed Events History --- */
 const historyModal = document.querySelector("#historyModal");
 const btnHistory = document.querySelector("#btnHistory");
@@ -3498,25 +3396,25 @@ const btnEvaluateAllHistory = document.querySelector("#btnEvaluateAllHistory");
 let allHistoryEvents = [];
 let currentHistoryAsset = "all";
 let currentHistoryDuration = "all";
-let currentHistoryNetral = "all";
-const excludeNeutralBtn = document.querySelector("#excludeNeutralBtn");
-if (excludeNeutralBtn) {
-  // Checkbox is removed from UI, but handle if it still exists in some cache
-  excludeNeutralBtn.style.display = "none";
-}
+
+document.addEventListener("click", (clickEvent) => {
+  const target = clickEvent.target.closest("[data-history-action]");
+  if (!target) return;
+  const action = target.dataset.historyAction;
+  if (action === "show") window.showHistoryChat(target.dataset.eventId);
+  else if (action === "check") window.checkHistoryEvent(target.dataset.eventId, target.dataset.marketId, target.dataset.prediction);
+  else if (action === "reason") window.showReasonModal(target.dataset.eventId);
+  else if (action === "evaluate") window.evaluateSingleEventInline(target.dataset.eventId, target);
+});
 
 if (btnHistory && historyModal && closeHistoryModal) {
   btnHistory.addEventListener("click", () => {
     historyModal.style.display = "flex";
-    const smp = document.querySelector("#shortMarketPanel");
-    if (smp) smp.style.display = "none";
     fetchHistoryEvents();
   });
 
   closeHistoryModal.addEventListener("click", () => {
     historyModal.style.display = "none";
-    const smp = document.querySelector("#shortMarketPanel");
-    if (smp) smp.style.display = "flex";
   });
 
   if (btnCheckAllHistory) {
@@ -3641,23 +3539,6 @@ document.querySelectorAll(".history-asset-btn").forEach(btn => {
   });
 });
 
-document.querySelectorAll(".history-netral-btn").forEach(btn => {
-  btn.addEventListener("click", (e) => {
-    document.querySelectorAll(".history-netral-btn").forEach(b => {
-      b.classList.remove("active");
-      b.style.background = "transparent";
-      b.style.color = "var(--text-secondary)";
-    });
-    const target = e.currentTarget;
-    target.classList.add("active");
-    target.style.background = "var(--neon-amber)";
-    target.style.color = "#000";
-
-    currentHistoryNetral = target.getAttribute("data-netral");
-    applyHistoryFilter();
-  });
-});
-
 // Event Listeners for filters
 if (document.getElementById("btnFilterHistoryDate")) {
   document.getElementById("btnFilterHistoryDate").addEventListener("click", fetchHistoryEvents);
@@ -3669,10 +3550,8 @@ if (document.getElementById("btnResetHistoryFilters")) {
     document.getElementById("historyLimit").value = "1000";
     currentHistoryAsset = "all";
     currentHistoryDuration = "all";
-    currentHistoryNetral = "all";
     document.querySelectorAll(".history-asset-btn").forEach(b => b.classList.toggle("active", b.dataset.asset === "all"));
     document.querySelectorAll(".history-duration-btn").forEach(b => b.classList.toggle("active", b.dataset.duration === "all"));
-    document.querySelectorAll(".history-netral-btn").forEach(b => b.classList.toggle("active", b.dataset.netral === "all"));
     fetchHistoryEvents();
   });
 }
@@ -3718,17 +3597,7 @@ function getFilteredHistoryEvents() {
     });
   }
 
-  // 2. Filter by Netral
-  if (currentHistoryNetral === "hide") {
-    filtered = filtered.filter(e => {
-      const r = (e.result || "").toLowerCase();
-      const p = (e.prediction || "").trim().toUpperCase();
-      const isNeutral = r === "netral" || p === "=" || p === "SKIP" || p === "NETRAL" || p === "WATCHLIST";
-      return !isNeutral;
-    });
-  }
-
-  // 3. Filter by Duration
+  // 2. Filter by Duration
   if (currentHistoryDuration !== "all") {
     filtered = filtered.filter(e => {
       const q = (e.question || "").toLowerCase();
@@ -3740,7 +3609,7 @@ function getFilteredHistoryEvents() {
     });
   }
 
-  // 4. Client-side Date Filter fallback
+  // 3. Client-side Date Filter fallback
   const startDate = document.getElementById("historyStartDate")?.value || document.getElementById("archiveFilterDate")?.value;
   const endDate = document.getElementById("historyEndDate")?.value || document.getElementById("archiveFilterDate")?.value;
   if (startDate) {
@@ -3867,19 +3736,6 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       currentHistoryDuration = "all";
       
-      // Reset Netral Filter to 'all'
-      document.querySelectorAll(".history-netral-btn").forEach(b => {
-        b.classList.remove("active");
-        b.style.background = "transparent";
-        b.style.color = "var(--text-secondary)";
-        if (b.getAttribute("data-netral") === "all") {
-          b.classList.add("active");
-          b.style.background = "var(--neon-amber)";
-          b.style.color = "#000";
-        }
-      });
-      currentHistoryNetral = "all";
-      
       fetchHistoryEvents();
     });
   }
@@ -3903,33 +3759,35 @@ function renderHistoryListPanel(eventsToRender = null) {
     
     let resultBadge = "";
     if (event.result && event.result !== "menunggu hasil") {
-      const r = event.result.toUpperCase();
+      const r = String(event.result).toUpperCase();
       const rColor = (r === 'MENANG') ? 'var(--neon-green)' : ((r === 'KALAH') ? 'var(--neon-red)' : ((r === 'NETRAL') ? 'var(--neon-amber)' : 'var(--text-tertiary)'));
-      resultBadge = `<span title="Hasil Aktual" style="color:${rColor}; font-weight:bold; font-size:9px; border:1px solid ${rColor}; border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;"><i data-lucide="flag" style="width:10px; height:10px; margin-right:4px;"></i> ${r}</span>`;
+      resultBadge = `<span title="Hasil Aktual" style="color:${rColor}; font-weight:bold; font-size:9px; border:1px solid ${rColor}; border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;"><i data-lucide="flag" style="width:10px; height:10px; margin-right:4px;"></i> ${escapeHtml(historyResultLabel(r))}</span>`;
     }
 
     const pColor = (event.prediction === 'UP' || event.prediction === 'YES') ? 'var(--neon-green)' : ((event.prediction === 'DOWN' || event.prediction === 'NO') ? 'var(--neon-red)' : 'var(--text-tertiary)');
-    const predBadge = `<span title="Prediksi AI" style="color:${pColor}; font-weight:bold; font-size:9px; border:1px solid ${pColor}; border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;"><i data-lucide="bot" style="width:10px; height:10px; margin-right:4px;"></i> ${event.prediction || '?'}</span>`;
+    const predBadge = `<span title="Prediksi AI" style="color:${pColor}; font-weight:bold; font-size:9px; border:1px solid ${pColor}; border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;"><i data-lucide="bot" style="width:10px; height:10px; margin-right:4px;"></i> ${escapeHtml(historyPredictionLabel(event.prediction || '?'))}</span>`;
+    const safeEventId = escapeHtml(event.id);
+    const safeQuestion = escapeHtml(String(event.question || "")
+      .replace(/Bitcoin/gi, 'BTC')
+      .replace(/Ethereum/gi, 'ETH')
+      .replace(/Dogecoin/gi, 'DOGE')
+      .replace(/Solana/gi, 'SOL')
+      .replace(/ Up or Down/gi, ''));
 
     html += `
-      <div onclick="showHistoryChat(${event.id})" style="padding:10px; border:1px solid rgba(255,255,255,0.05); border-radius:6px; background:rgba(0,0,0,0.2); cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='var(--neon-purple)';" onmouseout="this.style.background='rgba(0,0,0,0.2)'; this.style.borderColor='rgba(255,255,255,0.05)';">
+      <div role="button" tabindex="0" data-history-action="show" data-event-id="${safeEventId}" style="padding:10px; border:1px solid rgba(255,255,255,0.05); border-radius:6px; background:rgba(0,0,0,0.2); cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='var(--neon-purple)';" onmouseout="this.style.background='rgba(0,0,0,0.2)'; this.style.borderColor='rgba(255,255,255,0.05)';">
         <div style="display:flex; justify-content:flex-start; align-items:center; gap:12px; margin-bottom:6px;">
           <span style="font-size:10px; color:var(--text-tertiary); white-space:nowrap; min-width:max-content;">${dateStr} ${timeStr}</span>
           <div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-start;">
             ${predBadge}
             ${resultBadge}
-            ${event.qwen_confidence ? `<span title="Qwen Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">Q: ${event.qwen_confidence}</span>` : ''}
-            ${event.data_confidence ? `<span title="Data Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">D: ${event.data_confidence}</span>` : ''}
-            ${event.execution_time ? `<span title="Execution Time" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;"><i data-lucide="timer" style="width:8px; height:8px; margin-right:4px;"></i>${event.execution_time}s</span>` : ''}
+            ${event.qwen_confidence ? `<span title="Qwen Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">Q: ${escapeHtml(event.qwen_confidence)}</span>` : ''}
+            ${event.data_confidence ? `<span title="Data Confidence" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;">D: ${escapeHtml(event.data_confidence)}</span>` : ''}
+            ${event.execution_time ? `<span title="Execution Time" style="color:var(--text-tertiary); font-weight:normal; font-size:9px; border:1px solid rgba(255,255,255,0.1); border-radius:2px; padding:1px 4px; display:inline-flex; align-items:center;"><i data-lucide="timer" style="width:8px; height:8px; margin-right:4px;"></i>${escapeHtml(event.execution_time)}s</span>` : ''}
           </div>
         </div>
         <div style="font-size:11px; font-weight:600; color:var(--text-primary); line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">
-          ${(event.question || "")
-              .replace(/Bitcoin/gi, 'BTC')
-              .replace(/Ethereum/gi, 'ETH')
-              .replace(/Dogecoin/gi, 'DOGE')
-              .replace(/Solana/gi, 'SOL')
-              .replace(/ Up or Down/gi, '')}
+          ${safeQuestion}
         </div>
       </div>
     `;
@@ -3939,7 +3797,7 @@ function renderHistoryListPanel(eventsToRender = null) {
 }
 
 window.showHistoryChat = function(eventId) {
-  const event = allHistoryEvents.find(e => e.id === eventId);
+  const event = allHistoryEvents.find(e => String(e.id) === String(eventId));
   if (!event) return;
   marketSummaryClosed = false;
   
@@ -3965,10 +3823,10 @@ window.showHistoryChat = function(eventId) {
     staticPanel.classList.remove("hidden");
   }
   
-  if (staticContent && typeof buildBentoGrid === "function") {
+  if (staticContent) {
     const aiText = event.analysis_conclusion || "";
     staticContent.style.overflowY = "auto";
-    staticContent.innerHTML = buildBentoGrid(aiText, true);
+    staticContent.innerHTML = buildMarketSummaryHtml(aiText, { isHistory: true });
     if (window.lucide) window.lucide.createIcons({ root: staticContent });
     
     // Store archive report HTML for the global modal opener
@@ -3977,7 +3835,7 @@ window.showHistoryChat = function(eventId) {
     const meta = document.createElement("p");
     const body = document.createElement("pre");
     heading.textContent = "Archived Analysis";
-    meta.textContent = `${event.question} | Prediction: ${event.prediction || "-"} | Result: ${event.result || "-"}`;
+    meta.textContent = `${event.question} | Prediction: ${historyPredictionLabel(event.prediction)} | Result: ${historyResultLabel(event.result)}`;
     body.textContent = aiText;
     body.style.whiteSpace = "pre-wrap";
     body.style.fontFamily = "inherit";
@@ -4014,37 +3872,46 @@ function renderHistoryEvents(events) {
     const statusColor = event.status === 'selesai' 
       ? (event.result === 'menang' ? 'var(--neon-green)' : (event.result === 'kalah' ? 'var(--neon-red)' : 'var(--neon-amber)')) 
       : 'var(--text-tertiary)';
+    const safeEventId = escapeHtml(event.id);
+    const safeMarketId = escapeHtml(event.market_id);
+    const safePrediction = escapeHtml(event.prediction || "-");
+    const safePredictionLabel = escapeHtml(historyPredictionLabel(event.prediction));
+    const safeQuestion = escapeHtml(event.question || "");
+    const safeEventUrl = sanitizeHttpUrl(event.url);
+    const questionHtml = safeEventUrl
+      ? `<a href="${escapeHtml(safeEventUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--text-primary); text-decoration:none;">${safeQuestion}</a>`
+      : `<span style="color:var(--text-primary);">${safeQuestion}</span>`;
     html += `
       <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
         <td style="padding:10px 0;">
-          <a href="${event.url}" target="_blank" style="color:var(--text-primary); text-decoration:none;">${event.question}</a>
+          ${questionHtml}
         </td>
         <td style="padding:10px 0; color:var(--text-secondary); font-weight:bold;">
-          ${event.prediction || '-'}
-          ${event.actual_outcome ? `<div style="font-size:10px; color:var(--text-tertiary); margin-top:4px; font-weight:normal;">Realita: <span style="color:var(--text-primary);">${event.actual_outcome}</span></div>` : ''}
+          ${safePredictionLabel}
+          ${event.actual_outcome ? `<div style="font-size:10px; color:var(--text-tertiary); margin-top:4px; font-weight:normal;">Realita: <span style="color:var(--text-primary);">${escapeHtml(event.actual_outcome)}</span></div>` : ''}
         </td>
-        <td style="padding:10px 0; color:var(--text-tertiary); text-transform:capitalize;">${event.status}</td>
+        <td style="padding:10px 0; color:var(--text-tertiary); text-transform:capitalize;">${escapeHtml(event.status)}</td>
         <td style="padding:10px 0;">
-          <span style="color:${statusColor}; font-weight:bold; text-transform:capitalize;">${event.result || '-'}</span>
-          ${event.qwen_confidence ? `<div style="font-size:9px; color:var(--text-tertiary); margin-top:4px;">Qwen Conf: ${event.qwen_confidence}/100</div>` : ''}
-          ${event.data_confidence ? `<div style="font-size:9px; color:var(--text-tertiary);">Data Conf: ${event.data_confidence}/100</div>` : ''}
-          ${event.execution_time ? `<div style="font-size:9px; color:var(--text-tertiary); display:flex; align-items:center; justify-content:center; gap:4px;"><i data-lucide="timer" style="width:10px; height:10px;"></i> ${event.execution_time}s</div>` : ''}
+          <span style="color:${statusColor}; font-weight:bold; text-transform:capitalize;">${escapeHtml(historyResultLabel(event.result))}</span>
+          ${event.qwen_confidence ? `<div style="font-size:9px; color:var(--text-tertiary); margin-top:4px;">Qwen Conf: ${escapeHtml(event.qwen_confidence)}/100</div>` : ''}
+          ${event.data_confidence ? `<div style="font-size:9px; color:var(--text-tertiary);">Data Conf: ${escapeHtml(event.data_confidence)}/100</div>` : ''}
+          ${event.execution_time ? `<div style="font-size:9px; color:var(--text-tertiary); display:flex; align-items:center; justify-content:center; gap:4px;"><i data-lucide="timer" style="width:10px; height:10px;"></i> ${escapeHtml(event.execution_time)}s</div>` : ''}
         </td>
         <td style="padding:10px 0; text-align:right;">
           <button class="action-chip" style="height:24px; font-size:10px; padding:0 8px; ${event.status === 'selesai' && event.result !== 'menunggu hasil' ? 'opacity:0.5; cursor:not-allowed;' : ''}" 
-                  onclick="checkHistoryEvent(${event.id}, '${event.market_id}', '${event.prediction}')"
+                  data-history-action="check" data-event-id="${safeEventId}" data-market-id="${safeMarketId}" data-prediction="${safePrediction}"
                   ${event.status === 'selesai' && event.result !== 'menunggu hasil' ? 'disabled' : ''}>
             Periksa
           </button>
           ${event.status === 'selesai' && event.result !== 'menunggu hasil' ? `
           <button class="action-chip" style="height:24px; font-size:10px; padding:0 8px; margin-left:4px; background:rgba(6,182,212,0.1); color:var(--neon-cyan); border:1px solid rgba(6,182,212,0.3);" 
-                  onclick="showReasonModal(${event.id})">
+                  data-history-action="reason" data-event-id="${safeEventId}">
             Reason
           </button>
           ` : ''}
           ${event.actionable === 1 && event.status === 'selesai' && event.result === 'kalah' && !event.has_reflection ? `
           <button class="action-chip" style="height:24px; font-size:10px; padding:0 8px; margin-left:4px; background:rgba(239,68,68,0.1); color:var(--neon-red); border:1px solid rgba(239,68,68,0.3);" 
-                  onclick="evaluateSingleEventInline(${event.id}, this)">
+                  data-history-action="evaluate" data-event-id="${safeEventId}">
             Evaluate
           </button>
           ` : ''}
@@ -4070,11 +3937,6 @@ function renderHistoryEvents(events) {
   
   document.querySelector("#historyWins").textContent = wins;
   document.querySelector("#historyLosses").textContent = losses;
-  document.querySelector("#historyNeutral").textContent = neutrals;
-  const neutralContainer = document.querySelector("#historyNeutralContainer");
-  if (neutralContainer) {
-    neutralContainer.style.display = currentHistoryNetral === "hide" ? "none" : "block";
-  }
   document.querySelector("#historyPending").textContent = pending;
 
   const resolved = wins + losses;
@@ -4200,7 +4062,7 @@ window.showReasonModal = async function(eventId) {
   reasonModalContent.textContent = event.analysis_conclusion || "Tidak ada detail analisis tersimpan.";
   
   // Populate Event Result Details
-  reasonPrediction.textContent = event.prediction || "-";
+  reasonPrediction.textContent = historyPredictionLabel(event.prediction);
   reasonPrediction.style.color = (event.prediction === 'UP' || event.prediction === 'YES') ? 'var(--neon-green)' : ((event.prediction === 'DOWN' || event.prediction === 'NO') ? 'var(--neon-red)' : 'var(--text-primary)');
   
   reasonActualOutcome.textContent = event.actual_outcome || "-";
@@ -4215,8 +4077,8 @@ window.showReasonModal = async function(eventId) {
     reasonStatusBadge.style.color = "var(--neon-red)";
     reasonStatusBadge.style.borderColor = "var(--neon-red)";
     reasonStatusBadge.style.background = "rgba(239, 68, 68, 0.1)";
-  } else if (event.result === 'netral') {
-    reasonStatusBadge.textContent = "NETRAL";
+  } else if (event.result === 'netral' || event.result === 'neutral') {
+    reasonStatusBadge.textContent = "NO ENTRY";
     reasonStatusBadge.style.color = "var(--neon-amber)";
     reasonStatusBadge.style.borderColor = "var(--neon-amber)";
     reasonStatusBadge.style.background = "rgba(245, 158, 11, 0.1)";
@@ -4489,23 +4351,26 @@ async function fetchReflections() {
           return text.length > 300 ? "..." + text.substring(text.length - 300) : text;
         };
 
-        learningList.innerHTML = data.reflections.map(r => `
-          <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:12px; border-radius:6px; display:flex; flex-direction:column; gap:6px;">
-            <div style="font-weight:bold; color:var(--text-primary); font-size:12px;">Market: ${r.question}</div>
-            <div style="font-size:11px; color:var(--text-secondary); line-height:1.4;"><strong>Prediction:</strong> ${r.prediction} | <strong>Actual:</strong> ${r.actual_outcome}</div>
-            
-            <div style="margin-top:4px; padding:8px; background:rgba(245,158,11,0.1); border-left:3px solid var(--neon-amber); border-radius:4px;">
-              <div style="font-size:10px; color:var(--neon-amber); font-weight:bold; margin-bottom:4px; text-transform:uppercase;">Distilled Trap Memory</div>
-              <div style="font-size:11px; color:var(--text-primary); line-height:1.4;">"${extractCoreLesson(r.reflection_note)}"</div>
-            </div>
+        learningList.innerHTML = data.reflections.map(r => {
+          const encodedReflection = escapeHtml(encodeURIComponent(String(r.reflection_note || "")));
+          return `
+            <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:12px; border-radius:6px; display:flex; flex-direction:column; gap:6px;">
+              <div style="font-weight:bold; color:var(--text-primary); font-size:12px;">Market: ${escapeHtml(r.question)}</div>
+              <div style="font-size:11px; color:var(--text-secondary); line-height:1.4;"><strong>Prediction:</strong> ${escapeHtml(r.prediction)} | <strong>Actual:</strong> ${escapeHtml(r.actual_outcome)}</div>
 
-            <div style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--border);">
-              <button class="btn-detail-improvement" data-reflection="${encodeURIComponent(r.reflection_note)}" style="background:transparent; border:1px solid var(--neon-cyan); color:var(--neon-cyan); padding:4px 8px; border-radius:4px; font-size:10px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all 0.2s;">
-                <i data-lucide="lightbulb" style="width:12px; height:12px;"></i>Lihat Full Evaluasi
-              </button>
+              <div style="margin-top:4px; padding:8px; background:rgba(245,158,11,0.1); border-left:3px solid var(--neon-amber); border-radius:4px;">
+                <div style="font-size:10px; color:var(--neon-amber); font-weight:bold; margin-bottom:4px; text-transform:uppercase;">Distilled Trap Memory</div>
+                <div style="font-size:11px; color:var(--text-primary); line-height:1.4;">"${escapeHtml(extractCoreLesson(r.reflection_note))}"</div>
+              </div>
+
+              <div style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--border);">
+                <button class="btn-detail-improvement" data-reflection="${encodedReflection}" style="background:transparent; border:1px solid var(--neon-cyan); color:var(--neon-cyan); padding:4px 8px; border-radius:4px; font-size:10px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all 0.2s;">
+                  <i data-lucide="lightbulb" style="width:12px; height:12px;"></i>Lihat Full Evaluasi
+                </button>
+              </div>
             </div>
-          </div>
-        `).join("");
+          `;
+        }).join("");
         if (typeof lucide !== "undefined") lucide.createIcons();
         
           // Add listeners to new buttons
@@ -4514,7 +4379,7 @@ async function fetchReflections() {
               const reflection = decodeURIComponent(e.currentTarget.dataset.reflection);
               const contentDiv = document.querySelector("#improvementModalContent");
               if (contentDiv) {
-                contentDiv.innerHTML = reflection.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\\n/g, '<br>');
+                contentDiv.innerHTML = formatStoredRichText(reflection);
               }
               document.querySelector("#improvementModal").style.display = "flex";
             });
@@ -4536,7 +4401,7 @@ async function fetchReflections() {
         if (data.ok) {
           const contentDiv = document.querySelector("#improvementModalContent");
           if (contentDiv) {
-            contentDiv.innerHTML = "<div style='font-family:\"JetBrains Mono\", monospace; font-size:10px; white-space:pre-wrap;'>" + data.text + "</div>";
+            contentDiv.innerHTML = "<div style='font-family:\"JetBrains Mono\", monospace; font-size:10px; white-space:pre-wrap;'>" + escapeHtml(data.text) + "</div>";
           }
           document.querySelector("#improvementModal").style.display = "flex";
         }
@@ -4601,17 +4466,19 @@ async function fetchLearningHistory() {
         item.style.border = "1px solid var(--border)";
         item.style.fontSize = "12px";
         item.style.color = "var(--text-secondary)";
+        const condition = String(h.condition || "");
+        const conditionColor = condition === "VOLATILE" ? "var(--green)" : "var(--neon-amber)";
         item.innerHTML = `
           <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
             <strong style="color:var(--text-primary);">Short Market Analysis #${data.history.length - i}</strong>
             <span style="font-family:'JetBrains Mono',monospace; opacity:0.6;">${new Date(h.date).toLocaleTimeString()}</span>
           </div>
           <div style="display:flex; gap:8px; margin-bottom:8px;">
-            <span style="background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; font-weight:600; color:${h.condition === 'VOLATILE' ? 'var(--green)' : 'var(--neon-amber)'};">${h.condition}</span>
-            <span style="background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; font-weight:600;">${h.recommendation}</span>
+            <span style="background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; font-weight:600; color:${conditionColor};">${escapeHtml(condition)}</span>
+            <span style="background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; font-weight:600;">${escapeHtml(h.recommendation)}</span>
           </div>
-          <div style="line-height:1.4; font-size:11px; margin-bottom:8px;">${h.reason}</div>
-          ${h.memory_reflection ? `<div style="padding-top:8px; border-top:1px dashed var(--border); color:var(--neon-cyan);"><strong style="font-size:10px; display:flex; align-items:center; gap:4px; margin-bottom:4px;"><i data-lucide="brain-circuit" style="width:12px; height:12px;"></i> AI Reflection on Memory</strong><div style="line-height:1.4;">${h.memory_reflection}</div></div>` : ''}
+          <div style="line-height:1.4; font-size:11px; margin-bottom:8px;">${escapeHtml(h.reason)}</div>
+          ${h.memory_reflection ? `<div style="padding-top:8px; border-top:1px dashed var(--border); color:var(--neon-cyan);"><strong style="font-size:10px; display:flex; align-items:center; gap:4px; margin-bottom:4px;"><i data-lucide="brain-circuit" style="width:12px; height:12px;"></i> AI Reflection on Memory</strong><div style="line-height:1.4;">${escapeHtml(h.memory_reflection)}</div></div>` : ''}
         `;
         list.appendChild(item);
       });
@@ -4767,7 +4634,6 @@ if (activeTabId) {
   renderMessages();
 }
 
-updateInputDetection();
 function applyLanguageUI(lang) {
   const translations = {
     English: {
@@ -4838,35 +4704,6 @@ setTimeout(detectDns, 100);
 setInterval(loadHealth, 5000); // Keep ms latency live in status bar
 
 
-/* --- Aggressive Mode (No NETRAL) --- */
-const aggressiveModeBtn = document.getElementById('aggressiveModeBtn');
-const aggressiveModeText = document.getElementById('aggressiveModeText');
-let isAggressiveMode = localStorage.getItem('aggressiveMode') === 'true';
-
-function updateAggressiveModeUI() {
-  if (!aggressiveModeBtn || !aggressiveModeText) return;
-  if (isAggressiveMode) {
-    aggressiveModeText.textContent = 'NO NETRAL: ON';
-    aggressiveModeBtn.style.borderColor = 'var(--neon-red)';
-    aggressiveModeBtn.style.color = 'var(--neon-red)';
-    aggressiveModeBtn.style.boxShadow = '0 0 8px rgba(239,68,68,0.4)';
-    aggressiveModeBtn.title = 'Mode Agresif AKTIF: Analisis NETRAL akan dipaksa ke UP atau DOWN';
-  } else {
-    aggressiveModeText.textContent = 'NO NETRAL: OFF';
-    aggressiveModeBtn.style.borderColor = 'rgba(239,68,68,0.35)';
-    aggressiveModeBtn.style.color = 'var(--text-secondary)';
-    aggressiveModeBtn.style.boxShadow = 'none';
-    aggressiveModeBtn.title = 'Mode Agresif: Paksa UP atau DOWN, tidak ada NETRAL';
-  }
-}
-
-// Notify backend of initial state on page load
-fetch('/api/settings/aggressive-mode', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({ enabled: isAggressiveMode })
-}).catch(() => {});
-
 function updateTrackerConfig(minUsd, wallets) {
     // Send settings to backend
     fetch('/api/tracker-config', {
@@ -4928,29 +4765,6 @@ function updateTrackerConfig(minUsd, wallets) {
       }
     });
   }
-
-if (aggressiveModeBtn) {
-  aggressiveModeBtn.addEventListener('click', () => {
-    isAggressiveMode = !isAggressiveMode;
-    localStorage.setItem('aggressiveMode', isAggressiveMode);
-    updateAggressiveModeUI();
-    // Notify backend
-    fetch('/api/settings/aggressive-mode', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ enabled: isAggressiveMode })
-    }).catch(() => {});
-    // Show toast
-    const msg = isAggressiveMode
-      ? '🔴 Mode Agresif ON — Tidak ada NETRAL, semua dipaksa UP atau DOWN'
-      : '⚪ Mode Agresif OFF — NETRAL diperbolehkan';
-    if (typeof showToastNotification === 'function') showToastNotification(msg, isAggressiveMode ? 'warning' : 'info');
-  });
-  updateAggressiveModeUI();
-}
-
-// Expose to be used by analysis result handler
-window.isAggressiveMode = () => isAggressiveMode;
 
 /* --- Polymarket Wallet Logic --- */
 const btnToggleWallet = document.getElementById('btnToggleWallet');
@@ -5088,6 +4902,16 @@ let currentSnifferUiState = 'Offline';
   const dashWalletNick = document.getElementById('dashWalletNick');
   const dashWalletAddBtn = document.getElementById('dashWalletAddBtn');
   const dashWalletTags = document.getElementById('dashWalletTags');
+
+  dashWalletTags?.addEventListener("click", (clickEvent) => {
+    const target = clickEvent.target.closest("[data-wallet-action]");
+    if (!target) return;
+    if (target.dataset.walletAction === "view") {
+      window.viewWalletPositions(target.dataset.address, target.dataset.nickname);
+    } else if (target.dataset.walletAction === "remove") {
+      window.removeDashWallet(target.dataset.address);
+    }
+  });
 
   // Tab Switching
   if (dashTabSniffer && dashTabWallet) {
@@ -5316,11 +5140,14 @@ let currentSnifferUiState = 'Offline';
         const trendingList = document.getElementById('trendingMarketsList');
         if (data.trending && data.trending.length > 0 && trendingContainer && trendingList) {
           trendingContainer.style.display = "flex";
-          trendingList.innerHTML = data.trending.map(t => `
-            <a href="https://polymarket.com/event/${t.slug}" target="_blank" style="text-decoration:none; background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); color:var(--neon-cyan); padding:4px 8px; border-radius:4px; font-size:11px; white-space:nowrap; max-width:200px; overflow:hidden; text-overflow:ellipsis;" title="${t.question} (${t.count} trades)">
-              ${t.count} trades • ${t.question}
-            </a>
-          `).join("");
+          trendingList.innerHTML = data.trending.map(t => {
+            const eventUrl = polymarketEventUrl(t.slug);
+            const content = `${escapeHtml(t.count)} trades • ${escapeHtml(t.question)}`;
+            const attributes = `style="text-decoration:none; background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); color:var(--neon-cyan); padding:4px 8px; border-radius:4px; font-size:11px; white-space:nowrap; max-width:200px; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(t.question)} (${escapeHtml(t.count)} trades)"`;
+            return eventUrl
+              ? `<a href="${escapeHtml(eventUrl)}" target="_blank" rel="noopener noreferrer" ${attributes}>${content}</a>`
+              : `<span ${attributes}>${content}</span>`;
+          }).join("");
         } else if (trendingContainer) {
           trendingContainer.style.display = "none";
         }
@@ -5342,36 +5169,40 @@ let currentSnifferUiState = 'Offline';
                ? "$" + Number(w.sizeUsdc).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
                : "N/A";
              
-             let walletShort = "";
-             if (w.wallet_nickname) {
-               walletShort = `${w.wallet_nickname} (${w.maker.slice(0, 6)}...${w.maker.slice(-4)})`;
-             } else {
-               walletShort = w.maker === "Hidden" ? "Anonymous" : `${w.maker.slice(0, 6)}...${w.maker.slice(-4)}`;
-             }
+              const maker = String(w.maker || "Hidden");
+              let walletShort = "";
+              if (w.wallet_nickname) {
+                walletShort = `${String(w.wallet_nickname)} (${maker.slice(0, 6)}...${maker.slice(-4)})`;
+              } else {
+                walletShort = maker === "Hidden" ? "Anonymous" : `${maker.slice(0, 6)}...${maker.slice(-4)}`;
+              }
              
              const timeAgo = Math.round((Date.now() - w.timestamp) / 1000);
              const timeFmt = timeAgo < 60 ? `${timeAgo}s ago` : `${Math.floor(timeAgo/60)}m ago`;
              const icon = w.side === "BUY" ? "🟢" : (w.side === "SELL" ? "🔴" : "🔵");
              
-             const eventLinkHtml = w.market_slug 
-                 ? `<a href="https://polymarket.com/event/${w.market_slug}" target="_blank" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${w.market_question}</a>`
-                 : w.market_question;
-             
+              const eventUrl = polymarketEventUrl(w.market_slug);
+              const marketQuestion = escapeHtml(w.market_question);
+              const eventLinkHtml = eventUrl
+                ? `<a href="${escapeHtml(eventUrl)}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${marketQuestion}</a>`
+                : marketQuestion;
 
-             const sideClass = w.side.toLowerCase();
-             const outcomeStr = w.outcome === "UP" ? `<span style="color:var(--neon-green)">UP</span>` : (w.outcome === "DOWN" ? `<span style="color:var(--neon-red)">DOWN</span>` : `<span style="color:var(--text-tertiary)">???</span>`);
-             const durationStr = w.duration_type ? `<span style="background:rgba(255,255,255,0.05); padding:2px 4px; border-radius:3px;">${w.duration_type}</span>` : "";
+
+              const side = String(w.side || "OTHER").toUpperCase();
+              const sideClass = side === "BUY" ? "buy" : side === "SELL" ? "sell" : "other";
+              const outcomeStr = w.outcome === "UP" ? `<span style="color:var(--neon-green)">UP</span>` : (w.outcome === "DOWN" ? `<span style="color:var(--neon-red)">DOWN</span>` : `<span style="color:var(--text-tertiary)">???</span>`);
+              const durationStr = w.duration_type ? `<span style="background:rgba(255,255,255,0.05); padding:2px 4px; border-radius:3px;">${escapeHtml(w.duration_type)}</span>` : "";
 
              dashHtml += `
               <div class="tracker-whale-item">
                 <div class="whale-row-top">
-                  <span class="whale-side-badge ${sideClass}">${w.side} ${outcomeStr}</span>
+                  <span class="whale-side-badge ${sideClass}">${escapeHtml(side)} ${outcomeStr}</span>
                   <span class="whale-size">${size}</span>
                   <span class="whale-time">${timeFmt}</span>
                 </div>
                 <div class="whale-market">${eventLinkHtml} ${durationStr}</div>
                 <div style="display:flex; align-items:center;">
-                  <div style="color:var(--text-tertiary); font-family:var(--font-mono); font-size:9px; margin-top:2px;">${walletShort}</div>
+                  <div style="color:var(--text-tertiary); font-family:var(--font-mono); font-size:9px; margin-top:2px;">${escapeHtml(walletShort)}</div>
                   ${w.isTracked ? `<div class="whale-tracked-badge"><i data-lucide="target" style="width:8px; height:8px;"></i> Tracked</div>` : ''}
                 </div>
               </div>
@@ -5403,34 +5234,38 @@ let currentSnifferUiState = 'Offline';
                ? "$" + Number(w.sizeUsdc).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
                : "N/A";
              
-             let walletShort = "";
-             if (w.wallet_nickname) {
-               walletShort = `${w.wallet_nickname} (${w.maker.slice(0, 6)}...${w.maker.slice(-4)})`;
-             } else {
-               walletShort = w.maker === "Hidden" ? "Anonymous" : `${w.maker.slice(0, 6)}...${w.maker.slice(-4)}`;
-             }
+              const maker = String(w.maker || "Hidden");
+              let walletShort = "";
+              if (w.wallet_nickname) {
+                walletShort = `${String(w.wallet_nickname)} (${maker.slice(0, 6)}...${maker.slice(-4)})`;
+              } else {
+                walletShort = maker === "Hidden" ? "Anonymous" : `${maker.slice(0, 6)}...${maker.slice(-4)}`;
+              }
              
              const timeAgo = Math.round((Date.now() - w.timestamp) / 1000);
              const timeFmt = timeAgo < 60 ? `${timeAgo}s ago` : `${Math.floor(timeAgo/60)}m ago`;
              const icon = w.side === "BUY" ? "🟢" : (w.side === "SELL" ? "🔴" : "🔵");
              
-             const eventLinkHtml = w.market_slug 
-                 ? `<a href="https://polymarket.com/event/${w.market_slug}" target="_blank" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${w.market_question}</a>`
-                 : w.market_question;
+              const eventUrl = polymarketEventUrl(w.market_slug);
+              const marketQuestion = escapeHtml(w.market_question);
+              const eventLinkHtml = eventUrl
+                ? `<a href="${escapeHtml(eventUrl)}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${marketQuestion}</a>`
+                : marketQuestion;
                  
 
              
-             const sideClass = w.side.toLowerCase();
+              const side = String(w.side || "OTHER").toUpperCase();
+              const sideClass = side === "BUY" ? "buy" : side === "SELL" ? "sell" : "other";
              dashTrackedHtml += `
               <div class="tracker-whale-item" style="border-left: 2px solid var(--neon-amber); background: rgba(245,158,11,0.02);">
                 <div class="whale-row-top">
-                  <span class="whale-side-badge ${sideClass}">${w.side}</span>
+                  <span class="whale-side-badge ${sideClass}">${escapeHtml(side)}</span>
                   <span class="whale-size">${size}</span>
                   <span class="whale-time">${timeFmt}</span>
                 </div>
                 <div class="whale-market">${eventLinkHtml}</div>
                 <div style="display:flex; align-items:center;">
-                  <div style="color:var(--text-tertiary); font-family:var(--font-mono); font-size:9px; margin-top:2px;">${walletShort}</div>
+                  <div style="color:var(--text-tertiary); font-family:var(--font-mono); font-size:9px; margin-top:2px;">${escapeHtml(walletShort)}</div>
                   <div class="whale-tracked-badge"><i data-lucide="target" style="width:8px; height:8px;"></i> Target</div>
                 </div>
               </div>
@@ -5507,14 +5342,18 @@ let currentSnifferUiState = 'Offline';
       if (activeTrackedWallets.length === 0) {
         dashWalletTags.innerHTML = '';
       } else {
-        dashWalletTags.innerHTML = activeTrackedWallets.map(w => `
-          <div class="wallet-tag" title="${w.address}">
-            <span onclick="window.viewWalletPositions('${w.address}', '${w.nickname}')" style="cursor:pointer; text-decoration:underline; text-underline-offset:2px; font-weight:600; color:var(--text-secondary); transition:color 0.2s;" onmouseover="this.style.color='var(--neon-cyan)';" onmouseout="this.style.color='var(--text-secondary)';">${w.nickname || (w.address.slice(0,6)+'...')}</span>
-            <button type="button" onclick="window.removeDashWallet('${w.address}')">
-              <i data-lucide="x" style="width:10px; height:10px;"></i>
-            </button>
-          </div>
-        `).join("");
+        dashWalletTags.innerHTML = activeTrackedWallets.map(w => {
+          const address = String(w.address || "");
+          const nickname = String(w.nickname || "");
+          return `
+            <div class="wallet-tag" title="${escapeHtml(address)}">
+              <button type="button" data-wallet-action="view" data-address="${escapeHtml(address)}" data-nickname="${escapeHtml(nickname)}" style="cursor:pointer; text-decoration:underline; text-underline-offset:2px; font-weight:600; color:var(--text-secondary); transition:color 0.2s; background:none; border:0; padding:0;" onmouseover="this.style.color='var(--neon-cyan)';" onmouseout="this.style.color='var(--text-secondary)';">${escapeHtml(nickname || `${address.slice(0, 6)}...`)}</button>
+              <button type="button" data-wallet-action="remove" data-address="${escapeHtml(address)}">
+                <i data-lucide="x" style="width:10px; height:10px;"></i>
+              </button>
+            </div>
+          `;
+        }).join("");
         if (typeof lucide !== 'undefined') lucide.createIcons({root: dashWalletTags});
       }
     }
@@ -6048,236 +5887,6 @@ function toggleWhaleVolume() {
 }
 window.toggleWhaleVolume = toggleWhaleVolume;
 
-function injectMspStyles() {
-  if (document.getElementById('msp-styles')) return;
-  const style = document.createElement('style');
-  style.id = 'msp-styles';
-  style.innerHTML = `
-/* Outer bezel */
-.msp-shell { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; padding: 2px; box-shadow: 0 12px 40px rgba(0,0,0,0.6), 0 0 0 0.5px rgba(255,255,255,0.04) inset; }
-.msp-core { box-sizing: border-box; background: rgba(22,22,26,0.98); border-radius: 12px; border: 1px solid rgba(255,255,255,0.07); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); padding: 18px 20px 16px; display: flex; flex-direction: column; justify-content: space-between; gap: 0; }
-.msp-top-row { display: flex; justify-content: space-between; align-items: center; }
-.msp-eyebrow { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 0.18em; }
-.msp-link { font-family: var(--font-secondary); font-size: 10px; font-weight: 500; color: rgba(16,185,129,0.55); letter-spacing: 0.02em; cursor: pointer; transition: color 0.2s ease; }
-.msp-link:hover { color: var(--neon-green); }
-.msp-hero-row { display: flex; align-items: center; flex: 1; margin: 6px 0; }
-.msp-signal-block { flex: 1; display: flex; flex-direction: column; gap: 6px; }
-.msp-signal-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px 6px 12px; border-radius: 8px; width: fit-content; }
-.msp-signal-arrow { font-size: 18px; font-weight: 900; line-height: 1; }
-.msp-signal-text { font-family: var(--font-primary); font-size: 22px; font-weight: 800; letter-spacing: 0.05em; line-height: 1; }
-.msp-vline { width: 1px; height: 48px; background: rgba(255,255,255,0.1); margin: 0 20px; flex-shrink: 0; }
-.msp-entry-block { display: flex; flex-direction: column; gap: 6px; text-align: right; }
-.msp-entry-val { font-family: var(--font-primary); font-size: 18px; font-weight: 800; letter-spacing: 0.04em; line-height: 1; }
-.msp-field-label { font-family: var(--font-secondary); font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
-.msp-hline { height: 1px; background: rgba(255,255,255,0.08); margin: 0 -20px; }
-.msp-strip { display: flex; align-items: stretch; padding: 8px 0; }
-.msp-strip-item { flex: 1; display: flex; flex-direction: column; gap: 5px; padding: 2px 0; }
-.msp-strip-item--wide { flex: 1.6; }
-.msp-strip-sep { width: 1px; background: rgba(255,255,255,0.08); margin: 0 14px; flex-shrink: 0; }
-.msp-strip-label { font-family: var(--font-secondary); font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.32); text-transform: uppercase; letter-spacing: 0.1em; }
-.msp-strip-val { font-family: var(--font-primary); font-size: 13px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
-.msp-depth { padding-top: 8px; }
-.msp-depth-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.msp-depth-bid-txt { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: var(--neon-green); text-transform: uppercase; letter-spacing: 0.07em; }
-.msp-depth-center-txt { font-family: var(--font-secondary); font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.28); text-transform: uppercase; letter-spacing: 0.12em; }
-.msp-depth-ask-txt { font-family: var(--font-secondary); font-size: 9px; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 0.07em; }
-.msp-depth-bar { display: flex; width: 100%; height: 6px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); gap: 1px; }
-.msp-depth-bid-fill { height: 100%; background: linear-gradient(90deg, rgba(16,185,129,0.4), rgba(16,185,129,0.85)); border-radius: 4px 0 0 4px; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(16,185,129,0.5); }
-.msp-depth-ask-fill { height: 100%; background: linear-gradient(90deg, rgba(239,68,68,0.85), rgba(239,68,68,0.4)); border-radius: 0 4px 4px 0; transition: width 1.2s cubic-bezier(0.16,1,0.3,1); box-shadow: 0 0 12px rgba(239,68,68,0.5); }
-@media (max-width: 768px) {
-  .msp-top-row, .msp-hero-row, .msp-strip { flex-wrap: wrap; gap: 12px; }
-  .msp-top-row > div:last-child { flex-wrap: wrap; }
-  .msp-hero-row > div[style*="flex:2.2"] { flex: 1 1 100% !important; order: 3; padding: 0 !important; }
-  .msp-vline, .msp-strip-sep { display: none; }
-  .msp-strip-item { flex: 1 1 calc(50% - 12px); min-width: 120px; }
-  .msp-strip-val { white-space: normal; overflow-wrap: anywhere; }
-}
-`;
-  document.head.appendChild(style);
-}
-
-function buildBentoGrid(text, isHistory = false) {
-  if (typeof injectMspStyles === "function") injectMspStyles();
-
-  const data = {
-     arah: "-", entry: "-", liquidity: "-", gammaVol: "-", orderbook: "-", conf: "-", qwenScore: "-", risk: "-",
-     deadline: "-", summary: "-", targetPrice: "-", realtimePrice: "-", realtimeSource: "Reference", scoreLabel: "AI", analysisTime: null, url: null, tokens: null
-  };
-  const lines = text.split("\n");
-  for (let line of lines) {
-    if (line.includes("Arah market:")) data.arah = line.split("Arah market:")[1].trim().split(" ")[0].toUpperCase();
-    if (line.includes("Entry status:")) data.entry = line.split("Entry status:")[1].trim().split(" ")[0].replace(/[^a-zA-Z]/g, "").toUpperCase();
-    if (line.includes("Liquidity:")) data.liquidity = line.split("Liquidity:")[1].trim().split(" ")[0];
-    if (line.includes("Gamma volume:")) data.gammaVol = line.split("Gamma volume:")[1].trim().split(" ")[0];
-    if (line.startsWith("Orderbook")) data.orderbook = line.split("|").slice(0, 2).join(" | ").replace("Orderbook UP:", "").replace("Orderbook DOWN:", "").trim();
-    if (line.includes("Data confidence:")) data.conf = line.split("|")[0].replace("Data confidence:", "").trim();
-    if (line.includes("Qwen confidence:")) data.qwenScore = line.split("Qwen confidence:")[1].trim();
-    if (line.includes("Deterministic Confidence:")) {
-      data.qwenScore = line.split("Deterministic Confidence:")[1].trim();
-      data.scoreLabel = "TERMINAL";
-    }
-    if (line.includes("API close/resolution:")) data.deadline = line.split("API close/resolution:")[1].replace("WIB", "").trim();
-    if (line.includes("Kesimpulan Analisis:")) data.summary = line.split("Kesimpulan Analisis:")[1].trim();
-    if (line.includes("Target Price:")) data.targetPrice = line.split("Target Price:")[1].trim();
-    if (line.includes("Realtime Chainlink Price:")) {
-      data.realtimePrice = line.split("Realtime Chainlink Price:")[1].trim();
-      data.realtimeSource = "Chainlink";
-    } else if (line.includes("Realtime Price:")) {
-      data.realtimePrice = line.split("Realtime Price:")[1].trim();
-      data.realtimeSource = "Pyth";
-    }
-    if (line.includes("Durasi Analisis:")) data.analysisTime = line.split("Durasi Analisis:")[1].trim().replace(" detik", "");
-    if (line.startsWith("URL:")) data.url = line.split("URL:")[1].trim();
-    if (line.startsWith("Tokens:")) data.tokens = line.split("Tokens:")[1].trim();
-    if (line.startsWith("AI Tokens:")) data.tokens = line.split("AI Tokens:")[1].trim();
-  }
-  
-  // Fallback extraction from summary if backend explicit fields are missing
-  if (data.targetPrice === "-" && data.summary.match(/Target Price\s*\(?\$?([0-9.,]+)\)?/i)) {
-      data.targetPrice = data.summary.match(/Target Price\s*\(?\$?([0-9.,]+)\)?/i)[1];
-  }
-  if (data.realtimePrice === "-" && data.summary.match(/Oracle Pyth\s*\(?\$?([0-9.,]+)\)?/i)) {
-      data.realtimePrice = data.summary.match(/Oracle Pyth\s*\(?\$?([0-9.,]+)\)?/i)[1];
-      data.realtimeSource = "Pyth";
-  }
-
-  const arahColor = data.arah === "UP" ? "var(--neon-green)" : (data.arah === "DOWN" ? "var(--neon-red)" : "var(--neon-cyan)");
-  const arahBg = data.arah === "UP" ? "rgba(16,185,129,0.12)" : (data.arah === "DOWN" ? "rgba(239,68,68,0.12)" : "rgba(6,182,212,0.1)");
-  const arahBorderColor = data.arah === "UP" ? "rgba(16,185,129,0.35)" : (data.arah === "DOWN" ? "rgba(239,68,68,0.35)" : "rgba(6,182,212,0.3)");
-  const entryColor = (data.entry === "WAIT" || data.entry === "WATCHLIST") ? "var(--neon-amber)" : (data.entry === "SKIP" ? "var(--neon-red)" : "var(--neon-green)");
-  const arahArrow = data.arah === "UP" ? "↑" : data.arah === "DOWN" ? "↓" : "—";
-
-  let bidPct = 50;
-  let askPct = 50;
-  let bidStr = "50%";
-  let askStr = "50%";
-  if (data.orderbook && data.orderbook !== "-") {
-     const matchBid = data.orderbook.match(/bid\s+([0-9.]+)/i);
-     const matchAsk = data.orderbook.match(/ask\s+([0-9.]+)/i);
-     if (matchBid && matchAsk) {
-         const bidPrice = parseFloat(matchBid[1]);  // e.g. 0.47
-         const askPrice = parseFloat(matchAsk[1]);  // e.g. 0.48
-         // Midpoint = market implied prob for YES/UP
-         const midpoint = (bidPrice + askPrice) / 2;
-         // Bid side = prob UP (mid), Ask side = prob DOWN (1-mid)
-         bidPct = Math.round(midpoint * 100);
-         askPct = 100 - bidPct;
-         bidStr = bidPct + "%";
-         askStr = askPct + "%";
-     }
-  }
-
-  const headerText = isHistory ? "HISTORY ARCHIVE" : "MARKET SUMMARY";
-  const headerIcon = isHistory ? "archive" : "zap";
-  const headerColor = isHistory ? "var(--neon-purple)" : "var(--neon-amber)";
-  const tokenDisplay = /^\d+$/.test(data.tokens || "") ? `${data.tokens} tkns` : data.tokens;
-
-  return `
-        <div class="msp-top-row">
-           <div class="msp-eyebrow" style="display:flex; align-items:center; gap:6px;">
-             <i data-lucide="${headerIcon}" style="width:12px; height:12px; color:${headerColor};"></i>
-             <span style="color:${headerColor}; font-weight:800; letter-spacing:0.25em;">${headerText}</span>
-           </div>
-           <div style="display:flex; gap:12px; align-items:center;">
-             ${data.analysisTime ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="timer" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.analysisTime}s</span>` : ""}
-              ${tokenDisplay ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;" title="AI Token Usage"><i data-lucide="cpu" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${tokenDisplay}</span>` : ""}
-             ${data.deadline !== "-" ? `<span style="font-family:var(--font-secondary); font-size:9px; color:var(--text-tertiary); text-transform:uppercase;"><i data-lucide="clock" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-top:-2px;margin-right:3px;"></i>${data.deadline}</span>` : ""}
-             ${data.url ? `<a href="${data.url}" target="_blank" class="msp-link" style="color:var(--neon-cyan); text-decoration:none; display:flex; align-items:center; gap:2px;"><i data-lucide="external-link" style="width:12px;height:12px;"></i> Polymarket</a>` : ""}
-             <span class="msp-link" id="bentoKesimpulanBox" onclick="openFullReportModal()" style="cursor:pointer;">View full report →</span>
-             <span class="msp-link" onclick="closeStaticPanel()" style="cursor:pointer; color:var(--neon-red); margin-left:8px; display:flex; align-items:center; gap:2px;" title="Bersihkan isi Market Summary"><i data-lucide="x" style="width:12px;height:12px;"></i> Tutup</span>
-           </div>
-        </div>
-        <div class="msp-hero-row">
-          <div class="msp-signal-block">
-            <div class="msp-signal-pill" style="background:${arahBg}; border:1px solid ${arahBorderColor}; color:${arahColor};">
-              <span class="msp-signal-arrow">${arahArrow}</span>
-              <span class="msp-signal-text">${data.arah}</span>
-            </div>
-            <span class="msp-field-label">AI Signal</span>
-          </div>
-          <div class="msp-vline"></div>
-          
-          <div style="flex:2.2; display:flex; flex-direction:column; justify-content:center; padding:0 12px;">
-             
-             <!-- Premium Price Ticker -->
-              <div style="display:flex; background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:8px 14px; margin-bottom:8px; align-items:center; justify-content:space-between; box-shadow:inset 0 2px 10px rgba(0,0,0,0.4);">
-                <div style="display:flex; flex-direction:column; gap:4px;">
-                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.1em;">Realtime (${data.realtimeSource})</span>
-                   <div style="font-family:var(--font-primary); font-size:18px; font-weight:800; color:var(--text-primary); text-shadow:0 0 12px rgba(255,255,255,0.15); line-height:1;">
-                      ${data.realtimePrice !== "-" ? `$${data.realtimePrice.replace(/^\$/, '')}` : '<span style="font-size:11px;color:rgba(255,255,255,0.2);">WAITING DATA</span>'}
-                   </div>
-                </div>
-                
-                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:0 12px;">
-                   <div style="width:1px; height:8px; background:rgba(255,255,255,0.1); margin-bottom:4px;"></div>
-                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:800; color:rgba(255,255,255,0.2); font-style:italic;">VS</span>
-                   <div style="width:1px; height:8px; background:rgba(255,255,255,0.1); margin-top:4px;"></div>
-                </div>
-                
-                <div style="display:flex; flex-direction:column; gap:4px; text-align:right;">
-                   <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:var(--neon-cyan); text-transform:uppercase; letter-spacing:0.1em; opacity:0.8;">Price to Beat</span>
-                   <div style="font-family:var(--font-primary); font-size:18px; font-weight:800; color:var(--neon-cyan); text-shadow:0 0 12px rgba(6,182,212,0.4); line-height:1;">
-                      ${data.targetPrice !== "-" ? `$${data.targetPrice.replace(/^\$/, '')}` : '<span style="font-size:11px;color:rgba(255,255,255,0.2);">WAITING DATA</span>'}
-                   </div>
-                </div>
-             </div>
-
-             <!-- AI Rationale -->
-             <div style="border-left:2px solid rgba(16,185,129,0.3); padding-left:12px; margin-left:2px;">
-                <span style="font-family:var(--font-secondary); font-size:8px; font-weight:700; color:rgba(255,255,255,0.3); text-transform:uppercase; margin-bottom:4px; letter-spacing:0.1em; display:block;">AI Rationale Snippet</span>
-                <p style="margin:0; font-family:var(--font-secondary); font-size:10.5px; line-height:1.45; color:var(--text-secondary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${data.summary}</p>
-             </div>
-             
-          </div>
-          
-          <div class="msp-vline"></div>
-          <div class="msp-entry-block">
-            <div class="msp-entry-val" style="color:${entryColor};">${data.entry}</div>
-            <span class="msp-field-label">Entry Status</span>
-          </div>
-        </div>
-        <div class="msp-hline"></div>
-        <div class="msp-strip">
-          <div class="msp-strip-item">
-            <span class="msp-strip-label">LIQUIDITY</span>
-            <span class="msp-strip-val" style="color:var(--neon-green);">${data.liquidity}</span>
-          </div>
-          <div class="msp-strip-sep"></div>
-          <div class="msp-strip-item">
-            <span class="msp-strip-label">GAMMA VOL</span>
-            <span class="msp-strip-val" style="color:var(--neon-cyan);">${data.gammaVol}</span>
-          </div>
-          <div class="msp-strip-sep"></div>
-          <div class="msp-strip-item msp-strip-item--wide">
-            <span class="msp-strip-label">ORDERBOOK</span>
-            <span class="msp-strip-val" style="color:var(--text-primary); font-size:12px;">${data.orderbook}</span>
-          </div>
-          <div class="msp-strip-sep"></div>
-          <div class="msp-strip-item">
-            <span class="msp-strip-label">DATA CONF</span>
-            <span class="msp-strip-val" style="color:var(--text-secondary);">${data.conf}</span>
-          </div>
-          <div class="msp-strip-sep"></div>
-          <div class="msp-strip-item">
-            <span class="msp-strip-label">${data.scoreLabel}</span>
-            <span class="msp-strip-val" style="color:var(--neon-purple);">${data.qwenScore}</span>
-          </div>
-        </div>
-        <div class="msp-hline"></div>
-        <div class="msp-depth">
-          <div class="msp-depth-meta">
-            <span class="msp-depth-bid-txt">BID ${bidStr}</span>
-            <span class="msp-depth-center-txt">MARKET DEPTH</span>
-            <span class="msp-depth-ask-txt">ASK ${askStr}</span>
-          </div>
-          <div class="msp-depth-bar">
-            <div class="msp-depth-bid-fill" style="width:${bidPct}%;"></div>
-            <div class="msp-depth-ask-fill" style="width:${askPct}%;"></div>
-          </div>
-        </div>
-  `;
-}
-
 // ==========================================
 // BULK TRADE PANEL LOGIC
 // ==========================================
@@ -6347,38 +5956,41 @@ async function populateTradePanel() {
           predictionColor = "var(--neon-red)";
           canTrade = true;
         } else {
-          predictionText = ["YES", "UP", "NO", "DOWN"].includes(pred) ? `${pred} / SKIP ENTRY` : "NETRAL / SKIP";
+          predictionText = ["YES", "UP", "NO", "DOWN"].includes(pred) ? `${pred} / SKIP ENTRY` : "NO SIGNAL / NO ENTRY";
         }
       } else {
         predictionText = item.status === "DONE" ? "WAITING FOR SYNC" : item.status;
       }
 
       if (isDynamicEntryItem(item)) {
-        const scannerSignal = item.entryScanner?.signal;
-        predictionText = scannerSignal
-          ? `${scannerSignal.direction} / ${item.entryScanner.status === "entry" ? "MANUAL ENTRY" : "NO CHASE"}`
-          : `${String(item.entryScanner?.status || "WAITING").toUpperCase()} / MANUAL ONLY`;
+        const scannerResult = normalizeEntryScannerResult(item.entryScanner);
+        predictionText = scannerResult.outcome === "ENTRY"
+          ? `${scannerResult.issuedSignal?.direction || scannerDirectionLabel(scannerResult.diagnosticLean)} / MANUAL ENTRY ONLY`
+          : `${scannerResult.outcome || "WAITING"} / MANUAL / NO TRADE`;
         canTrade = false;
       }
+
+      const safeQuestion = escapePulseHtml(item.question || item.id);
+      const safePrediction = escapePulseHtml(predictionText);
       
       if (!canTrade) {
         html += `
           <div class="trade-item" style="opacity:0.5; cursor:not-allowed;">
             <div class="trade-checkbox"></div>
             <div style="flex:1; overflow:hidden;">
-              <div style="font-size:12px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.question || item.id}</div>
-              <div style="font-size:10px; color:#aaa;">Signal: ${predictionText} (Cannot Trade)</div>
+              <div style="font-size:12px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${safeQuestion}</div>
+              <div style="font-size:10px; color:#aaa;">Signal: ${safePrediction} (Cannot Trade)</div>
             </div>
           </div>
         `;
       } else {
         hasValid = true;
         html += `
-          <div class="trade-item selected" onclick="toggleTradeItem(this)" data-marketid="${item.id}" data-prediction="${predictionText}">
+          <div class="trade-item selected" onclick="toggleTradeItem(this)" data-marketid="${escapePulseHtml(item.id)}" data-prediction="${safePrediction}">
             <div class="trade-checkbox"></div>
             <div style="flex:1; overflow:hidden;">
-              <div style="font-size:12px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.question || item.id}</div>
-              <div style="font-size:10px; color:#ccc;">AI Signal: <span style="color:${predictionColor}; font-weight:bold;">${predictionText}</span></div>
+              <div style="font-size:12px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${safeQuestion}</div>
+              <div style="font-size:10px; color:#ccc;">AI Signal: <span style="color:${predictionColor}; font-weight:bold;">${safePrediction}</span></div>
             </div>
           </div>
         `;
@@ -6473,12 +6085,7 @@ let marketPulseState = null;
 let marketPulseStream = null;
 
 function escapePulseHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+  return escapeHtml(value);
 }
 
 function setMarketPulseOpen(isOpen) {

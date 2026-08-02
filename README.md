@@ -76,10 +76,6 @@ Kalau port 8787 sudah dipakai, ubah `WEB_PORT` di `.env`.
 Default host adalah `127.0.0.1` supaya UI hanya lokal di komputer sendiri.
 Untuk mengamankan Web UI dengan Basic Auth, isi variabel `WEB_PASSWORD` di `.env`.
 
-## UFC Ultra-Fast Lookup
-Sistem ini menggunakan parser CSV kustom super cepat untuk memuat `data/ufc_dataset.csv` langsung ke RAM dalam hitungan milidetik.
-Jika input dari Polymarket menyebutkan nama petarung yang cocok dengan data di CSV (contoh: "Jon Jones"), bot otomatis mendeteksinya (O(1) lookup) dan meneruskan riwayat statistik tersebut ke Qwen. Tidak diperlukan perintah khusus, pencarian berjalan otomatis di latar belakang untuk market kategori MMA/UFC.
-
 ## Command Telegram
 
 - `/start` atau `/help` - tampilkan bantuan.
@@ -87,7 +83,7 @@ Jika input dari Polymarket menyebutkan nama petarung yang cocok dengan data di C
 - `/example` - tampilkan contoh alur pakai bot.
 - `/top [volume|liquidity|new|ending]` - lihat market aktif yang lagi top tanpa perlu keyword/link.
 - `/search <keyword>` - cari market aktif.
-- `/book <tokenId, marketId, atau link Polymarket>` - cek orderbook token CLOB dari hasil `/search`.
+- `/book <marketId atau link Polymarket>` - cek orderbook market yang sudah lolos policy filter.
 - `/analyze <keyword, marketId, atau link Polymarket>` - cari market paling relevan, analisis market ID pilihan, atau analisis langsung dari link Polymarket.
 - `/quickscan <link/slug event>` - scan cepat event multi-pilihan tanpa Qwen.
 - `/top3 <link/slug event>` - tampilkan 3 pilihan teratas tanpa Qwen.

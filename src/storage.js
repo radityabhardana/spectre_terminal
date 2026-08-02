@@ -1,16 +1,9 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { config } from "./config.js";
+import { databasePath } from "./database-path.js";
 
-const dataDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "data");
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-}
-
-const dbPath = path.join(dataDir, "database.db");
-const db = new Database(dbPath);
+const db = new Database(databasePath);
+export { databasePath };
 export const ANALYSIS_STRATEGY_VERSION = "chainlink-terminal-value-v3";
 
 // Enable WAL mode for better concurrent performance
@@ -154,6 +147,15 @@ export function setCache(key, value) {
     `).run(key, JSON.stringify(value), Date.now());
   } catch (error) {
     console.error("[Storage] setCache error:", error.message);
+  }
+}
+
+export function deleteCache(key) {
+  try {
+    return db.prepare('DELETE FROM cache WHERE key = ?').run(key).changes > 0;
+  } catch (error) {
+    console.error("[Storage] deleteCache error:", error.message);
+    return false;
   }
 }
 

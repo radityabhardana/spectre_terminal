@@ -879,7 +879,10 @@ export async function evaluateShortMarketCondition({
           : fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal),
         fetchChainlinkLivePrice(normalizedAsset, signal),
         typeof refreshMarketPrices === "function"
-          ? Promise.resolve(refreshMarketPrices()).catch(() => null)
+          ? Promise.resolve(refreshMarketPrices()).catch((error) => {
+              if (error?.code === "UNSUPPORTED_UFC") throw error;
+              return null;
+            })
           : Promise.resolve(null),
       ]);
       finalOpeningPrice = openingPrice;
@@ -896,7 +899,7 @@ export async function evaluateShortMarketCondition({
         };
       }
     } catch (error) {
-      if (signal?.aborted) throw error;
+      if (signal?.aborted || error?.code === "UNSUPPORTED_UFC") throw error;
     }
   }
 

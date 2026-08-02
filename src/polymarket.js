@@ -1,5 +1,6 @@
 import dns from "node:dns";
 import { config } from "./config.js";
+import { assertMarketAllowed, isBlockedUfcMarket } from "./market-policy.js";
 import { getCache, setCache } from "./storage.js";
 
 // Multi-network resilience: Dynamic DoH resolver for Polymarket endpoints
@@ -139,6 +140,11 @@ function normalizeMarket(raw, event = null, eventSearchRank = 999) {
         : "",
     description: raw.description || "",
     resolutionSource: raw.resolutionSource || event?.resolutionSource || "",
+    tags: raw.tags ?? event?.tags ?? [],
+    category: raw.category ?? event?.category ?? "",
+    seriesSlug: raw.seriesSlug ?? raw.series_slug ?? event?.seriesSlug ?? event?.series_slug ?? "",
+    series: raw.series ?? event?.series ?? [],
+    sportsMarketType: raw.sportsMarketType ?? raw.sports_market_type ?? event?.sportsMarketType ?? event?.sports_market_type ?? "",
     endDate: raw.endDate || raw.end_date || raw.endDateIso || event?.endDate || event?.end_date || "",
     startDate: raw.eventStartTime || event?.startTime || raw.startDate || raw.start_date || raw.startDateIso || event?.startDate || raw.createdAt || "",
     eventStartTime: raw.eventStartTime || event?.startTime || "",
@@ -162,6 +168,25 @@ function listRows(data, key) {
   if (Array.isArray(data?.[key])) return data[key];
   if (Array.isArray(data?.data)) return data.data;
   return [];
+}
+
+function eventClassification(event) {
+  if (!event || typeof event !== "object") return event;
+  return {
+    question: event.question,
+    title: event.title,
+    slug: event.slug,
+    ticker: event.ticker,
+    description: event.description,
+    resolutionSource: event.resolutionSource,
+    tags: event.tags,
+    category: event.category,
+    seriesSlug: event.seriesSlug ?? event.series_slug,
+    series: event.series,
+    sportsMarketType: event.sportsMarketType ?? event.sports_market_type,
+    url: event.url,
+    urlPath: event.urlPath,
+  };
 }
 
 export function topMarketMode(input = "") {
@@ -254,16 +279,20 @@ export async function listTopMarkets({ mode = "volume", limit = 10 } = {}) {
   const eventRows = listRows(eventsData, "events");
   const eventMarkets = eventRows.flatMap((event, eventIndex) =>
     Array.isArray(event.markets)
-      ? event.markets.map((market) => normalizeMarket(market, event, eventIndex))
+      ? event.markets
+          .map((market) => normalizeMarket(market, event, eventIndex))
+          .filter((market) => !isBlockedUfcMarket(market, eventClassification(event)))
       : []
   );
-
-  let markets = eventMarkets.filter(openTradableMarket);
+  let markets = eventMarkets
+    .filter((market) => !isBlockedUfcMarket(market))
+    .filter(openTradableMarket);
 
   if (!markets.length) {
     const marketsData = await fetchTopMarketRows(modeConfig, limit);
     markets = listRows(marketsData, "markets")
       .map((market) => normalizeMarket(market))
+      .filter((market) => !isBlockedUfcMarket(market))
       .filter(openTradableMarket);
   }
 
@@ -388,12 +417,15 @@ export async function searchMarkets(keyword, limit = 5) {
   const eventMarkets = Array.isArray(data.events)
     ? data.events.flatMap((event, eventIndex) =>
         Array.isArray(event.markets)
-          ? event.markets.map((market) => normalizeMarket(market, event, eventIndex))
+          ? event.markets
+              .map((market) => normalizeMarket(market, event, eventIndex))
+              .filter((market) => !isBlockedUfcMarket(market, eventClassification(event)))
           : []
       )
     : [];
 
   const scored = [...directMarkets.map((market) => normalizeMarket(market)), ...eventMarkets]
+    .filter((market) => !isBlockedUfcMarket(market))
     .filter((market) => market.active && !market.closed)
     .map((market) => ({
       ...market,
@@ -457,6 +489,7 @@ export async function getShortTermMarkets(asset = "btc") {
       if (!event.markets || !event.markets.length) continue;
       const rawMarket = event.markets[0];
       const m = normalizeMarket(rawMarket, event);
+      if (isBlockedUfcMarket(m, eventClassification(event))) continue;
       m.duration_type = durationType;
       m.durationType = durationType;
       m.asset = asset;
@@ -510,18 +543,20 @@ export async function getShortTermMarkets(asset = "btc") {
 export async function getMarketById(marketId, forceRefresh = false, signal = null) {
   const url = new URL(`/markets/${marketId}`, config.gammaUrl);
   const data = await fetchJson(url.toString(), forceRefresh, 3, signal);
-  return normalizeMarket(data);
+  return assertMarketAllowed(normalizeMarket(data));
 }
 
 export async function getMarketBySlug(slug) {
   const url = new URL(`/markets/slug/${slug}`, config.gammaUrl);
   const data = await fetchJson(url.toString());
-  return normalizeMarket(data);
+  return assertMarketAllowed(normalizeMarket(data));
 }
 
 export async function getEventBySlug(slug) {
   const url = new URL(`/events/slug/${slug}`, config.gammaUrl);
-  return fetchJson(url.toString());
+  const data = await fetchJson(url.toString());
+  assertMarketAllowed(eventClassification(data));
+  return data;
 }
 
 function normalizeEvent(raw) {
@@ -582,6 +617,10 @@ function isPolymarketSlug(value) {
   return /^[a-z0-9][a-z0-9-]{2,}$/i.test(slug);
 }
 
+function rethrowUnsupportedUfc(error) {
+  if (error?.code === "UNSUPPORTED_UFC") throw error;
+}
+
 export async function getMarketFromPolymarketLink(value) {
   const parsed = parsePolymarketLink(value);
   if (!parsed) return null;
@@ -589,7 +628,8 @@ export async function getMarketFromPolymarketLink(value) {
   const tryMarketSlug = async () => {
     try {
       return await getMarketBySlug(parsed.slug);
-    } catch {
+    } catch (error) {
+      rethrowUnsupportedUfc(error);
       return null;
     }
   };
@@ -600,7 +640,11 @@ export async function getMarketFromPolymarketLink(value) {
       const markets = Array.isArray(event.markets)
         ? event.markets.map((market) => normalizeMarket(market, event))
         : [];
-      const openMarkets = sortEventMarkets(markets.filter(openTradableMarket));
+      const openMarkets = sortEventMarkets(
+        markets
+          .filter((market) => !isBlockedUfcMarket(market, eventClassification(event)))
+          .filter(openTradableMarket),
+      );
       if (!openMarkets.length) return null;
 
       const selected = openMarkets[0];
@@ -610,7 +654,8 @@ export async function getMarketFromPolymarketLink(value) {
           : "Auto-selected satu-satunya market aktif dari event link.";
 
       return withSelectionNote(selected, note, openMarkets.length);
-    } catch {
+    } catch (error) {
+      rethrowUnsupportedUfc(error);
       return null;
     }
   };
@@ -620,7 +665,8 @@ export async function getMarketFromPolymarketLink(value) {
       const query = parsed.slug.replace(/-/g, " ");
       const markets = await searchMarkets(query, 1);
       return markets[0] || null;
-    } catch {
+    } catch (error) {
+      rethrowUnsupportedUfc(error);
       return null;
     }
   };
@@ -648,7 +694,8 @@ export async function getMarketsFromPolymarketLink(value) {
         event: null,
         markets: market ? [market] : [],
       };
-    } catch {
+    } catch (error) {
+      rethrowUnsupportedUfc(error);
       return null;
     }
   };
@@ -660,14 +707,19 @@ export async function getMarketsFromPolymarketLink(value) {
       const markets = Array.isArray(eventRaw.markets)
         ? eventRaw.markets.map((market) => normalizeMarket(market, eventRaw))
         : [];
-      const openMarkets = sortEventMarkets(markets.filter(openTradableMarket));
+      const openMarkets = sortEventMarkets(
+        markets
+          .filter((market) => !isBlockedUfcMarket(market, eventClassification(eventRaw)))
+          .filter(openTradableMarket),
+      );
 
       return {
         kind: openMarkets.length > 1 ? "event" : "market",
         event,
         markets: openMarkets,
       };
-    } catch {
+    } catch (error) {
+      rethrowUnsupportedUfc(error);
       return null;
     }
   };
@@ -694,7 +746,8 @@ export async function getMarketsFromPolymarketLink(value) {
         },
         markets,
       };
-    } catch {
+    } catch (error) {
+      rethrowUnsupportedUfc(error);
       return null;
     }
   };

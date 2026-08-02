@@ -109,6 +109,7 @@ test("fast entry snapshot exposes deterministic executable pricing without AI me
   const result = entrySnapshotFromShortResult({
     oraclePublishTime: "2026-07-29T06:00:01.000Z",
     evaluation: {
+      actionable: true,
       forecast_direction: "UP",
       primary_outcome_probability: 72,
       expected_value_cents: 13,
@@ -134,6 +135,9 @@ test("fast entry snapshot exposes deterministic executable pricing without AI me
   assert.equal(result.remainingSeconds, 210);
   assert.equal(result.sides.UP.ask, 0.55);
   assert.equal(result.feeBufferCents, 4);
+  assert.equal(result.actionable, true);
+  assert.deepEqual(result.blockers, []);
+  assert.equal(result.marketClosed, false);
   assert.equal("usage" in result, false);
 });
 
@@ -229,7 +233,7 @@ test("short AI timeout keeps deterministic PLAY but never fabricates zero token 
   const output = formatShortResult(qwenResult);
 
   assert.equal(qwenResult.usage, null);
-  assert.match(qwenResult.model, /deepseek-v4-flash.*timeout/i);
+  assert.match(qwenResult.model, /.*timeout/i);
   assert.match(output, /AI Tokens: unavailable \(timeout\)/);
   assert.match(output, /WARNING: AI explanation .*TIMEOUT; deterministic fallback used\./);
   assert.doesNotMatch(output, /Tokens: 0/);
@@ -237,8 +241,9 @@ test("short AI timeout keeps deterministic PLAY but never fabricates zero token 
 
 test("successful short AI explanation reports real provider token usage", () => {
   const usage = { prompt_tokens: 240, completion_tokens: 60, total_tokens: 300 };
+  const providerModel = "qwen-plus";
   const qwenResult = shortEvaluationResult({
-    providerModel: "alims-intl/deepseek-v4-flash",
+    providerModel,
     aiExplanationStatus: "used",
     usage,
     evaluation: { ai_explanation_status: "used" },
@@ -247,7 +252,7 @@ test("successful short AI explanation reports real provider token usage", () => 
 
   assert.equal(qwenResult.usage, usage);
   assert.match(output, /AI Tokens: 300/);
-  assert.match(output, /AI explanation \(alims-intl\/deepseek-v4-flash\): USED/);
+  assert.match(output, /AI explanation \(qwen-plus\): USED/);
   assert.doesNotMatch(output, /deterministic fallback used/);
 });
 

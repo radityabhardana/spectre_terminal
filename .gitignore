@@ -9,6 +9,8 @@ data/*.csv
 *.sqlite
 node_modules/
 npm-debug.log*
+playwright-report/
+test-results/
 
 # Documentation Flows
 docs/

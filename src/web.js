@@ -11,7 +11,7 @@ import { ANALYSIS_STRATEGY_VERSION, completeTradeExecution, getAnalyzedEvents, g
 import { evaluateSingleEvent, evaluateAllResolutions } from "./evaluate.js";
 import { getBinanceWsStatus } from "./binance_ws.js";
 import { getShortMemoryEnabled, runWithAiLanguage, setShortMemoryEnabled } from "./qwen.js";
-import { getSnifferWsStatus, getSnifferEventCounters, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig, setAggressiveMode, getAggressiveMode } from "./sniffer.js";
+import { getSnifferWsStatus, getSnifferEventCounters, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
 import { getBlockchainTrackerHealth } from "./blockchain-tracker.js";
 import { initWallet, getWalletBalances } from "./wallet.js";
 import { initTradeModule } from "./trade.js";
@@ -848,16 +848,6 @@ export function startWebServer(options = {}) {
           startTime: getSnifferStartTime(),
           health: getSnifferWsStatus(),
         });
-      }
-
-      if (req.url === "/api/settings/aggressive-mode" && req.method === "POST") {
-        const body = await readBody(req);
-        setAggressiveMode(!!body.enabled);
-        return sendJson(res, 200, { aggressiveMode: getAggressiveMode() });
-      }
-
-      if (req.url === "/api/settings/aggressive-mode" && req.method === "GET") {
-        return sendJson(res, 200, { aggressiveMode: getAggressiveMode() });
       }
 
       if (req.url === "/api/tracker-config") {

@@ -7,6 +7,7 @@
     <script>!function(){var m=localStorage.getItem('razorbot_mode')||'dark';document.documentElement.setAttribute('data-mode',m);}();</script>
   <title>Spectre</title>
   <link rel="icon" type="image/png" href="/spectreputih.png" />
+  <link rel="stylesheet" href="/terminal-shell.css" />
   <meta name="description" content="Professional Polymarket prediction market analysis terminal with real-time data, AI-powered insights, and order book analysis." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -247,14 +248,14 @@ html[data-font="inter"] {
     <!-- Left Sidebar - Houses Short Market and Queue Panel -->
     <aside id="leftSidebar" style="position:fixed; top:70px; bottom:40px; left:12px; width:420px; z-index:9000; display:flex; flex-direction:column; gap:12px; pointer-events:none;">
       <!-- Short Market Card - Koyfin-style compact widget -->
-      <div id="shortMarketPanel" class="premium-card" style="display:flex; flex-direction:column; flex:1; min-height:0; width:calc(100% - 14px) !important; box-sizing:border-box; pointer-events:auto; overflow:hidden; font-family:var(--font-secondary);">
+      <div id="shortMarketPanel" class="premium-card" style="display:flex; flex-direction:column; flex:1; min-height:0; width:100% !important; box-sizing:border-box; pointer-events:auto; overflow:hidden; font-family:var(--font-secondary);">
       <!-- Header row -->
       <div style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center; position:relative;">
         <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em;">Short Market Events</span>
         <div style="display:flex; align-items:center; gap:6px;">
           <span id="shortMarketStatus" style="font-size:9px; color:#666; font-family:monospace;"></span>
           <button type="button" id="btnBulkAddShort" style="background:none; border:none; cursor:pointer; color:#555; padding:2px; display:flex; align-items:center;" title="Bulk Add All to Queue" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">
-            <i data-lucide="list-plus" style="width:12px; height:12px;"></i>
+            <i data-lucide="layers" style="width:12px; height:12px;"></i>
           </button>
           <button type="button" id="btnRefreshShortMarket" style="background:none; border:none; cursor:pointer; color:#555; padding:2px; display:flex; align-items:center;" title="Refresh" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">
             <i data-lucide="refresh-cw" style="width:11px; height:11px;"></i>
@@ -301,14 +302,6 @@ html[data-font="inter"] {
         <button type="button" id="tabDuration4h" style="flex:1; padding:5px 2px; background:transparent; border:none; border-right:1px solid rgba(255,255,255,0.07); color:#555; font-size:10px; cursor:pointer; transition:all 0.15s;">4h</button>
         <button type="button" id="tabDuration1d" style="flex:1; padding:5px 2px; background:transparent; border:none; color:#555; font-size:10px; cursor:pointer; transition:all 0.15s;">1d</button>
       </div>
-      <!-- Column headers -->
-      <div style="display:grid; grid-template-columns:1fr 36px 36px 65px 30px; gap:0; padding:5px 12px 4px; background:rgba(0,0,0,0.2); border-bottom:1px solid rgba(255,255,255,0.05);">
-        <div style="font-size:9px; font-weight:600; color:#444; text-transform:uppercase; letter-spacing:0.08em;">Event</div>
-        <div style="font-size:9px; font-weight:600; color:#444; text-transform:uppercase; letter-spacing:0.08em; text-align:center;">Yes</div>
-        <div style="font-size:9px; font-weight:600; color:#444; text-transform:uppercase; letter-spacing:0.08em; text-align:center;">No</div>
-        <div style="font-size:9px; font-weight:600; color:#444; text-transform:uppercase; letter-spacing:0.08em; text-align:right;">Time</div>
-        <div></div>
-      </div>
       <!-- Data List -->
       <div id="shortMarketList" style="flex:1; overflow-y:auto; overflow-x:hidden;">
         <div style="text-align:center; padding:20px 12px; color:#444; font-size:10px;">
@@ -319,7 +312,7 @@ html[data-font="inter"] {
     </div>
 
       <!-- Queue Panel - Permanent top-left Koyfin-style widget (under Short Market) -->
-      <div id="queuePanel" class="premium-card" style="display:flex; flex-direction:column; flex:1; min-height:0; width:calc(100% - 14px) !important; box-sizing:border-box; pointer-events:auto; overflow:hidden; font-family:var(--font-secondary);">
+      <div id="queuePanel" class="premium-card" style="display:flex; flex-direction:column; flex:1; min-height:0; width:100% !important; box-sizing:border-box; pointer-events:auto; overflow:hidden; font-family:var(--font-secondary);">
       <!-- Header row -->
       <div id="queuePanelHeader" style="padding:10px 12px 8px; border-bottom:1px solid rgba(255,255,255,0.07); display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em; display:flex; align-items:center; gap:6px;">
@@ -1493,6 +1486,7 @@ html[data-font="inter"] {
     </div>
 
     <script src="/app.js?v=112-dynamic-ev" type="module"></script>
+    <script src="/terminal-shell.js"></script>
   <!-- Agent Analysis Modal -->
   <div id="agentModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.8); backdrop-filter:blur(4px); align-items:center; justify-content:center;">
     <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; width:600px; max-width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.5); display:flex; flex-direction:column;">

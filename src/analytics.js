@@ -1,8 +1,8 @@
 import Database from "better-sqlite3";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { databasePath } from "./database-path.js";
 
-const db = new Database(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "data", "database.db"));
+const db = new Database(databasePath);
+export { databasePath };
 
 export function getShadowTrades({ days = 30 } = {}) {
   try {

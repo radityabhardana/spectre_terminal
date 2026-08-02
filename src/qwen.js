@@ -672,7 +672,6 @@ function researchBlock(researchContext) {
     sentiment: researchContext.sentimentSummary,
     fundamental: researchContext.fundamentalSummary,
     news: researchContext.newsSummary,
-    fighterConditions: researchContext.fighterConditions,
     limitations: researchContext.limitations
   };
 
@@ -891,26 +890,21 @@ ${techData.recentCandles.map(c => `   ${c.time} ${c.direction} $${c.close} vol:$
   // Market type detection — adapts analyst prompts to the event category
   const researchType = researchContext?.type || "general";
   const isCryptoMkt = researchType === "crypto";
-  const isUfcMkt = researchType === "sports_ufc";
   // Short crypto market detection: check duration_type (5m/15m/1h) OR regex on question as fallback
   const isShortCryptoMkt = 
     ["5m", "15m", "1h"].includes(market.duration_type) ||
     /(bitcoin|btc|ethereum|eth|doge|dogecoin).*up.or.down/i.test(market.question || "");
   const durationLabel = market.duration_type === "1h" ? "1 Jam" : market.duration_type === "15m" ? "15 Menit" : "5 Menit";
 
-  const bullAnalystHint = isUfcMkt
-    ? "Fokus pada statistik petarung, track record kemenangan, keunggulan style bertarung (striker vs grappler), kondisi fisik terbaru, dan rekam jejak di fight level yang sama."
-    : isCryptoMkt
-      ? "Fokus pada katalis positif, momentum harga, RSI/MACD bullish, volume tinggi, dan indikator teknikal pendukung tren naik."
-      : "Fokus pada peluang terealisasi berdasarkan data fundamental, berita terbaru, polling/survei, atau base rate historis yang mendukung outcome YES/PRIMARY.";
+  const bullAnalystHint = isCryptoMkt
+    ? "Fokus pada katalis positif, momentum harga, RSI/MACD bullish, volume tinggi, dan indikator teknikal pendukung tren naik."
+    : "Fokus pada peluang terealisasi berdasarkan data fundamental, berita terbaru, polling/survei, atau base rate historis yang mendukung outcome YES/PRIMARY.";
 
-  const bearAnalystHint = isUfcMkt
-    ? "Fokus pada kelemahan petarung sisi YES (cedera terbaru, turun form, kelemahan gaya), keunggulan lawan, dan faktor upset historis di matchup serupa."
-    : isCryptoMkt
-      ? "Fokus pada risiko downside, RSI overbought, MACD death cross, volume lemah, berita negatif makro, atau tanda-tanda reversal teknikal."
-      : "Fokus pada risiko kegagalan outcome YES/PRIMARY: faktor penghambat, data yang kontradiksi, ketidakpastian resolusi, atau base rate rendah.";
+  const bearAnalystHint = isCryptoMkt
+    ? "Fokus pada risiko downside, RSI overbought, MACD death cross, volume lemah, berita negatif makro, atau tanda-tanda reversal teknikal."
+    : "Fokus pada risiko kegagalan outcome YES/PRIMARY: faktor penghambat, data yang kontradiksi, ketidakpastian resolusi, atau base rate rendah.";
 
-  const marketTypeLabel = isUfcMkt ? "OLAHRAGA/UFC" : isCryptoMkt ? "CRYPTO" : "UMUM/POLITIK/EKONOMI";
+  const marketTypeLabel = isCryptoMkt ? "CRYPTO" : "UMUM/POLITIK/EKONOMI/OLAHRAGA";
 
   const sharedContext = `
 CURRENT DATE:

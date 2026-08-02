@@ -1,9 +1,5 @@
 import { config } from "./config.js";
 import { getCache, setCache } from "./storage.js";
-import { initUfcData, detectUfcFighters } from "./ufc.js";
-
-// Initialize UFC data at startup
-initUfcData();
 
 const COIN_ALIASES = [
   { symbol: "BTC", name: "Bitcoin", pair: "BTCUSDT", aliases: ["bitcoin", "btc", "$btc"] },
@@ -777,41 +773,6 @@ function researchSummary(pairs) {
     .join("; ");
 }
 
-async function fetchFighterCondition(fighterName) {
-  try {
-    const query = `site:mmafighting.com OR site:sherdog.com OR site:espn.com/mma "${fighterName}" (training OR camp OR injury OR mental OR weight OR condition)`;
-    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    
-    const key = `ddg:${query}`;
-    const cached = getCache(key, 900);
-    if (cached) return cached;
-    
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-      }
-    });
-    
-    if (!res.ok) return [];
-    const html = await res.text();
-    
-    const snippets = [];
-    const regex = /<a class="result__snippet[^>]*>(.*?)<\/a>/gs;
-    let match;
-    while ((match = regex.exec(html)) !== null) {
-      const clean = match[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/&\w+;/g, " ").replace(/\s+/g, " ").trim();
-      if (clean) snippets.push(clean);
-    }
-    
-    const results = snippets.slice(0, 3);
-    setCache(key, results);
-    return results;
-  } catch (error) {
-    console.error(`Error scraping conditions for ${fighterName}:`, error.message);
-    return [];
-  }
-}
-
 async function fetchPremiumNews(queryStr) {
   if (!queryStr) return [];
   try {
@@ -883,41 +844,7 @@ async function fetchForexFactory() {
 export async function buildResearchContext({ market, event, markets } = {}) {
   const text = marketText({ market, event, markets });
   const primaryText = primaryAssetText({ market, event, markets });
-
-  const detectedUfcFighters = detectUfcFighters(primaryText).length ? detectUfcFighters(primaryText) : detectUfcFighters(text);
-  
   const forexFactoryNews = await fetchForexFactory();
-  
-  if (detectedUfcFighters.length > 0) {
-    const newsResult = await fetchGdeltNews({ uniqueAssets: [], text }); 
-    
-    // Fetch physical/mental conditions via scraper
-    const fighterConditions = {};
-    for (const f of detectedUfcFighters.slice(0, 2)) {
-      const name = f.fighter || f.name || f.Fighter;
-      if (name) {
-        fighterConditions[name] = await fetchFighterCondition(name);
-      }
-    }
-    
-    return {
-      type: "sports_ufc",
-      status: "ok",
-      provider: "Kaggle Dataset + GDELT + DDG Scraper",
-      fetchedAt: new Date().toISOString(),
-      fighters: detectedUfcFighters,
-      fighterConditions,
-      summary: `Terdeteksi ${detectedUfcFighters.length} petarung UFC.`,
-      newsSummary: newsSummary(newsResult),
-      news: newsResult,
-      errors: newsResult.status === "error" ? [newsResult.error] : [],
-      limitations: [
-        "Data base statistik petarung (Kaggle) adalah data historis.",
-        "Kondisi fisik/mental (DDG Scraper) dari artikel MMA.",
-        "Statistik tidak selalu menjamin hasil pertarungan."
-      ]
-    };
-  }
 
   const detectedFromTitle = detectCryptoAssets(primaryText);
   const detectedAssets = detectedFromTitle.length ? detectedFromTitle : detectCryptoAssets(text);

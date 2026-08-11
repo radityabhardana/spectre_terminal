@@ -16,8 +16,7 @@ const QWEN_COMMANDS = new Set([
   "/eventbest",
   "/eventall",
   "/shortcondition",
-  "/shortvibe",
-  "/evaluate"
+  "/shortvibe"
 ]);
 
 function cleanup(map, cutoff) {
@@ -74,7 +73,7 @@ export function enterCommandGuard({ command, arg, message, ctx }) {
   
   // For standard commands, require hasArg. For commands that don't need args, just check the set.
   const isQwenCommand = QWEN_COMMANDS.has(normalizedCommand) &&
-    (hasArg || ["/shortcondition", "/shortvibe", "/evaluate"].includes(normalizedCommand));
+    (hasArg || ["/shortcondition", "/shortvibe"].includes(normalizedCommand));
 
   const lastCommandAt = commandCooldowns.get(scope) || 0;
   const commandWaitMs = config.commandCooldownMs - (now - lastCommandAt);

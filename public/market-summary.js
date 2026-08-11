@@ -206,8 +206,8 @@ export function buildMarketSummaryHtml(text, { isHistory = false } = {}) {
           ${data.tokens ? `<span><i data-lucide="cpu" aria-hidden="true"></i>${safe(data.tokens)}</span>` : ""}
           ${data.deadline ? `<span><i data-lucide="clock" aria-hidden="true"></i>${safe(data.deadline)}</span>` : ""}
           ${safeUrl ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" aria-hidden="true"></i>Polymarket</a>` : ""}
-          <button id="bentoKesimpulanBox" type="button" onclick="openFullReportModal()">Full report</button>
-          <button type="button" class="is-close" onclick="closeStaticPanel()" aria-label="Close Market Summary"><i data-lucide="x" aria-hidden="true"></i></button>
+          <button id="bentoKesimpulanBox" type="button" data-static-action="full-report">Full report</button>
+          <button type="button" class="is-close" data-static-action="close" aria-label="Close Market Summary"><i data-lucide="x" aria-hidden="true"></i></button>
         </div>
       </header>
 

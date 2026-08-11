@@ -15,7 +15,6 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 120_000,
     env: {
-      ENABLE_LIVE_TRADING: "false",
       WEB_HOST: "127.0.0.1",
       WEB_PORT: "8790",
     },

@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import { trackedWallets, marketMap, getSnifferState, pushWhaleEvent } from "./sniffer.js";
+import { trackedWallets, getMarketMap, getSnifferState, pushWhaleEvent } from "./sniffer.js";
 
 const POLYGON_RPC_URL = process.env.POLYGON_RPC_URL;
 const CTF_CONTRACT_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
@@ -82,6 +82,7 @@ export function decodeErc1155TransferLog(log) {
 }
 
 function findMarketForAsset(assetId) {
+  const marketMap = getMarketMap();
   for (const market of Object.values(marketMap)) {
     if (!Array.isArray(market.clobTokenIds) || market.clobTokenIds.length < 2) continue;
     if (String(market.clobTokenIds[0]) === assetId) return { market, outcome: "UP" };
@@ -177,7 +178,7 @@ async function pollLogs(generation) {
   try {
     const currentBlock = await provider.getBlockNumber();
     if (generation !== pollGeneration) return;
-    if (getSnifferState() && Object.keys(marketMap).length === 0) {
+    if (getSnifferState() && Object.keys(getMarketMap()).length === 0) {
       blockchainHealth.state = "WAITING_FOR_MARKETS";
       blockchainHealth.lastBlock = currentBlock;
       return;

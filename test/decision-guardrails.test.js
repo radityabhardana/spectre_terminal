@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { calculateKelly } from "../src/analytics.js";
-import { entrySnapshotFromShortResult, qwenResultFromShortEvaluation, tradePricingForPrediction } from "../src/index.js";
+import { entryPricingForPrediction, entrySnapshotFromShortResult, qwenResultFromShortEvaluation } from "../src/index.js";
 import { formatAnalysis } from "../src/format.js";
 import { normalizeShortAnalysis, parseOpenAiResponse, requestAiText } from "../src/qwen.js";
 import {
@@ -86,13 +86,13 @@ test("Kelly returns zero stake for zero edge and ignores neutral history", () =>
   assert.deepEqual(withNeutral.risk.streak, { type: "none", count: 0 });
 });
 
-test("trade price cap preserves EV plus the configured fee buffer", () => {
+test("entry price cap preserves EV plus the configured fee buffer", () => {
   assert.deepEqual(
-    tradePricingForPrediction({ estimatedFairProbability: 70 }, "UP"),
+    entryPricingForPrediction({ estimatedFairProbability: 70 }, "UP"),
     { fairProbability: 70, maxEntryPrice: 0.61 }
   );
   assert.deepEqual(
-    tradePricingForPrediction({ estimatedFairProbability: 90 }, "="),
+    entryPricingForPrediction({ estimatedFairProbability: 90 }, "="),
     { fairProbability: null, maxEntryPrice: null }
   );
 });
@@ -116,7 +116,7 @@ test("fast entry snapshot exposes deterministic executable pricing without AI me
       oracle_age_ms: 2_000,
       remaining_ms: 210_000,
       guardrail_blockers: [],
-      trade_pricing: {
+      entry_pricing: {
         UP: { direction: "UP", fairProbability: 72, ask: 0.55, netEvCents: 13 },
         DOWN: { direction: "DOWN", fairProbability: 28, ask: 0.46, netEvCents: -22 },
       },
@@ -162,7 +162,7 @@ function shortEvaluationResult(overrides = {}) {
       direction: "DOWN",
       forecast_direction: "DOWN",
       deterministic_snapshot: { upAsk: 0.51, downAsk: 0.5, upMidpoint: 0.505, downMidpoint: 0.495 },
-      trade_pricing: {},
+      entry_pricing: {},
       reason: "Deterministic fallback reason.",
       ...evaluationOverrides,
     },

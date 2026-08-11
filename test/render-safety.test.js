@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import {
   escapeHtml,
   formatLimitedRichText,
-  formatStoredRichText,
   polymarketEventUrl,
   sanitizeHttpUrl,
 } from "../public/render-safety.js";
@@ -19,14 +18,6 @@ test("assistant rich text escapes model HTML before applying allowed markup", ()
   assert.match(rendered, /<em>note<\/em>/);
   assert.match(rendered, /<code>code<\/code>/);
   assert.match(rendered, /63%/);
-});
-
-test("stored reflection markup remains limited after escaping external HTML", () => {
-  const rendered = formatStoredRichText('**Lesson**\\n<img src=x onerror="alert(1)">');
-
-  assert.match(rendered, /^<strong>Lesson<\/strong><br>/);
-  assert.equal(rendered.includes("<img"), false);
-  assert.match(rendered, /&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
 });
 
 test("third-party market slugs become encoded HTTPS Polymarket URLs", () => {

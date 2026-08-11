@@ -3,6 +3,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const RETIRED_ENV_KEYS = new Set([
+  "ENABLE_LIVE_TRADING",
+  "WALLET_PRIVATE_KEY",
+  "CLOB_API_KEY",
+  "CLOB_API_SECRET",
+  "CLOB_API_PASSPHRASE",
+  "ENABLE_AI_REFLECTION_MEMORY",
+]);
 
 function loadDotEnv(filePath) {
   if (!fs.existsSync(filePath)) return;
@@ -16,6 +24,7 @@ function loadDotEnv(filePath) {
     if (eq === -1) continue;
 
     const key = trimmed.slice(0, eq).trim();
+    if (RETIRED_ENV_KEYS.has(key)) continue;
     let value = trimmed.slice(eq + 1).trim();
     if (
       (value.startsWith('"') && value.endsWith('"')) ||
@@ -29,6 +38,7 @@ function loadDotEnv(filePath) {
 }
 
 loadDotEnv(path.join(projectRoot, ".env"));
+for (const key of RETIRED_ENV_KEYS) delete process.env[key];
 
 function positiveInt(value, fallback) {
   const num = Number(value);
@@ -83,11 +93,11 @@ const defaultModels = aiProvider.name === "9router"
       fast: "alims-intl/deepseek-v4-flash",
       analyst: "alims-intl/deepseek-v4-flash",
       final: "alims-intl/deepseek-v4-pro",
-      evaluator: "alims-intl/deepseek-v3.2",
+      fallback: "alims-intl/deepseek-v3.2",
     }
   : aiProvider.name === "dashscope"
-    ? { fast: "qwen-turbo", analyst: "qwen-plus", final: "qwen-max", evaluator: "qwen-max" }
-    : { fast: "", analyst: "", final: "", evaluator: "" };
+    ? { fast: "qwen-turbo", analyst: "qwen-plus", final: "qwen-max", fallback: "qwen-max" }
+    : { fast: "", analyst: "", final: "", fallback: "" };
 
 export const config = {
   aiProviderName: aiProvider.name,
@@ -100,8 +110,7 @@ export const config = {
   qwenBearModel: process.env.QWEN_BEAR_MODEL || process.env.QWEN_ANALYST_MODEL || defaultModels.analyst,
   qwenRiskManagerModel: process.env.QWEN_RISK_MANAGER_MODEL || process.env.QWEN_FINAL_MODEL || process.env.QWEN_MODEL || defaultModels.final,
 
-  // Model Role for Learning/Post-Mortem
-  qwenEvaluatorModel: process.env.QWEN_EVALUATOR_MODEL || process.env.QWEN_FINAL_MODEL || process.env.QWEN_MODEL || defaultModels.evaluator,
+  qwenFallbackModel: process.env.QWEN_FALLBACK_MODEL || process.env.QWEN_FINAL_MODEL || process.env.QWEN_MODEL || defaultModels.fallback,
   qwenShortModel: process.env.QWEN_SHORT_MODEL || process.env.QWEN_BULL_MODEL || process.env.QWEN_FAST_MODEL || defaultModels.fast,
 
   // Model Roles for Multi-Market Event Analysis
@@ -141,21 +150,10 @@ export const config = {
   duplicateCommandCooldownMs: nonNegativeInt(process.env.DUPLICATE_COMMAND_COOLDOWN_MS, 3000),
   webPassword: process.env.WEB_PASSWORD || "",
   minQwenConfidence: positiveInt(process.env.MIN_QWEN_CONFIDENCE, 80),
-  walletPrivateKey: process.env.WALLET_PRIVATE_KEY || "",
-  clobApiKey: process.env.CLOB_API_KEY || "",
-  clobApiSecret: process.env.CLOB_API_SECRET || "",
-  clobApiPassphrase: process.env.CLOB_API_PASSPHRASE || "",
-  enableLiveTrading: process.env.ENABLE_LIVE_TRADING === "true",
-  maxTradeUsdc: positiveNumber(process.env.MAX_TRADE_USDC, 10),
-  maxTradeBatchUsdc: positiveNumber(process.env.MAX_TRADE_BATCH_USDC, 25),
-  maxDailyTradeUsdc: positiveNumber(process.env.MAX_DAILY_TRADE_USDC, 50),
-  maxTradesPerRequest: positiveInt(process.env.MAX_TRADES_PER_REQUEST, 3),
-  tradeSignalTtlSeconds: positiveInt(process.env.TRADE_SIGNAL_TTL_SECONDS, 60),
-  tradeMaxPrice: probabilityPrice(process.env.TRADE_MAX_PRICE, 0.70),
-  tradeFeeBufferCents: positiveNumber(process.env.TRADE_FEE_BUFFER_CENTS, 4),
-  tradeMinSecondsToClose: positiveInt(process.env.TRADE_MIN_SECONDS_TO_CLOSE, 30),
+  entryMaxPrice: probabilityPrice(process.env.ENTRY_MAX_PRICE, 0.70),
+  entryFeeBufferCents: positiveNumber(process.env.ENTRY_FEE_BUFFER_CENTS, 4),
+  entryMinSecondsToClose: positiveInt(process.env.ENTRY_MIN_SECONDS_TO_CLOSE, 30),
   allowInsecureTls: process.env.ALLOW_INSECURE_TLS === "true",
-  enableAiReflectionMemory: process.env.ENABLE_AI_REFLECTION_MEMORY === "true",
 };
 
 export function assertConfig() {
@@ -173,7 +171,7 @@ export function assertQwenConfig() {
   if (!config.qwenApiKey) {
     throw new Error("Missing AI provider key. Configure NINEROUTER_API_KEY, OPENROUTER_API_KEY, or QWEN_API_KEY.");
   }
-  const models = [config.qwenBullModel, config.qwenBearModel, config.qwenRiskManagerModel, config.qwenEvaluatorModel, config.qwenShortModel, config.qwenScoutModel, config.qwenEventAnalystModel, config.qwenEventFinalModel];
+  const models = [config.qwenBullModel, config.qwenBearModel, config.qwenRiskManagerModel, config.qwenFallbackModel, config.qwenShortModel, config.qwenScoutModel, config.qwenEventAnalystModel, config.qwenEventFinalModel];
   if (models.some((model) => !String(model || "").trim())) {
     throw new Error("All AI role model IDs must be configured for the selected provider.");
   }

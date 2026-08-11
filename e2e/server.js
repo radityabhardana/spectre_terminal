@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getSecurityHeaders } from "../src/web-security.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public");
 const host = process.env.WEB_HOST || "127.0.0.1";
@@ -30,6 +31,7 @@ http.createServer(async (request, response) => {
     response.writeHead(200, {
       "cache-control": "no-store",
       "content-type": contentTypes[path.extname(filePath)] || "application/octet-stream",
+      ...getSecurityHeaders(),
     });
     response.end(body);
   } catch {

@@ -2,11 +2,6 @@ import { askQwenShortCondition } from "./qwen.js";
 import { getRecentLiquidations, getOrderbookImbalance } from "./binance_ws.js";
 import { config } from "./config.js";
 import WebSocket from "ws";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(__dirname, "../data");
 
 const BINANCE_FAPI_URLS = [...new Set([config.binanceFuturesBaseUrl, "https://fapi.binance.com"])];
 
@@ -71,8 +66,8 @@ export function selectShortMarketSide({
   upProbability,
   upAsk,
   downAsk,
-  maxPrice = config.tradeMaxPrice,
-  feeBufferCents = config.tradeFeeBufferCents,
+  maxPrice = config.entryMaxPrice,
+  feeBufferCents = config.entryFeeBufferCents,
   minNetEvCents = MIN_NET_EV_CENTS,
   minDirectionalProbability = MIN_DIRECTIONAL_PROBABILITY,
 }) {
@@ -132,9 +127,9 @@ export function evaluateDeterministicShortSnapshot({
   marketActive = true,
   marketClosed = false,
   acceptingOrders = true,
-  maxPrice = config.tradeMaxPrice,
-  feeBufferCents = config.tradeFeeBufferCents,
-  minSecondsToClose = config.tradeMinSecondsToClose,
+  maxPrice = config.entryMaxPrice,
+  feeBufferCents = config.entryFeeBufferCents,
+  minSecondsToClose = config.entryMinSecondsToClose,
 }) {
   const now = finiteNumber(nowMs);
   const start = finiteNumber(startTimeMs);
@@ -207,9 +202,27 @@ export function evaluateDeterministicShortSnapshot({
     }
   }
 
+  const totalDurationMs = start != null && end != null && end > start ? end - start : null;
+  const elapsedMs = start != null && now != null ? Math.max(0, now - start) : null;
+  const progressRatio = totalDurationMs && elapsedMs != null ? Math.min(1, elapsedMs / totalDurationMs) : null;
+
+  const timingPhase = progressRatio == null
+    ? "UNKNOWN"
+    : progressRatio < 0.60
+      ? "ACCUMULATION"
+      : progressRatio < 0.90
+        ? "SWEET_SPOT"
+        : "FREEZE_ZONE";
+
+  if (timingPhase === "FREEZE_ZONE") {
+    blockers.push("[TIMING GUARDRAIL] Market is in FREEZE_ZONE (final 10%). Entry blocked to prevent chase.");
+  }
+
   const actionable = blockers.length === 0 && selection.recommendation === "PLAY";
   const selectedOrLean = selection.selected || forecastSide;
   const leanFairProbability = probability == null ? null : Math.max(probability, 100 - probability);
+  const selectedAsk = selection.selected?.ask ?? forecastSide?.ask ?? null;
+
   return {
     condition: forecastDirection === "NEUTRAL" ? "CHOPPY" : "TRENDING",
     recommendation: actionable ? "PLAY" : "AVOID",
@@ -220,9 +233,10 @@ export function evaluateDeterministicShortSnapshot({
     primary_outcome_probability: probability == null ? null : Number(probability.toFixed(2)),
     estimated_fair_probability: selectedOrLean?.fairProbability == null ? leanFairProbability == null ? null : Number(leanFairProbability.toFixed(2)) : Number(selectedOrLean.fairProbability.toFixed(2)),
     expected_value_cents: selectedOrLean?.netEvCents == null ? null : Number(selectedOrLean.netEvCents.toFixed(2)),
-    selected_ask: selection.selected?.ask ?? null,
+    selected_ask: selectedAsk,
+    timing_phase: timingPhase,
     guardrail_blockers: blockers,
-    trade_pricing: selection.sides,
+    entry_pricing: selection.sides,
     oracle_age_ms: oracleAgeMs,
     remaining_ms: remainingMs,
   };
@@ -584,44 +598,6 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5, sig
   }
 }
 
-function saveShortConditionHistory(result, marketQuestion) {
-  try {
-    const histPath = path.join(dataDir, "short_condition_history.json");
-    let history = [];
-    if (fs.existsSync(histPath)) history = JSON.parse(fs.readFileSync(histPath, "utf-8"));
-    history.push({
-      date: new Date().toISOString(),
-      marketQuestion,
-      condition: result.condition,
-      recommendation: result.recommendation,
-      direction: result.direction,
-      actionable: result.actionable ? 1 : 0,
-      forecastDirection: result.forecast_direction || "NEUTRAL",
-      confidence: result.confidence,
-      primaryOutcomeProbability: result.primary_outcome_probability,
-      selectedOutcomeProbability: result.estimated_fair_probability,
-      expectedValueCents: result.expected_value_cents ?? null,
-      validationIssues: result.validation_issues || [],
-      guardrailBlockers: result.guardrail_blockers || [],
-      rawRecommendation: result.raw_recommendation || null,
-      rawDirection: result.raw_direction || null,
-      rawPrimaryProbability: result.raw_primary_probability ?? null,
-      rawModelOutput: result.rawText || null,
-      aiExplanationStatus: result.ai_explanation_status || "unknown",
-      aiExplanationUsed: result.ai_explanation_used === true,
-      aiExplanationError: result.ai_explanation_error || null,
-      aiModel: result.providerModel || config.qwenShortModel,
-      aiUsage: result.usage || null,
-      technicalSource: result.technical_source || null,
-      deterministicSnapshot: result.deterministic_snapshot || null,
-      reason: result.reason,
-    });
-    fs.writeFileSync(histPath, JSON.stringify(history.slice(-50), null, 2));
-  } catch (error) {
-    console.error("[Short Condition] Gagal menyimpan history:", error.message);
-  }
-}
-
 let longShortRatioCache = {}; // Symbol-specific cache: { [symbol]: { data, timestamp } }
 const CACHE_DURATION_MS = 30 * 1000; // 30 detik (agar selalu fresh tapi anti-spam)
 
@@ -644,12 +620,12 @@ async function fetchLongShortRatio(symbol = "BTCUSDT", signal = null) {
     const ratio  = parseFloat(latest.longShortRatio).toFixed(3);
     const longPct = parseFloat(latest.longAccount * 100).toFixed(1);
     const shortPct = parseFloat(latest.shortAccount * 100).toFixed(1);
-    
+
     const result = { ratio, longPct, shortPct, bias: parseFloat(ratio) >= 1 ? 'LONG_DOMINANT' : 'SHORT_DOMINANT' };
-    
+
     // Save to cache
     longShortRatioCache[symbol] = { data: result, timestamp: now };
-    
+
     return result;
   } catch (err) {
     // Silent catch due to frequent ISP blocking in Indonesia, fallback handles this gracefully
@@ -735,7 +711,6 @@ export async function evaluateShortMarketCondition({
   endDate = null,
   resolutionSource = "",
   includeAiExplanation = true,
-  persistHistory = true,
   refreshFinalSnapshot = true,
 }) {
   const normalizedAsset = String(asset || "BTC").toUpperCase();
@@ -924,8 +899,8 @@ export async function evaluateShortMarketCondition({
     downAsk: finalMarketPrices.downAsk,
     upMidpoint: finalMarketPrices.upMidpoint,
     downMidpoint: finalMarketPrices.downMidpoint,
-    feeBufferCents: config.tradeFeeBufferCents,
-    maxEntryPrice: config.tradeMaxPrice,
+    feeBufferCents: config.entryFeeBufferCents,
+    maxEntryPrice: config.entryMaxPrice,
     marketActive: finalMarketPrices.marketActive ?? marketActive,
     marketClosed: finalMarketPrices.marketClosed ?? marketClosed,
     acceptingOrders: finalMarketPrices.acceptingOrders ?? acceptingOrders,
@@ -961,7 +936,6 @@ export async function evaluateShortMarketCondition({
     ...aiMetadata,
   };
 
-  if (persistHistory) saveShortConditionHistory(result, marketQuestion);
   return {
     tickerData,
     techData: tickerData,

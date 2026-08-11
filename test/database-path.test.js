@@ -22,7 +22,7 @@ function probe(args, env) {
   return JSON.parse(marker.slice(marker.indexOf("DATABASE_PATH_PROBE ") + "DATABASE_PATH_PROBE ".length));
 }
 
-test("node test context keeps storage and analytics away from production and cleans sidecars", () => {
+test("node test context keeps the sole storage connection away from production and cleans sidecars", () => {
   const env = { ...process.env };
   delete env.RAZOR_DATABASE_PATH;
   delete env.NODE_TEST_CONTEXT;
@@ -30,15 +30,14 @@ test("node test context keeps storage and analytics away from production and cle
   const paths = probe(["--test"], env);
 
   assert.equal(typeof paths.storagePath, "string");
-  assert.equal(typeof paths.analyticsPath, "string");
-  assert.equal(paths.storagePath, paths.analyticsPath);
+  assert.equal(paths.analyticsHasDatabasePath, false);
   assert.notEqual(paths.storagePath, productionDatabasePath);
   assert.equal(existsSync(paths.storagePath), false);
   assert.equal(existsSync(`${paths.storagePath}-wal`), false);
   assert.equal(existsSync(`${paths.storagePath}-shm`), false);
 });
 
-test("explicit database override is shared and remains caller-owned", () => {
+test("explicit database override remains caller-owned", () => {
   const tempDir = mkdtempSync(path.join(tmpdir(), "razor-explicit-database-"));
   const explicitPath = path.join(tempDir, "caller-owned.db");
   try {
@@ -47,8 +46,7 @@ test("explicit database override is shared and remains caller-owned", () => {
     const paths = probe([], env);
 
     assert.equal(typeof paths.storagePath, "string");
-    assert.equal(typeof paths.analyticsPath, "string");
-    assert.deepEqual(paths, { storagePath: explicitPath, analyticsPath: explicitPath });
+    assert.deepEqual(paths, { storagePath: explicitPath, analyticsHasDatabasePath: false });
     assert.equal(existsSync(explicitPath), true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

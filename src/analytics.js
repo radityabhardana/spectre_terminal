@@ -1,22 +1,3 @@
-import Database from "better-sqlite3";
-import { databasePath } from "./database-path.js";
-
-const db = new Database(databasePath);
-export { databasePath };
-
-export function getShadowTrades({ days = 30 } = {}) {
-  try {
-    const since = new Date(Date.now() - days * 86400_000).toISOString();
-    return db.prepare(`
-      SELECT * FROM analyzed_events
-      WHERE created_at >= ?
-      ORDER BY created_at DESC
-    `).all(since);
-  } catch {
-    return [];
-  }
-}
-
 export function calculateKelly({
   edge,
   confidence,

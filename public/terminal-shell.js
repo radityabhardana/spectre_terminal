@@ -27,11 +27,10 @@ function initTerminalShell() {
   const resultPanel = document.querySelector(".result-panel");
   const queuePanel = document.querySelector("#queuePanel");
   const centerDashboard = document.querySelector("#centerDashboard");
-  const walletPanel = document.querySelector("#pmRightPanel");
   const topbarActions = document.querySelector(".topbar-actions");
   const statusBar = document.querySelector("#statusBar");
 
-  if (!workspace || !leftSidebar || !controlPanel || !resultPanel || !queuePanel || !topbarActions || !statusBar) return;
+  if (!workspace || !leftSidebar || !resultPanel || !queuePanel || !topbarActions || !statusBar) return;
 
   const skipLink = element("a", {
     className: "terminal-skip-link",
@@ -44,8 +43,8 @@ function initTerminalShell() {
   leftSidebar.setAttribute("aria-label", "Market opportunities");
   workspace.prepend(leftSidebar);
 
-  controlPanel.classList.add("terminal-command-dock");
-  controlPanel.setAttribute("aria-label", "Short-market analysis");
+  controlPanel?.classList.add("terminal-command-dock");
+  controlPanel?.setAttribute("aria-label", "Short-market analysis");
   resultPanel.dataset.terminalRegion = "analysis";
   resultPanel.setAttribute("aria-label", "Market analysis workspace");
 
@@ -89,14 +88,14 @@ function initTerminalShell() {
     target?.scrollIntoView({ block: "start", behavior: "smooth" });
   });
 
-  const executionRail = element("aside", {
-    id: "executionRail",
-    className: "terminal-execution-rail",
-    "data-terminal-region": "execution",
-    "aria-label": "Dynamic EV execution rail",
+  const queueRail = element("aside", {
+    id: "queueRail",
+    className: "terminal-queue-rail",
+    "data-terminal-region": "queue",
+    "aria-label": "Dynamic EV scanner queue",
   });
-  executionRail.append(queuePanel);
-  workspace.append(executionRail);
+  queueRail.append(queuePanel);
+  workspace.append(queueRail);
 
   const entrySignalStatus = document.querySelector("#entrySignalStatus");
   const queuePanelContent = document.querySelector("#queuePanelContent");
@@ -143,15 +142,11 @@ function initTerminalShell() {
   const drawerHead = element("div", { className: "terminal-tool-head" }, `
     <div>
       <span class="terminal-eyebrow">SECONDARY WORKSPACE</span>
-      <h2 id="secondaryToolsTitle">Account, history and live tools</h2>
+      <h2 id="secondaryToolsTitle">History and live intelligence</h2>
     </div>
-    <button id="secondaryToolsClose" type="button" aria-label="Close secondary tools">
-      <i data-lucide="x" aria-hidden="true"></i>
-    </button>
   `);
   const drawerContent = element("div", { id: "secondaryToolsContent", className: "terminal-tool-content" });
   if (centerDashboard) drawerContent.append(centerDashboard);
-  if (walletPanel) drawerContent.prepend(walletPanel);
   toolDrawer.append(drawerHead, drawerContent);
   document.body.append(toolBackdrop, toolDrawer);
 
@@ -174,9 +169,8 @@ function initTerminalShell() {
       <div class="terminal-command-list">
         <button type="button" data-tool-target="pulse"><i data-lucide="activity"></i><span>Market Pulse<small>Regime and live conditions</small></span></button>
         <button type="button" data-tool-target="history"><i data-lucide="history"></i><span>Analysis history<small>Performance and resolved calls</small></span></button>
-        <button type="button" data-tool-target="account"><i data-lucide="wallet"></i><span>Account workspace<small>Wallet, tracker and exposure</small></span></button>
-        <button type="button" data-tool-target="settings"><i data-lucide="settings"></i><span>Settings<small>Scanner, alerts and learning</small></span></button>
-        <button type="button" data-tool-target="trade"><i data-lucide="zap"></i><span>Manual trade panel<small>Guarded execution controls</small></span></button>
+        <button type="button" data-tool-target="account"><i data-lucide="radar"></i><span>Wallet intelligence<small>Read-only tracker and whale activity</small></span></button>
+        <button type="button" data-tool-target="settings"><i data-lucide="settings"></i><span>Settings<small>Scanner, alerts and language</small></span></button>
       </div>
     </div>
   `);
@@ -204,14 +198,13 @@ function initTerminalShell() {
     className: "terminal-mobile-nav",
     "aria-label": "Terminal views",
   }, MOBILE_VIEWS.map((view) => {
-    const icon = { markets: "list-filter", analysis: "scan-search", queue: "radar", account: "wallet" }[view];
-    const label = view[0].toUpperCase() + view.slice(1);
+    const icon = { markets: "list-filter", analysis: "scan-search", queue: "radar", account: "scan-eye" }[view];
+    const label = view === "account" ? "Tracker" : view[0].toUpperCase() + view.slice(1);
     return `<button type="button" data-mobile-view="${view}" aria-label="${label}"><i data-lucide="${icon}" aria-hidden="true"></i><span>${label}</span></button>`;
   }).join(""));
   document.body.append(mobileNav);
 
   const summary = element("div", { className: "terminal-summary-rail", "aria-label": "Terminal summary" }, `
-    <button type="button" data-summary-target="account"><span>Exposure</span><strong id="terminalExposureValue">--</strong></button>
     <button type="button" data-summary-target="history"><span>Win rate</span><strong id="terminalWinRateValue">0%</strong></button>
     <div><span>Mode</span><strong>MANUAL</strong></div>
   `);
@@ -258,7 +251,6 @@ function initTerminalShell() {
     if (target === "pulse") document.querySelector("#marketPulseTrigger")?.click();
     else if (target === "history") document.querySelector("#btnHistory")?.click();
     else if (target === "settings") document.querySelector("#btnSettings")?.click();
-    else if (target === "trade") window.openTradePanel?.();
     else setDrawer(true);
   }
 
@@ -269,8 +261,10 @@ function initTerminalShell() {
     setMobileView(button.dataset.mobileView);
   });
   paletteTrigger.addEventListener("click", () => setPalette(true));
-  drawerTrigger.addEventListener("click", () => setDrawer(true));
-  drawerHead.querySelector("#secondaryToolsClose")?.addEventListener("click", () => setDrawer(false));
+  drawerTrigger.addEventListener("click", () => {
+    const isOpen = toolDrawer.classList.contains("is-open");
+    setDrawer(!isOpen);
+  });
   toolBackdrop.addEventListener("click", () => setDrawer(false));
   paletteBackdrop.addEventListener("click", (event) => {
     const target = event.target.closest("[data-tool-target]");
@@ -280,7 +274,6 @@ function initTerminalShell() {
   summary.addEventListener("click", (event) => {
     const target = event.target.closest("[data-summary-target]")?.dataset.summaryTarget;
     if (target === "history") openTool("history");
-    else if (target === "account") setDrawer(true);
   });
 
   document.addEventListener("keydown", (event) => {
@@ -311,16 +304,13 @@ function initTerminalShell() {
     }
   });
 
-  const exposureSource = document.querySelector("#walletPortfolioValue");
   const winRateSource = document.querySelector("#dashPlayWinRate");
-  const exposureValue = document.querySelector("#terminalExposureValue");
   const winRateValue = document.querySelector("#terminalWinRateValue");
   const syncSummary = () => {
-    if (exposureValue) exposureValue.textContent = exposureSource?.textContent?.trim() || "--";
     if (winRateValue) winRateValue.textContent = winRateSource?.textContent?.trim() || "0%";
   };
   const observer = new MutationObserver(syncSummary);
-  [exposureSource, winRateSource].filter(Boolean).forEach((node) => observer.observe(node, { childList: true, subtree: true, characterData: true }));
+  [winRateSource].filter(Boolean).forEach((node) => observer.observe(node, { childList: true, subtree: true, characterData: true }));
 
   setMobileView("markets");
   syncSummary();

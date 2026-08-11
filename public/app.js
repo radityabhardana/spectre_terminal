@@ -10,7 +10,6 @@ import {
 import {
   escapeHtml,
   formatLimitedRichText,
-  formatStoredRichText,
   polymarketEventUrl,
   sanitizeHttpUrl,
 } from "./render-safety.js";
@@ -166,116 +165,47 @@ setInterval(updateClock, 1000);
   connect();
 })();
 
-/* --- Light / Dark Mode Toggle --- */
-/* --- Theme Panel (Padre Style) Logic --- */
-(function initThemePanel() {
-  const html = document.documentElement;
-  const themeTrigger = document.querySelector("#btnThemePanelTrigger");
-  const themeModal = document.querySelector("#themePanelModal");
-  const closeBtn = document.querySelector("#closeThemeModalBtn");
-  const applyBtn = document.querySelector("#applyThemeBtn");
-  const themeGridItems = document.querySelectorAll(".theme-grid-item");
-  const langBtns = document.querySelectorAll("#themeLangGroup .theme-btn");
-  const fontBtns = document.querySelectorAll("#themeFontGroup .theme-btn");
+/* The terminal has one supported appearance: dark mode with Geist. */
+(function initTerminalAppearance() {
+  document.documentElement.dataset.mode = "dark";
+  document.documentElement.dataset.font = "geist";
+  document.documentElement.removeAttribute("data-theme");
 
-  // Move modals to body to avoid stacking context issues with sidebars
-  const modalIds = ['settingsModal', 'historyModal', 'manualModal', 'improvementModal', 'alertModal', 'reasonModal', 'agentModal', 'positionsModal', 'summaryModal', 'sniperSummaryModal'];
+  const modalIds = ['settingsModal', 'historyModal', 'manualModal', 'alertModal', 'reasonModal', 'positionsModal', 'summaryModal', 'sniperSummaryModal'];
   modalIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) document.body.appendChild(el);
   });
-
-  // Restore from localStorage
-  const savedMode = "dark";
-  const savedFont = "geist";
-  const savedLang = localStorage.getItem("razorbot_lang") || "Indonesia";
-  
-  applyMode(savedMode);
-  applyFont(savedFont);
-
-  if (themeTrigger && themeModal) {
-    themeTrigger.addEventListener("click", () => {
-      themeModal.style.display = "flex";
-    });
-  }
-
-  function closeModal() {
-    if (themeModal) themeModal.style.display = "none";
-  }
-
-  if (closeBtn) closeBtn.addEventListener("click", closeModal);
-  if (applyBtn) applyBtn.addEventListener("click", closeModal);
-  
-  if (themeModal) {
-    themeModal.addEventListener("click", (e) => {
-      if (e.target === themeModal) closeModal();
-    });
-  }
-
-  themeGridItems.forEach(item => {
-    if (item.dataset.theme === savedMode) {
-      themeGridItems.forEach(i => i.classList.remove("active"));
-      item.classList.add("active");
-    }
-    item.addEventListener("click", () => {
-      themeGridItems.forEach(i => i.classList.remove("active"));
-      item.classList.add("active");
-      const next = item.dataset.theme;
-      applyMode(next);
-      localStorage.setItem("razorbot_mode", next);
-    });
-  });
-
-  langBtns.forEach(btn => {
-    if (btn.dataset.lang === savedLang) {
-      langBtns.forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-    }
-    btn.addEventListener("click", () => {
-      langBtns.forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      const next = btn.dataset.lang;
-      localStorage.setItem("razorbot_lang", next);
-      
-      const sysSelect = document.getElementById("botLanguageSelect");
-      if(sysSelect) sysSelect.value = next;
-      
-      if (typeof applyLanguageUI === "function") applyLanguageUI(next);
-    });
-  });
-
-  fontBtns.forEach(btn => {
-    if (btn.dataset.font === savedFont) {
-      fontBtns.forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-    }
-    btn.addEventListener("click", () => {
-      fontBtns.forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      const next = btn.dataset.font;
-      localStorage.setItem("razorbot_font", next);
-      applyFont(next);
-    });
-  });
-
-  function applyMode(mode) {
-    if (mode === "light") {
-      html.setAttribute("data-mode", "light");
-      html.removeAttribute("data-theme");
-    } else {
-      html.setAttribute("data-mode", "dark");
-      if (mode === "dark") {
-        html.removeAttribute("data-theme");
-      } else {
-        html.setAttribute("data-theme", mode);
-      }
-    }
-  }
-
-  function applyFont(font) {
-    html.setAttribute("data-font", font);
-  }
 })();
+
+document.querySelector("#sidebarBackdrop")?.addEventListener("click", () => {
+  document.body.classList.remove("sidebar-open");
+});
+
+document.querySelector("#sidebarToggleBtn")?.addEventListener("click", () => {
+  document.body.classList.toggle("sidebar-open");
+});
+
+document.addEventListener("click", (event) => {
+  const closeModalButton = event.target.closest("[data-close-modal]");
+  if (closeModalButton) {
+    const modal = document.getElementById(closeModalButton.dataset.closeModal);
+    if (modal) modal.style.display = "none";
+    return;
+  }
+
+  const staticAction = event.target.closest("[data-static-action]")?.dataset.staticAction;
+  if (staticAction === "close") closeStaticPanel();
+  if (staticAction === "full-report") openFullReportModal();
+});
+
+const whaleVolumeToggle = document.querySelector("#whaleVolumeToggle");
+whaleVolumeToggle?.addEventListener("click", toggleWhaleVolume);
+whaleVolumeToggle?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  toggleWhaleVolume();
+});
 
 /* --- Helpers --- */
 function shortLabel(value, max = 34) {
@@ -772,9 +702,8 @@ function appendMessageElement(message) {
           const bentoHtml = buildMarketSummaryHtml(message.text);
           staticContent.style.overflowY = "auto";
           staticContent.innerHTML = bentoHtml;
-          // Store the report HTML globally so openFullReportModal() can access it
+          // Store the report HTML globally so the full-report action can access it.
           window._currentReportHtml = html;
-          // Handler is now inline onclick="openFullReportModal()" on the span itself
 
         } else {
           staticContent.style.overflowY = "auto";
@@ -786,7 +715,7 @@ function appendMessageElement(message) {
       } else {
         // Raw text / errors: also show them in the static panel if the console feed is hidden
         staticContent.style.overflowY = "auto";
-        staticContent.innerHTML = `<div style="display:flex; flex-direction:column; justify-content:center; padding: 24px; background:var(--bg-elevated); border-radius:12px; border:1px solid rgba(255,255,255,0.05); position:relative;">\n          <button onclick="closeStaticPanel()" style="position:absolute; top:12px; right:12px; background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:16px;height:16px;"></i></button>\n          ${html}\n        </div>`;
+        staticContent.innerHTML = `<div style="display:flex; flex-direction:column; justify-content:center; padding: 24px; background:var(--bg-elevated); border-radius:12px; border:1px solid rgba(255,255,255,0.05); position:relative;">\n          <button data-static-action="close" style="position:absolute; top:12px; right:12px; background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:16px;height:16px;"></i></button>\n          ${html}\n        </div>`;
         if (window.lucide) window.lucide.createIcons({ root: staticContent });
         wrapper.style.display = "none";
       }
@@ -1320,8 +1249,13 @@ function showToast(text, type = "error", durationMs = 8000) {
     cursor: pointer;
   `;
   
-  const icon = isError ? "⚠" : "✓";
-  toast.innerHTML = `<span style="flex-shrink:0; font-size:12px;">${icon}</span><span>${text.replace(/\n/g, "<br>")}</span>`;
+  const icon = document.createElement("span");
+  icon.style.cssText = "flex-shrink:0; font-size:12px;";
+  icon.textContent = isError ? "!" : "OK";
+  const message = document.createElement("span");
+  message.style.whiteSpace = "pre-line";
+  message.textContent = String(text || "");
+  toast.append(icon, message);
   toast.title = "Click to dismiss";
   toast.addEventListener("click", () => removeToast(toast));
   
@@ -1595,7 +1529,7 @@ async function loadHealth() {
       
       const isError = !qwenConfigured || serverOutdated;
       const baseText = serverOutdated ? "Server old" : qwenLabel || "Qwen ?";
-      qwenStatus.innerHTML = isError ? `<span style="display:flex; align-items:center; gap:4px; cursor:pointer;" title="Click to reconnect"><i data-lucide="refresh-cw" style="width:10px; height:10px;"></i> ${baseText}</span>` : baseText;
+      qwenStatus.innerHTML = isError ? `<span style="display:flex; align-items:center; gap:4px; cursor:pointer;" title="Click to reconnect"><i data-lucide="refresh-cw" style="width:10px; height:10px;"></i> ${escapeHtml(baseText)}</span>` : escapeHtml(baseText);
       if (isError && typeof lucide !== 'undefined') lucide.createIcons();
       qwenStatus.style.cursor = isError ? "pointer" : "default";
     }
@@ -1629,7 +1563,7 @@ async function loadHealth() {
         totalUsed += tokens;
         tokenHtml += `
           <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:4px 8px; border-radius:4px; font-size:10px; gap:8px;">
-            <span style="color:var(--text-primary); font-family:var(--font-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;" title="${model}">${model}</span>
+             <span style="color:var(--text-primary); font-family:var(--font-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;" title="${escapeHtml(model)}">${escapeHtml(model)}</span>
             <span style="color:var(--neon-green); font-weight:bold; white-space:nowrap;">${tokens.toLocaleString()}</span>
           </div>
         `;
@@ -1676,36 +1610,6 @@ async function detectDns() {
     sbDns.textContent = "DNS: Not Detected";
   }
 }
-
-/* --- Wallet Stream --- */
-const walletStream = new EventSource('/api/wallet-stream');
-walletStream.addEventListener('message', (e) => {
-  try {
-    const data = JSON.parse(e.data);
-    const pmHeader = document.getElementById('pmWalletAddress');
-    if (data.connected && pmHeader) {
-      // Truncate address to 0x...1234
-      const addr = data.address;
-      const shortAddr = `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-      pmHeader.textContent = shortAddr;
-      pmHeader.style.color = 'var(--neon-green)';
-      pmHeader.style.borderColor = 'rgba(16,185,129,0.3)';
-      pmHeader.style.background = 'rgba(16,185,129,0.05)';
-      
-      // Update balances if they are not hidden
-      if (!isWalletHidden) {
-        if (walletUsdcBalance) walletUsdcBalance.textContent = `$${data.usdc.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-        if (walletPortfolioValue) walletPortfolioValue.textContent = `$${data.usdc.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`; // Basic mock for portfolio
-        // Native balance could be shown somewhere, but standard Polymarket UI uses USDC primarily.
-      }
-      
-      // Save full data to a global or data attribute if needed
-      window.walletData = data;
-    }
-  } catch (err) {
-    console.error('Error parsing wallet stream:', err);
-  }
-});
 
 /* --- Event Listeners --- */
 
@@ -1909,7 +1813,7 @@ async function fetchShortMarkets() {
     console.error("Failed to fetch short markets:", error);
     if (shortMarketStatus) shortMarketStatus.textContent = "Network error";
     if (shortMarketList) {
-      shortMarketList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--neon-red);"><i data-lucide="wifi-off" style="width:24px; height:24px; margin-bottom:8px;"></i><br><b>Gagal memuat data.</b><br><br><span style="font-size:10px; color:var(--text-tertiary);">Error: ${error.message}<br>Kemungkinan penyebab:<br>1. Jaringan terputus<br>2. Server backend mati/restart<br>3. Blocked by browser extension</span></div>`;
+      shortMarketList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--neon-red);"><i data-lucide="wifi-off" style="width:24px; height:24px; margin-bottom:8px;"></i><br><b>Gagal memuat data.</b><br><br><span style="font-size:10px; color:var(--text-tertiary);">Error: ${escapeHtml(error.message)}<br>Kemungkinan penyebab:<br>1. Jaringan terputus<br>2. Server backend mati/restart<br>3. Blocked by browser extension</span></div>`;
       if (window.lucide) window.lucide.createIcons();
     }
   }
@@ -1968,7 +1872,7 @@ function populateBulkStartOptions() {
   customBulkStartOptions.innerHTML = activeCards.map((card, idx) => {
     const title = (card.getAttribute("data-question") || card.querySelector("span")?.textContent || `Market ${idx + 1}`).trim();
     const timeText = card.querySelector(".short-market-timer")?.textContent || "";
-    return `<div class="bulk-start-item" data-index="${idx}" style="padding:6px 8px; font-size:10px; cursor:pointer; color:var(--text-primary); border-bottom:1px solid rgba(255,255,255,0.03); display:flex; justify-content:space-between; align-items:center;" onmouseover="this.style.background='rgba(245,158,11,0.2)'" onmouseout="this.style.background='transparent'" onclick="selectBulkStartItem(${idx}, '${title.replace(/'/g, "\\'")}')">
+    return `<div class="bulk-start-item" data-index="${idx}" data-title="${escapeHtml(title)}" style="padding:6px 8px; font-size:10px; cursor:pointer; color:var(--text-primary); border-bottom:1px solid rgba(255,255,255,0.03); display:flex; justify-content:space-between; align-items:center;">
       <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px;">${idx + 1}. ${escapePulseHtml(title)}</span>
       <span style="font-size:9px; color:var(--neon-green); font-weight:bold;">${escapePulseHtml(timeText)}</span>
     </div>`;
@@ -2026,6 +1930,12 @@ document.addEventListener("DOMContentLoaded", () => {
       customBulkStartOptions.style.display = customBulkStartOptions.style.display === "flex" || customBulkStartOptions.style.display === "block" ? "none" : "flex";
     });
   }
+
+  customBulkStartOptions?.addEventListener("click", (event) => {
+    const item = event.target.closest(".bulk-start-item");
+    if (!item) return;
+    window.selectBulkStartItem(Number(item.dataset.index), item.dataset.title || "");
+  });
 
   if (btnConfirmBulkAdd) {
     btnConfirmBulkAdd.addEventListener("click", () => {
@@ -2111,17 +2021,15 @@ function renderShortMarkets(markets) {
     const cardCursor = (isFuture || isLockedOut) ? "not-allowed" : "pointer";
     const cardBg = isFuture ? "rgba(0,0,0,0.3)" : (isLockedOut ? "rgba(220,38,38,0.1)" : "rgba(0,0,0,0.15)");
     const cardBorder = isFuture ? "rgba(255,255,255,0.02)" : (isLockedOut ? "rgba(220,38,38,0.2)" : "rgba(255,255,255,0.05)");
-    const cardHoverBorder = isFuture ? "rgba(255,255,255,0.1)" : (isLockedOut ? "rgba(220,38,38,0.4)" : "rgba(245,158,11,0.3)");
-    const onClickAttr = isClosed
-      ? `onclick="showCustomAlert('Event sudah ditutup dan tidak dapat dianalisis lagi.')"`
-      : isFuture
-        ? `onclick="showCustomAlert('Market belum aktif. Drag ke antrean (Sniper) untuk dianalisis otomatis nanti.')"`
-        : isLockedOut
-          ? `onclick="showCustomAlert('Waktu tersisa kurang dari 1 menit! Market sudah dikunci (locked out) dan terlalu berisiko untuk dibeli.')"`
-          : `onclick="analyzeShortMarket('${m.id}', '${m.url}')"`;
-    const onDragAttr = (isClosed || isLockedOut)
-      ? `draggable="false"`
-      : `draggable="true" ondragstart="handleDragStart(event, this)" ondragend="handleDragEnd(event)"`;
+    const cardState = isClosed ? "closed" : isFuture ? "future" : isLockedOut ? "locked" : "active";
+    const safeId = escapeHtml(m.id);
+    const safeUrl = escapeHtml(sanitizeHttpUrl(m.url) || "");
+    const safeQuestion = escapeHtml(m.question || "");
+    const safeTitle = escapeHtml((m.groupItemTitle || m.question || "").trim());
+    const safeEndDate = escapeHtml(m.endDate || "");
+    const safeDuration = escapeHtml(m.duration_type || activeShortDuration || "5m");
+    const safeLabelYes = escapeHtml(labelYes);
+    const safeLabelNo = escapeHtml(labelNo);
 
     const isSnipeBtn = isFuture;
     const btnClass = isSnipeBtn ? "btn-snipe-market" : "btn-add-to-queue";
@@ -2130,21 +2038,21 @@ function renderShortMarkets(markets) {
     const btnTitle = isSnipeBtn ? "Snipe Market (Auto-Analyze when active)" : "Add to Queue";
     const btnColor = isSnipeBtn ? "var(--neon-amber)" : "var(--text-secondary)";
 
-    const addBtnHtml = !isClosed ? `<button class="${btnClass}" style="display:${btnDisplay}; height:20px; width:20px; padding:0; border-radius:4px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:${btnColor}; cursor:pointer; align-items:center; justify-content:center; margin-left:8px; flex-shrink:0; transition:all 0.2s;" onmouseover="this.style.background='rgba(245,158,11,0.2)'; this.style.color='var(--neon-amber)'; this.style.borderColor='rgba(245,158,11,0.5)';" onmouseout="this.style.background='rgba(255,255,255,0.05)'; this.style.color='${btnColor}'; this.style.borderColor='rgba(255,255,255,0.1)';" onclick="event.stopPropagation(); window.addCardToQueue(this.closest('.btc5m-card')); if('${btnClass}' === 'btn-snipe-market') { this.innerHTML='<i data-lucide=&quot;loader&quot; style=&quot;width:12px; height:12px; animation: spin 2s linear infinite;&quot;></i>'; if(typeof lucide !== 'undefined') lucide.createIcons({root:this}); this.style.pointerEvents='none'; this.style.color='var(--neon-green)'; this.style.borderColor='rgba(16,185,129,0.5)'; showCustomAlert('🎯 Market dimasukkan ke antrean Sniper!'); }" title="${btnTitle}"><i data-lucide="${btnIcon}" style="width:12px; height:12px;"></i></button>` : '';
+    const addBtnHtml = !isClosed ? `<button class="${btnClass}" data-short-action="add" style="display:${btnDisplay}; height:20px; width:20px; padding:0; border-radius:4px; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.05); color:${btnColor}; cursor:pointer; align-items:center; justify-content:center; margin-left:8px; flex-shrink:0; transition:all 0.2s;" title="${btnTitle}"><i data-lucide="${btnIcon}" style="width:12px; height:12px;"></i></button>` : '';
 
     return `
-      <div class="btc5m-card" ${onDragAttr} data-id="${m.id}" data-url="${m.url}" data-question="${(m.question || '').replace(/"/g, '&quot;')}" data-end-date="${m.endDate || ''}" data-duration-type="${m.duration_type || activeShortDuration || '5m'}" style="padding:8px 10px; border:1px solid ${cardBorder}; border-radius:4px; background:${cardBg}; opacity:${cardOpacity}; cursor:${cardCursor}; transition:all 0.2s;" ${isFuture ? '' : `onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='${cardHoverBorder}';" onmouseout="this.style.background='${cardBg}'; this.style.borderColor='${cardBorder}';"`} ${onClickAttr}>
+      <div class="btc5m-card" draggable="${!isClosed && !isLockedOut}" data-card-state="${cardState}" data-id="${safeId}" data-url="${safeUrl}" data-question="${safeQuestion}" data-end-date="${safeEndDate}" data-duration-type="${safeDuration}" style="padding:8px 10px; border:1px solid ${cardBorder}; border-radius:4px; background:${cardBg}; opacity:${cardOpacity}; cursor:${cardCursor}; transition:all 0.2s;">
         <div style="display:flex; justify-content:space-between; margin-bottom:4px; align-items:flex-start;">
-          <span style="font-weight:600; color:var(--text-primary); font-size:11px; flex:1; min-width:0; word-wrap:break-word;">${(m.groupItemTitle || m.question || '').trim()}</span>
+          <span style="font-weight:600; color:var(--text-primary); font-size:11px; flex:1; min-width:0; word-wrap:break-word;">${safeTitle}</span>
           <div style="display:flex; align-items:center;">
-            <span class="short-market-timer" data-end-date="${m.endDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${labelYes}" data-l-no="${labelNo}" data-is-future="${isFuture}" style="color:${timeColor}; font-weight:700; font-size:10px; white-space:nowrap; flex-shrink:0; text-align:right; margin-left:8px;">${timeText}</span>
+            <span class="short-market-timer" data-end-date="${safeEndDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${safeLabelYes}" data-l-no="${safeLabelNo}" data-is-future="${isFuture}" style="color:${timeColor}; font-weight:700; font-size:10px; white-space:nowrap; flex-shrink:0; text-align:right; margin-left:8px;">${escapeHtml(timeText)}</span>
             ${addBtnHtml}
           </div>
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <div style="display:flex; gap:8px;">
-            <span style="color:var(--neon-green); font-size:10px;">${labelYes}: ${pYes}c</span>
-            <span style="color:var(--neon-red); font-size:10px;">${labelNo}: ${pNo}c</span>
+            <span style="color:var(--neon-green); font-size:10px;">${safeLabelYes}: ${pYes}c</span>
+            <span style="color:var(--neon-red); font-size:10px;">${safeLabelNo}: ${pNo}c</span>
           </div>
         </div>
       </div>
@@ -2169,6 +2077,47 @@ function renderShortMarkets(markets) {
   shortMarketList.innerHTML = html;
   if (typeof lucide !== 'undefined') lucide.createIcons({ root: shortMarketList });
 }
+
+shortMarketList?.addEventListener("click", (event) => {
+  const card = event.target.closest(".btc5m-card");
+  if (!card) return;
+
+  const addButton = event.target.closest('[data-short-action="add"]');
+  if (addButton) {
+    event.stopPropagation();
+    window.addCardToQueue(card);
+    if (addButton.classList.contains("btn-snipe-market")) {
+      addButton.innerHTML = '<i data-lucide="loader" style="width:12px; height:12px; animation:spin 2s linear infinite;"></i>';
+      addButton.style.pointerEvents = "none";
+      addButton.style.color = "var(--neon-green)";
+      addButton.style.borderColor = "rgba(16,185,129,0.5)";
+      if (typeof lucide !== "undefined") lucide.createIcons({ root: addButton });
+      showCustomAlert("Market dimasukkan ke antrean Sniper.");
+    }
+    return;
+  }
+
+  const messages = {
+    closed: "Event sudah ditutup dan tidak dapat dianalisis lagi.",
+    future: "Market belum aktif. Tambahkan ke antrean Sniper untuk dianalisis otomatis nanti.",
+    locked: "Waktu tersisa kurang dari 1 menit. Market dikunci karena risikonya terlalu tinggi.",
+  };
+  if (messages[card.dataset.cardState]) {
+    showCustomAlert(messages[card.dataset.cardState]);
+    return;
+  }
+  window.analyzeShortMarket(card.dataset.id, card.dataset.url);
+});
+
+shortMarketList?.addEventListener("dragstart", (event) => {
+  const card = event.target.closest('.btc5m-card[draggable="true"]');
+  if (card) window.handleDragStart(event, card);
+});
+
+shortMarketList?.addEventListener("dragend", (event) => {
+  const card = event.target.closest(".btc5m-card");
+  if (card) card.style.opacity = card.dataset.cardState === "future" ? "0.5" : "1";
+});
 
 function startShortRealtimeTimer() {
   if (shortMarketRealtimeInterval) clearInterval(shortMarketRealtimeInterval);
@@ -2381,8 +2330,8 @@ if (queuePanel && queuePanelHeader) {
     // Stop dragging if clicking interactive control elements inside header (e.g. trash icon, buttons)
     if (e.target.closest("button, input, select, a, [role='button']")) return;
     
-    // If panel is docked inside execution rail, do not allow drag offset calculations that fling it off-screen
-    if (queuePanel.closest("#executionRail")) {
+    // A docked queue does not use free-drag offsets.
+    if (queuePanel.closest("#queueRail")) {
       queuePanel.style.left = "";
       queuePanel.style.top = "";
       queuePanel.style.right = "";
@@ -2398,7 +2347,7 @@ if (queuePanel && queuePanelHeader) {
 
   document.addEventListener("mousemove", (e) => {
     if (!isDragging) return;
-    if (queuePanel.closest("#executionRail")) {
+    if (queuePanel.closest("#queueRail")) {
       isDragging = false;
       queuePanel.style.left = "";
       queuePanel.style.top = "";
@@ -2599,6 +2548,8 @@ function buildDynamicScannerResultHtml(item) {
   const lean = escapePulseHtml(scannerDirectionLabel(result.diagnosticLean));
   const observedDirection = escapePulseHtml(observed?.direction || "-");
   const dataStatus = escapePulseHtml(result.dataStatus);
+  const timingPhase = escapePulseHtml(result?.timingPhase || "SWEET_SPOT");
+  const asymmetricEdge = formatScannerCents(observed?.grossEvCents);
   const gateHtml = gates.length
     ? gates.map(message => `<li>${escapePulseHtml(message)}</li>`).join("")
     : "<li>None</li>";
@@ -2617,9 +2568,9 @@ function buildDynamicScannerResultHtml(item) {
         <div><span>Best Observed</span><strong>${observedDirection}</strong></div>
         <div><span>Fair</span><strong>${formatScannerPercent(observed?.fairProbability)}</strong></div>
         <div><span>Ask</span><strong>${formatScannerPrice(observed?.ask)}</strong></div>
-        <div><span>Gross EV</span><strong>${formatScannerCents(observed?.grossEvCents)}</strong></div>
+        <div><span>Asymmetric Edge</span><strong style="color:var(--neon-green);">${asymmetricEdge}</strong></div>
         <div><span>Net EV</span><strong>${formatScannerCents(observed?.netEvCents)}</strong></div>
-        <div><span>Confirmations</span><strong>${result.maxConfirmationCount}/${result.requiredConfirmations}</strong></div>
+        <div><span>Timing Window</span><strong style="color:var(--neon-cyan);">${timingPhase}</strong></div>
         <div><span>Data</span><strong>${dataStatus}</strong></div>
       </div>
       <div class="dynamic-ev-gates"><span>Exact Gates</span><ul>${gateHtml}</ul></div>
@@ -2641,7 +2592,7 @@ function showDynamicScannerResult(item) {
   populateStaticScannerContent(`
     <div class="dynamic-ev-static-head">
       <span>Dynamic EV Result</span>
-      <button type="button" onclick="closeStaticPanel()" aria-label="Close Dynamic EV result"><i data-lucide="x"></i></button>
+      <button type="button" data-static-action="close" aria-label="Close Dynamic EV result"><i data-lucide="x"></i></button>
     </div>
     ${buildDynamicScannerResultHtml(item)}`);
   const content = document.getElementById("staticResultContent");
@@ -2654,7 +2605,7 @@ function showDynamicScannerSessionSummary() {
   populateStaticScannerContent(`
     <div class="dynamic-ev-static-head">
       <span>Dynamic EV Session Summary</span>
-      <button type="button" onclick="closeStaticPanel()" aria-label="Close Dynamic EV session summary"><i data-lucide="x"></i></button>
+      <button type="button" data-static-action="close" aria-label="Close Dynamic EV session summary"><i data-lucide="x"></i></button>
     </div>
     <div class="dynamic-ev-summary-counts">
       <div><span>Completed</span><strong>${summary.completed}</strong></div>
@@ -2671,7 +2622,56 @@ function showDynamicScannerSessionSummary() {
 
 function showDynamicScannerTransition(item, previousStatus) {
   const result = normalizeEntryScannerResult(item?.entryScanner);
-  if (result.completed && item.entryScanner?.status !== previousStatus) showDynamicScannerResult(item);
+  if (result.completed && item.entryScanner?.status !== previousStatus) renderEVPanel();
+}
+
+function renderEVPanel() {
+  const panel = document.getElementById("dynamicEVPanel");
+  const statusEl = document.getElementById("evStatus");
+  const grid = document.getElementById("evGrid");
+  if (!panel || !statusEl || !grid) return;
+
+  if (!isSniperActive) {
+    panel.style.display = "none";
+    return;
+  }
+
+  panel.style.display = "block";
+
+  const dynamicItems = analysisQueue.filter(isDynamicEntryItem);
+  const newest = selectNewestEntryScannerItem(dynamicItems);
+
+  if (!newest) {
+    statusEl.textContent = "WATCHING";
+    statusEl.className = "ev-scan-status watching";
+    grid.innerHTML = '<span style="color:var(--text-tertiary)">Waiting for market in scan window...</span>';
+    return;
+  }
+
+  const result = normalizeEntryScannerResult(newest.entryScanner);
+  const observed = result.bestObserved;
+  const phase = result.timingPhase || "UNKNOWN";
+  const statusMap = {
+    entry: ["ENTRY", "entry"],
+    no_chase: ["NO CHASE", "no_chase"],
+    skipped: ["NO ENTRY", "no_entry"],
+  };
+  const entryStatus = newest.entryScanner?.status;
+  const [label, cls] = statusMap[entryStatus] || ["WATCHING", "watching"];
+  statusEl.textContent = `${label} · ${phase}`;
+  statusEl.className = `ev-scan-status ${cls}`;
+
+  const gates = scannerGateMessages(result);
+  grid.innerHTML = `
+    <div><span>Direction</span><strong>${escapePulseHtml(observed?.direction || result.diagnosticLean || "-")}</strong></div>
+    <div><span>Fair</span><strong>${formatScannerPercent(observed?.fairProbability)}</strong></div>
+    <div><span>Ask</span><strong>${formatScannerPrice(observed?.ask)}</strong></div>
+    <div><span>Edge</span><strong>${formatScannerCents(observed?.grossEvCents)}</strong></div>
+    <div><span>Net EV</span><strong>${formatScannerCents(observed?.netEvCents)}</strong></div>
+    <div><span>Phase</span><strong style="color:var(--neon-cyan)">${escapePulseHtml(phase)}</strong></div>
+    <div><span>Data</span><strong>${escapePulseHtml(result.dataStatus)}</strong></div>
+    <div><span>Conf</span><strong>${result.maxConfirmationCount}/${result.requiredConfirmations}</strong></div>
+    ${gates.length ? `<div style="grid-column:1/-1"><span>Failed Gates</span><strong style="color:var(--neon-red);font-size:9px;font-weight:600">${escapePulseHtml(gates.join(" · "))}</strong></div>` : ""}`;
 }
 
 function getMarketEndDate(m) {
@@ -2712,6 +2712,7 @@ function renderQueue() {
   }
 
   renderEntrySignalPanel();
+  renderEVPanel();
   const completed = analysisQueue.filter(m => isDynamicEntryItem(m)
     ? normalizeEntryScannerResult(m.entryScanner).completed
     : m.analysisCompleted || m.isFailed || m.isTooLate).length;
@@ -2855,7 +2856,7 @@ function renderQueue() {
           ${resultBadge}
           ${timeHtml}
         </div>
-        <button type="button" data-queue-id="${escapePulseHtml(m.id)}" onclick="removeFromQueue(this.dataset.queueId)" style="background:none; border:none; color:var(--neon-red); cursor:pointer; padding:2px; margin-left:8px;"><i data-lucide="x" style="width:10px; height:10px;"></i></button>
+        <button type="button" data-queue-action="remove" data-queue-id="${escapePulseHtml(m.id)}" style="background:none; border:none; color:var(--neon-red); cursor:pointer; padding:2px; margin-left:8px;"><i data-lucide="x" style="width:10px; height:10px;"></i></button>
         </div>
         ${dynamicDetails}
       </div>
@@ -2874,6 +2875,11 @@ window.removeFromQueue = function(id) {
   sniperExecutionQueue = sniperExecutionQueue.filter(queuedId => queuedId !== String(id));
   renderQueue();
 };
+
+queueDropzone?.addEventListener("click", (event) => {
+  const removeButton = event.target.closest('[data-queue-action="remove"]');
+  if (removeButton) window.removeFromQueue(removeButton.dataset.queueId);
+});
 
 if (btnClearQueue) {
   btnClearQueue.addEventListener("click", (e) => {
@@ -2990,6 +2996,7 @@ function finishDynamicScan(item, remainingSeconds) {
     item.snipeFired = true;
   }
   showDynamicScannerTransition(item, previousStatus);
+  renderEVPanel();
 }
 
 async function scanDynamicEntryItem(item, sessionId = sniperSessionId) {
@@ -3036,6 +3043,7 @@ async function scanDynamicEntryItem(item, sessionId = sniperSessionId) {
     if (sessionId === sniperSessionId) item.dynamicScanInFlight = false;
     dynamicScanInFlightCount = Math.max(0, dynamicScanInFlightCount - 1);
     renderQueue();
+    renderEVPanel();
   }
 }
 
@@ -3215,6 +3223,7 @@ function startSniper() {
   });
   dynamicScanInFlightCount = 0;
   dynamicScanCursor = 0;
+  renderEVPanel();
   sniperInterval = setInterval(runSniperTick, 1000);
   runSniperTick();
 }
@@ -3234,6 +3243,9 @@ function stopSniper() {
       item.entryScanner = { status: "waiting", confirmationCount: 0, requiredConfirmations: config.confirmations };
     }
   });
+  const panel = document.getElementById("dynamicEVPanel");
+  if (panel) panel.style.display = "none";
+  renderQueue();
 }
 
 function toggleSniper() {
@@ -3392,7 +3404,6 @@ const manualModal = document.querySelector("#manualModal");
 const closeManualModal = document.querySelector("#closeManualModal");
 const historyTableBody = document.querySelector("#historyTableBody");
 const btnCheckAllHistory = document.querySelector("#btnCheckAllHistory");
-const btnEvaluateAllHistory = document.querySelector("#btnEvaluateAllHistory");
 let allHistoryEvents = [];
 let currentHistoryAsset = "all";
 let currentHistoryDuration = "all";
@@ -3404,7 +3415,6 @@ document.addEventListener("click", (clickEvent) => {
   if (action === "show") window.showHistoryChat(target.dataset.eventId);
   else if (action === "check") window.checkHistoryEvent(target.dataset.eventId, target.dataset.marketId, target.dataset.prediction);
   else if (action === "reason") window.showReasonModal(target.dataset.eventId);
-  else if (action === "evaluate") window.evaluateSingleEventInline(target.dataset.eventId, target);
 });
 
 if (btnHistory && historyModal && closeHistoryModal) {
@@ -3452,49 +3462,6 @@ if (btnHistory && historyModal && closeHistoryModal) {
       
       fetchHistoryEvents();
       showCustomAlert(`Selesai memeriksa ${checkedCount} market.`);
-    });
-  }
-
-  if (btnEvaluateAllHistory) {
-    btnEvaluateAllHistory.addEventListener("click", async () => {
-      const pendingEvals = allHistoryEvents.filter(e => e.actionable === 1 && e.result === 'kalah' && !e.has_reflection);
-      if (pendingEvals.length === 0) {
-        showCustomAlert("Tidak ada market kalah yang perlu dievaluasi.");
-        return;
-      }
-      
-      const estimatedTokens = pendingEvals.length * 1500;
-      if (!confirm(`Akan mengevaluasi ${pendingEvals.length} market.\nEstimasi token Qwen yang digunakan: ~${estimatedTokens} token.\n\nLanjutkan?`)) {
-        return;
-      }
-      
-      btnEvaluateAllHistory.disabled = true;
-      const originalText = btnEvaluateAllHistory.innerHTML;
-      btnEvaluateAllHistory.innerHTML = `<i data-lucide="loader" class="spin" style="width:14px; height:14px;"></i> Mengevaluasi ${pendingEvals.length}...`;
-      if (typeof lucide !== 'undefined') lucide.createIcons();
-
-      let evaluatedCount = 0;
-      for (const event of pendingEvals) {
-        try {
-          await fetch("/api/evaluate/single", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ eventId: event.id })
-          });
-          evaluatedCount++;
-          btnEvaluateAllHistory.innerHTML = `<i data-lucide="loader" class="spin" style="width:14px; height:14px;"></i> Mengevaluasi ${pendingEvals.length - evaluatedCount}...`;
-          if (typeof lucide !== 'undefined') lucide.createIcons();
-        } catch (err) {
-          console.error("Error evaluating event", event.id, err);
-        }
-      }
-      
-      btnEvaluateAllHistory.innerHTML = originalText;
-      btnEvaluateAllHistory.disabled = false;
-      if (typeof lucide !== 'undefined') lucide.createIcons();
-      
-      fetchHistoryEvents();
-      showCustomAlert(`Selesai mengevaluasi ${evaluatedCount} market.`);
     });
   }
 
@@ -3652,7 +3619,7 @@ async function fetchHistoryEvents() {
     console.error("Failed to fetch history events:", error);
     const container = document.querySelector("#historyListContainer");
     if (container) {
-      container.innerHTML = `<div style="text-align:center; padding:20px; color:var(--neon-red);"><i data-lucide="wifi-off" style="width:24px; height:24px; margin-bottom:8px;"></i><br><b>Gagal memuat riwayat.</b><br><br><span style="font-size:10px; color:var(--text-tertiary);">Error: ${error.message}<br>Kemungkinan penyebab:<br>1. Jaringan terputus<br>2. Server backend mati/restart<br>3. Adblocker memblokir request</span></div>`;
+      container.innerHTML = `<div style="text-align:center; padding:20px; color:var(--neon-red);"><i data-lucide="wifi-off" style="width:24px; height:24px; margin-bottom:8px;"></i><br><b>Gagal memuat riwayat.</b><br><br><span style="font-size:10px; color:var(--text-tertiary);">Error: ${escapeHtml(error.message)}<br>Kemungkinan penyebab:<br>1. Jaringan terputus<br>2. Server backend mati/restart<br>3. Adblocker memblokir request</span></div>`;
       if (window.lucide) window.lucide.createIcons();
     }
   }
@@ -3660,7 +3627,7 @@ async function fetchHistoryEvents() {
 
 document.addEventListener("DOMContentLoaded", () => {
   // Relocate modals to body to escape z-index and overflow clipping
-  const modalsToMove = ["themePanelModal", "historyModal", "manualModal"];
+  const modalsToMove = ["historyModal", "manualModal"];
   modalsToMove.forEach(id => {
     const el = document.getElementById(id);
     if (el) document.body.appendChild(el);
@@ -3775,7 +3742,7 @@ function renderHistoryListPanel(eventsToRender = null) {
       .replace(/ Up or Down/gi, ''));
 
     html += `
-      <div role="button" tabindex="0" data-history-action="show" data-event-id="${safeEventId}" style="padding:10px; border:1px solid rgba(255,255,255,0.05); border-radius:6px; background:rgba(0,0,0,0.2); cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'; this.style.borderColor='var(--neon-purple)';" onmouseout="this.style.background='rgba(0,0,0,0.2)'; this.style.borderColor='rgba(255,255,255,0.05)';">
+      <div class="history-list-item" role="button" tabindex="0" data-history-action="show" data-event-id="${safeEventId}" style="padding:10px; border:1px solid rgba(255,255,255,0.05); border-radius:6px; background:rgba(0,0,0,0.2); cursor:pointer; transition:all 0.2s;">
         <div style="display:flex; justify-content:flex-start; align-items:center; gap:12px; margin-bottom:6px;">
           <span style="font-size:10px; color:var(--text-tertiary); white-space:nowrap; min-width:max-content;">${dateStr} ${timeStr}</span>
           <div style="display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-start;">
@@ -3909,13 +3876,6 @@ function renderHistoryEvents(events) {
             Reason
           </button>
           ` : ''}
-          ${event.actionable === 1 && event.status === 'selesai' && event.result === 'kalah' && !event.has_reflection ? `
-          <button class="action-chip" style="height:24px; font-size:10px; padding:0 8px; margin-left:4px; background:rgba(239,68,68,0.1); color:var(--neon-red); border:1px solid rgba(239,68,68,0.3);" 
-                  data-history-action="evaluate" data-event-id="${safeEventId}">
-            Evaluate
-          </button>
-          ` : ''}
-          ${event.has_reflection ? `<span style="display:inline-block; margin-left:4px; font-size:9px; color:var(--neon-green); border:1px solid var(--neon-green); padding:2px 4px; border-radius:4px; background:rgba(16,185,129,0.1);"><i data-lucide="check-circle" style="width:10px; height:10px; vertical-align:middle; margin-right:2px;"></i>Telah Dipelajari</span>` : ''}
         </td>
       </tr>
     `;
@@ -3997,47 +3957,10 @@ window.checkHistoryEvent = async function(id, marketId, prediction) {
   }
 }
 
-window.evaluateSingleEventInline = async function(eventId, btn) {
-  btn.disabled = true;
-  const originalText = btn.innerHTML;
-  btn.innerHTML = `<i data-lucide="loader" class="spin" style="width:10px; height:10px;"></i>`;
-  if (typeof lucide !== 'undefined') lucide.createIcons();
-
-  try {
-    const res = await fetch("/api/evaluate/single", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ eventId })
-    });
-    const data = await res.json();
-    
-    if (data.ok) {
-      fetchHistoryEvents();
-      showCustomAlert("✅ Evaluasi berhasil disimpan ke memori AI!");
-    } else {
-      showCustomAlert("Gagal mengevaluasi: " + data.error);
-      btn.innerHTML = originalText;
-      btn.disabled = false;
-      if (typeof lucide !== 'undefined') lucide.createIcons();
-    }
-  } catch (err) {
-    console.error(err);
-    showCustomAlert("Terjadi kesalahan jaringan.");
-    btn.innerHTML = originalText;
-    btn.disabled = false;
-    if (typeof lucide !== 'undefined') lucide.createIcons();
-  }
-};
-
-/* --- Reason & Evaluation Modal --- */
+/* --- Reason & Outcome Modal --- */
 const reasonModal = document.querySelector("#reasonModal");
 const closeReasonModal = document.querySelector("#closeReasonModal");
 const reasonModalContent = document.querySelector("#reasonModalContent");
-const reflectionContainer = document.querySelector("#reflectionContainer");
-const reflectionText = document.querySelector("#reflectionText");
-const evaluateBtnContainer = document.querySelector("#evaluateBtnContainer");
-const btnEvaluateSingle = document.querySelector("#btnEvaluateSingle");
-const evaluateAllBtn = document.querySelector("#evaluateAllBtn");
 
 const reasonPrediction = document.querySelector("#reasonPrediction");
 const reasonActualOutcome = document.querySelector("#reasonActualOutcome");
@@ -4052,13 +3975,10 @@ if (closeReasonModal && reasonModal) {
   });
 }
 
-let currentEvaluatingEventId = null;
-
-window.showReasonModal = async function(eventId) {
+window.showReasonModal = function(eventId) {
   const event = allHistoryEvents.find(e => e.id === eventId);
   if (!event) return;
   
-  currentEvaluatingEventId = eventId;
   reasonModalContent.textContent = event.analysis_conclusion || "Tidak ada detail analisis tersimpan.";
   
   // Populate Event Result Details
@@ -4089,108 +4009,22 @@ window.showReasonModal = async function(eventId) {
     reasonStatusBadge.style.background = "transparent";
   }
   
-  reflectionContainer.style.display = "none";
-  evaluateBtnContainer.style.display = "none";
-  reflectionText.textContent = "";
   reasonModal.style.display = "flex";
-
-  if (event.actionable === 1 && event.result === 'kalah') {
-    // Check if reflection exists
-    try {
-      const res = await fetch(`/api/evaluate/reflection/${event.market_id}`);
-      const data = await res.json();
-      if (data.ok && data.reflection) {
-        reflectionText.textContent = data.reflection;
-        reflectionContainer.style.display = "block";
-      } else {
-        evaluateBtnContainer.style.display = "block";
-      }
-    } catch (err) {
-      console.error("Failed to check reflection", err);
-      evaluateBtnContainer.style.display = "block";
-    }
-  }
 };
-
-if (btnEvaluateSingle) {
-  btnEvaluateSingle.addEventListener("click", async () => {
-    if (!currentEvaluatingEventId) return;
-    
-    btnEvaluateSingle.disabled = true;
-    btnEvaluateSingle.innerHTML = `<i data-lucide="loader" class="spin" style="width:14px; height:14px; margin-right:6px;"></i> Mengevaluasi...`;
-    lucide.createIcons();
-    
-    try {
-      const res = await fetch("/api/evaluate/single", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ eventId: currentEvaluatingEventId })
-      });
-      const data = await res.json();
-      
-      if (data.ok) {
-        reflectionText.textContent = data.reflection;
-        reflectionContainer.style.display = "block";
-        evaluateBtnContainer.style.display = "none";
-        
-        // Refresh the table so "Telah Dipelajari" badge appears immediately
-        fetchHistoryEvents();
-        
-        showCustomAlert("✅ Evaluasi berhasil disimpan ke memori AI!");
-      } else {
-        showCustomAlert("Gagal mengevaluasi: " + data.error);
-      }
-    } catch (err) {
-      console.error(err);
-      showCustomAlert("Terjadi kesalahan jaringan.");
-    } finally {
-      btnEvaluateSingle.disabled = false;
-      btnEvaluateSingle.innerHTML = `<i data-lucide="alert-triangle" style="width:14px; height:14px; margin-right:6px;"></i> Evaluate Kesalahan`;
-      if (typeof lucide !== 'undefined') lucide.createIcons();
-    }
-  });
-}
 
 /* --- Settings Modal --- */
 const settingsModal = document.querySelector("#settingsModal");
 const btnSettings = document.querySelector("#btnSettings");
 const closeSettingsModal = document.querySelector("#closeSettingsModal");
 const btnSaveSettings = document.querySelector("#btnSaveSettings");
-const themeBtns = document.querySelectorAll(".theme-btn");
 const toggleAudioBtn = document.querySelector("#toggleAudioBtn");
 const settingsTabs = document.querySelectorAll(".settings-tab");
 const settingsPanes = document.querySelectorAll(".settings-pane");
-const chkShortMarketLearning = document.querySelector("#chkShortMarketLearning");
 const botLanguageSelect = document.querySelector("#botLanguageSelect");
 
-// Load Short Market Learning setting — sync dari backend
-if (chkShortMarketLearning) {
-  // Load state awal dari backend (sumber kebenaran)
-  fetch("/api/settings/short-memory").then(r => r.json()).then(d => {
-    if (d.ok) {
-      chkShortMarketLearning.checked = d.enabled;
-      localStorage.setItem("shortMarketLearningEnabled", d.enabled);
-    }
-  }).catch(() => {
-    // fallback ke localStorage jika server belum siap
-    chkShortMarketLearning.checked = localStorage.getItem("shortMarketLearningEnabled") !== "false";
-  });
-
-  // Load Bot Language
-  if (botLanguageSelect) {
-    botLanguageSelect.value = localStorage.getItem("botLanguage") || "Indonesia";
-    applyLanguageUI(botLanguageSelect.value);
-  }
-
-  chkShortMarketLearning.addEventListener("change", (e) => {
-    const enabled = e.target.checked;
-    localStorage.setItem("shortMarketLearningEnabled", enabled);
-    fetch("/api/settings/short-memory", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled })
-    }).catch(() => {}); // silent \u2014 toggle tetap responsif walau request gagal
-  });
+if (botLanguageSelect) {
+  botLanguageSelect.value = localStorage.getItem("botLanguage") || "Indonesia";
+  applyLanguageUI(botLanguageSelect.value);
 }
 
 // Sniper Settings Inputs
@@ -4208,27 +4042,6 @@ const set4hHour = document.querySelector("#set4hHour");
 const set4hMin = document.querySelector("#set4hMin");
 const set1dHour = document.querySelector("#set1dHour");
 const set1dMin = document.querySelector("#set1dMin");
-
-// State
-
-let currentTheme = localStorage.getItem("theme") || "default";
-
-function applyTheme(theme) {
-  currentTheme = theme;
-  document.body.setAttribute("data-theme", theme);
-  localStorage.setItem("theme", theme);
-  
-  themeBtns.forEach(btn => {
-    if (btn.dataset.theme === theme) {
-      btn.classList.add("active");
-      btn.style.boxShadow = `0 0 12px ${btn.style.color}`;
-    } else {
-      btn.classList.remove("active");
-      btn.style.boxShadow = "none";
-    }
-  });
-}
-
 
 async function fetchStats() {
   try {
@@ -4318,184 +4131,9 @@ async function fetchDashboardMetrics() {
 // Fetch periodically
 setInterval(fetchDashboardMetrics, 30000);
 
-async function fetchReflections() {
-  const learningList = document.querySelector("#learningList");
-  if (!learningList) return;
-  learningList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-tertiary); font-size:12px;"><i data-lucide="loader" class="spin" style="width:14px; height:14px;"></i> Memuat data...</div>`;
-  if (typeof lucide !== "undefined") lucide.createIcons();
-  try {
-    const res = await fetch("/api/reflections");
-    const data = await res.json();
-    if (data.ok) {
-      const totalReflections = data.reflections ? data.reflections.length : 0;
-      const improvementPercent = Math.min(99, Math.round(totalReflections * 3.5));
-      
-      const pctLabel = document.querySelector("#improvementPercentage");
-      const bar = document.querySelector("#improvementBar");
-      if (pctLabel) pctLabel.textContent = improvementPercent + "%";
-      if (bar) bar.style.width = improvementPercent + "%";
-
-      if (totalReflections === 0) {
-        learningList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-tertiary); font-size:12px;">Belum ada hasil pembelajaran (evaluasi).</div>`;
-      } else {
-        const extractCoreLesson = (text) => {
-          if (!text) return "Tidak ada catatan.";
-          const kw = "3. **Core Lesson Learned";
-          const idx = text.indexOf(kw);
-          if (idx !== -1) {
-            let after = text.substring(idx + kw.length);
-            const nl = after.indexOf('\\n');
-            if (nl !== -1) after = after.substring(nl + 1).trim();
-            return after.substring(0, 500);
-          }
-          return text.length > 300 ? "..." + text.substring(text.length - 300) : text;
-        };
-
-        learningList.innerHTML = data.reflections.map(r => {
-          const encodedReflection = escapeHtml(encodeURIComponent(String(r.reflection_note || "")));
-          return `
-            <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:12px; border-radius:6px; display:flex; flex-direction:column; gap:6px;">
-              <div style="font-weight:bold; color:var(--text-primary); font-size:12px;">Market: ${escapeHtml(r.question)}</div>
-              <div style="font-size:11px; color:var(--text-secondary); line-height:1.4;"><strong>Prediction:</strong> ${escapeHtml(r.prediction)} | <strong>Actual:</strong> ${escapeHtml(r.actual_outcome)}</div>
-
-              <div style="margin-top:4px; padding:8px; background:rgba(245,158,11,0.1); border-left:3px solid var(--neon-amber); border-radius:4px;">
-                <div style="font-size:10px; color:var(--neon-amber); font-weight:bold; margin-bottom:4px; text-transform:uppercase;">Distilled Trap Memory</div>
-                <div style="font-size:11px; color:var(--text-primary); line-height:1.4;">"${escapeHtml(extractCoreLesson(r.reflection_note))}"</div>
-              </div>
-
-              <div style="margin-top:6px; padding-top:6px; border-top:1px dashed var(--border);">
-                <button class="btn-detail-improvement" data-reflection="${encodedReflection}" style="background:transparent; border:1px solid var(--neon-cyan); color:var(--neon-cyan); padding:4px 8px; border-radius:4px; font-size:10px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all 0.2s;">
-                  <i data-lucide="lightbulb" style="width:12px; height:12px;"></i>Lihat Full Evaluasi
-                </button>
-              </div>
-            </div>
-          `;
-        }).join("");
-        if (typeof lucide !== "undefined") lucide.createIcons();
-        
-          // Add listeners to new buttons
-          document.querySelectorAll(".btn-detail-improvement").forEach(btn => {
-            btn.addEventListener("click", (e) => {
-              const reflection = decodeURIComponent(e.currentTarget.dataset.reflection);
-              const contentDiv = document.querySelector("#improvementModalContent");
-              if (contentDiv) {
-                contentDiv.innerHTML = formatStoredRichText(reflection);
-              }
-              document.querySelector("#improvementModal").style.display = "flex";
-            });
-          });
-        }
-      }
-    } catch (err) {
-      learningList.innerHTML = `<div style="text-align:center; padding:20px; color:var(--neon-red); font-size:12px;">Gagal memuat data.</div>`;
-      console.error("Failed to load reflections:", err);
-    }
-  }
-
-  const btnViewMemoryPrompt = document.querySelector("#btnViewMemoryPrompt");
-  if (btnViewMemoryPrompt) {
-    btnViewMemoryPrompt.addEventListener("click", async () => {
-      try {
-        const res = await fetch("/api/memory-checklist");
-        const data = await res.json();
-        if (data.ok) {
-          const contentDiv = document.querySelector("#improvementModalContent");
-          if (contentDiv) {
-            contentDiv.innerHTML = "<div style='font-family:\"JetBrains Mono\", monospace; font-size:10px; white-space:pre-wrap;'>" + escapeHtml(data.text) + "</div>";
-          }
-          document.querySelector("#improvementModal").style.display = "flex";
-        }
-      } catch (e) {
-        console.error(e);
-        showCustomAlert("Gagal memuat kompilasi memori.");
-      }
-    });
-  }
-
-
-// Initial Setup
-applyTheme(currentTheme);
-
-// Learning Tabs Logic
-const tabLearningEval = document.querySelector("#tabLearningEval");
-const tabLearningShort = document.querySelector("#tabLearningShort");
-const learningListContainer = document.querySelector("#learningListContainer");
-const shortMemoryList = document.querySelector("#shortMemoryList");
-
-if (tabLearningEval && tabLearningShort) {
-  tabLearningEval.addEventListener("click", () => {
-    tabLearningEval.style.background = "rgba(255,255,255,0.05)";
-    tabLearningEval.style.color = "var(--text-primary)";
-    tabLearningEval.style.borderBottomColor = "var(--neon-cyan)";
-    
-    tabLearningShort.style.background = "transparent";
-    tabLearningShort.style.color = "var(--text-tertiary)";
-    tabLearningShort.style.borderBottomColor = "transparent";
-    
-    if(learningListContainer) learningListContainer.style.display = "flex";
-    if(shortMemoryList) shortMemoryList.style.display = "none";
-  });
-  
-  tabLearningShort.addEventListener("click", () => {
-    tabLearningShort.style.background = "rgba(255,255,255,0.05)";
-    tabLearningShort.style.color = "var(--text-primary)";
-    tabLearningShort.style.borderBottomColor = "var(--neon-cyan)";
-    
-    tabLearningEval.style.background = "transparent";
-    tabLearningEval.style.color = "var(--text-tertiary)";
-    tabLearningEval.style.borderBottomColor = "transparent";
-    
-    if(shortMemoryList) shortMemoryList.style.display = "flex";
-    if(learningListContainer) learningListContainer.style.display = "none";
-  });
-}
-
-async function fetchLearningHistory() {
-  const list = document.getElementById("shortMemoryList");
-  if (!list) return;
-  try {
-    const res = await fetch("/api/short-learning");
-    const data = await res.json();
-    if (data.ok && data.history.length > 0) {
-      list.innerHTML = "";
-      data.history.forEach((h, i) => {
-        const item = document.createElement("div");
-        item.style.background = "var(--bg-elevated)";
-        item.style.padding = "12px 16px";
-        item.style.borderRadius = "8px";
-        item.style.border = "1px solid var(--border)";
-        item.style.fontSize = "12px";
-        item.style.color = "var(--text-secondary)";
-        const condition = String(h.condition || "");
-        const conditionColor = condition === "VOLATILE" ? "var(--green)" : "var(--neon-amber)";
-        item.innerHTML = `
-          <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-            <strong style="color:var(--text-primary);">Short Market Analysis #${data.history.length - i}</strong>
-            <span style="font-family:'JetBrains Mono',monospace; opacity:0.6;">${new Date(h.date).toLocaleTimeString()}</span>
-          </div>
-          <div style="display:flex; gap:8px; margin-bottom:8px;">
-            <span style="background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; font-weight:600; color:${conditionColor};">${escapeHtml(condition)}</span>
-            <span style="background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; font-weight:600;">${escapeHtml(h.recommendation)}</span>
-          </div>
-          <div style="line-height:1.4; font-size:11px; margin-bottom:8px;">${escapeHtml(h.reason)}</div>
-          ${h.memory_reflection ? `<div style="padding-top:8px; border-top:1px dashed var(--border); color:var(--neon-cyan);"><strong style="font-size:10px; display:flex; align-items:center; gap:4px; margin-bottom:4px;"><i data-lucide="brain-circuit" style="width:12px; height:12px;"></i> AI Reflection on Memory</strong><div style="line-height:1.4;">${escapeHtml(h.memory_reflection)}</div></div>` : ''}
-        `;
-        list.appendChild(item);
-      });
-      if (typeof lucide !== 'undefined') lucide.createIcons();
-    } else {
-      list.innerHTML = `<div style="text-align:center; padding:20px; color:var(--text-tertiary); font-size:12px;">Belum ada memori Vibe Check.</div>`;
-    }
-  } catch(e) {
-    list.innerHTML = `<div style="text-align:center; padding:20px; color:var(--red); font-size:12px;">Gagal memuat memori.</div>`;
-  }
-}
-
 if (btnSettings && settingsModal) {
   btnSettings.addEventListener("click", () => {
     fetchStats();
-    fetchReflections();
-    fetchLearningHistory();
     settingsModal.style.display = "flex";
   });
   
@@ -4612,20 +4250,6 @@ loadSniperConfig();
 fetchHistoryEvents();
 fetchDashboardMetrics();
 
-const closeImprovementModal = document.querySelector("#closeImprovementModal");
-if (closeImprovementModal) {
-  closeImprovementModal.addEventListener("click", () => {
-    document.querySelector("#improvementModal").style.display = "none";
-  });
-}
-
-const improvementModal = document.querySelector("#improvementModal");
-if (improvementModal) {
-  improvementModal.addEventListener("click", (e) => {
-    if (e.target === improvementModal) improvementModal.style.display = "none";
-  });
-}
-
 // Gunakan setActiveTab untuk memastikan state panel dan UI disinkronkan di awal
 if (activeTabId) {
   setActiveTab(activeTabId);
@@ -4641,7 +4265,6 @@ function applyLanguageUI(lang) {
       ".settings-tab[data-target='pane-alerts']": "Alerts & Audio",
       ".settings-tab[data-target='pane-sniper']": "Sniper Trigger",
       ".settings-tab[data-target='pane-analytics']": "Analytics",
-      ".settings-tab[data-target='pane-learning']": "Learning Process",
       "#pane-language h2": "Language",
       "#pane-language p": "Select the language Qwen will use for analysis responses.",
       "#pane-alerts h2": "Alerts & Audio",
@@ -4650,15 +4273,12 @@ function applyLanguageUI(lang) {
       "#pane-sniper p": "How many minutes/seconds before market close should Qwen trigger?",
       "#pane-analytics h2": "Analytics Stats",
       "#pane-analytics p": "Performance summary and predictions from Qwen.",
-      "#pane-learning h2": "Learning Process",
-      "#pane-learning p": "What Qwen has improved from previous loss evaluations.",
     },
     Spanish: {
       ".settings-tab[data-target='pane-language']": "Idioma",
       ".settings-tab[data-target='pane-alerts']": "Alertas y Audio",
       ".settings-tab[data-target='pane-sniper']": "Disparador Sniper",
       ".settings-tab[data-target='pane-analytics']": "Analítica",
-      ".settings-tab[data-target='pane-learning']": "Proceso Aprendizaje",
       "#pane-language h2": "Idioma",
       "#pane-language p": "Seleccione el idioma que usará Qwen para responder el análisis.",
       "#pane-alerts h2": "Alertas y Audio",
@@ -4667,15 +4287,12 @@ function applyLanguageUI(lang) {
       "#pane-sniper p": "¿Cuántos minutos/segundos antes del cierre del mercado debe disparar Qwen?",
       "#pane-analytics h2": "Estadísticas Analítica",
       "#pane-analytics p": "Resumen de rendimiento y predicciones de Qwen.",
-      "#pane-learning h2": "Proceso Aprendizaje",
-      "#pane-learning p": "Qué ha mejorado Qwen a partir de evaluaciones de pérdidas anteriores.",
     },
     Russian: {
       ".settings-tab[data-target='pane-language']": "Язык",
       ".settings-tab[data-target='pane-alerts']": "Уведомления",
       ".settings-tab[data-target='pane-sniper']": "Снайпер Триггер",
       ".settings-tab[data-target='pane-analytics']": "Аналитика",
-      ".settings-tab[data-target='pane-learning']": "Обучение",
       "#pane-language h2": "Язык",
       "#pane-language p": "Выберите язык, который Qwen будет использовать для ответов.",
       "#pane-alerts h2": "Уведомления и Звук",
@@ -4684,8 +4301,6 @@ function applyLanguageUI(lang) {
       "#pane-sniper p": "За сколько минут/секунд до закрытия рынка Qwen должен сработать?",
       "#pane-analytics h2": "Статистика",
       "#pane-analytics p": "Сводка производительности и прогнозы от Qwen.",
-      "#pane-learning h2": "Процесс обучения",
-      "#pane-learning p": "Что Qwen улучшил после анализа предыдущих потерх.",
     }
   };
 
@@ -4766,60 +4381,6 @@ function updateTrackerConfig(minUsd, wallets) {
     });
   }
 
-/* --- Polymarket Wallet Logic --- */
-const btnToggleWallet = document.getElementById('btnToggleWallet');
-const walletEyeIcon = document.getElementById('walletEyeIcon');
-const walletPortfolioValue = document.getElementById('walletPortfolioValue');
-const walletPortfolioChange = document.getElementById('walletPortfolioChange');
-const walletUsdcBalance = document.getElementById('walletUsdcBalance');
-const walletPositions = document.getElementById('walletPositions');
-const walletActiveVolume = document.getElementById('walletActiveVolume');
-// Default to true (hidden) if not explicitly set to false
-let isWalletHidden = localStorage.getItem('walletHidden') !== 'false';
-
-function updateWalletVisibility() {
-  if (isWalletHidden) {
-    if (walletEyeIcon) {
-      walletEyeIcon.setAttribute('data-lucide', 'eye-off');
-      if (typeof lucide !== 'undefined') lucide.createIcons({root: btnToggleWallet});
-    }
-    if (walletPortfolioValue) walletPortfolioValue.textContent = '*****';
-    if (walletPortfolioChange) walletPortfolioChange.textContent = '***';
-    if (walletUsdcBalance) walletUsdcBalance.textContent = '*****';
-    if (walletPositions) walletPositions.textContent = '***';
-    if (walletActiveVolume) walletActiveVolume.textContent = '*****';
-  } else {
-    if (walletEyeIcon) {
-      walletEyeIcon.setAttribute('data-lucide', 'eye');
-      if (typeof lucide !== 'undefined') lucide.createIcons({root: btnToggleWallet});
-    }
-    const wData = window.walletData;
-    if (wData && wData.connected) {
-      const formattedUsdc = `$${wData.usdc.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-      if (walletPortfolioValue) walletPortfolioValue.textContent = formattedUsdc;
-      if (walletPortfolioChange) walletPortfolioChange.textContent = 'Active (Polygon)';
-      if (walletUsdcBalance) walletUsdcBalance.textContent = formattedUsdc;
-      if (walletPositions) walletPositions.textContent = 'Ready';
-      if (walletActiveVolume) walletActiveVolume.textContent = '-';
-    } else {
-      if (walletPortfolioValue) walletPortfolioValue.textContent = '$0.00';
-      if (walletPortfolioChange) walletPortfolioChange.textContent = '-';
-      if (walletUsdcBalance) walletUsdcBalance.textContent = '$0.00';
-      if (walletPositions) walletPositions.textContent = '-';
-      if (walletActiveVolume) walletActiveVolume.textContent = '-';
-    }
-  }
-}
-
-if (btnToggleWallet) {
-  updateWalletVisibility();
-  btnToggleWallet.addEventListener('click', () => {
-    isWalletHidden = !isWalletHidden;
-    localStorage.setItem('walletHidden', isWalletHidden.toString());
-    updateWalletVisibility();
-  });
-}
-
 /* --- Whale Sniffer UI Toggle --- */
 let currentSnifferStartTime = 0;
 let lastSeenWhaleTimestamp = Date.now();
@@ -4867,13 +4428,21 @@ let currentSnifferUiState = 'Offline';
     toast.style.border = borderGlow;
     if (isTracked) toast.style.boxShadow = "0 8px 32px rgba(245,158,11,0.4)";
 
-    toast.innerHTML = `
-      <div style="font-weight:bold; font-size:12px; color:${headerColor}; display:flex; align-items:center; gap:6px;">
-        <i data-lucide="${iconName}" style="width:14px; height:14px;"></i> ${headerTitle}
-      </div>
-      <div style="font-size:11px;">${icon} ${sizeStr} (${whale.side} @ ${priceStr})</div>
-      <div style="font-size:10px; color:var(--text-secondary); max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${whale.market_question}</div>
-    `;
+    const header = document.createElement("div");
+    header.style.cssText = `font-weight:bold; font-size:12px; color:${headerColor}; display:flex; align-items:center; gap:6px;`;
+    const headerIcon = document.createElement("i");
+    headerIcon.dataset.lucide = iconName;
+    headerIcon.style.cssText = "width:14px; height:14px;";
+    header.append(headerIcon, document.createTextNode(headerTitle));
+
+    const details = document.createElement("div");
+    details.style.fontSize = "11px";
+    details.textContent = `${icon} ${sizeStr} (${String(whale.side || "UNKNOWN")} @ ${priceStr})`;
+
+    const market = document.createElement("div");
+    market.style.cssText = "font-size:10px; color:var(--text-secondary); max-width:250px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;";
+    market.textContent = String(whale.market_question || "Unknown market");
+    toast.append(header, details, market);
     
     document.body.appendChild(toast);
     if (typeof lucide !== 'undefined') lucide.createIcons({root: toast});
@@ -5184,7 +4753,7 @@ let currentSnifferUiState = 'Offline';
               const eventUrl = polymarketEventUrl(w.market_slug);
               const marketQuestion = escapeHtml(w.market_question);
               const eventLinkHtml = eventUrl
-                ? `<a href="${escapeHtml(eventUrl)}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${marketQuestion}</a>`
+                ? `<a class="tracker-market-link" href="${escapeHtml(eventUrl)}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;">${marketQuestion}</a>`
                 : marketQuestion;
 
 
@@ -5249,7 +4818,7 @@ let currentSnifferUiState = 'Offline';
               const eventUrl = polymarketEventUrl(w.market_slug);
               const marketQuestion = escapeHtml(w.market_question);
               const eventLinkHtml = eventUrl
-                ? `<a href="${escapeHtml(eventUrl)}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${marketQuestion}</a>`
+                ? `<a class="tracker-market-link" href="${escapeHtml(eventUrl)}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;">${marketQuestion}</a>`
                 : marketQuestion;
                  
 
@@ -5347,7 +4916,7 @@ let currentSnifferUiState = 'Offline';
           const nickname = String(w.nickname || "");
           return `
             <div class="wallet-tag" title="${escapeHtml(address)}">
-              <button type="button" data-wallet-action="view" data-address="${escapeHtml(address)}" data-nickname="${escapeHtml(nickname)}" style="cursor:pointer; text-decoration:underline; text-underline-offset:2px; font-weight:600; color:var(--text-secondary); transition:color 0.2s; background:none; border:0; padding:0;" onmouseover="this.style.color='var(--neon-cyan)';" onmouseout="this.style.color='var(--text-secondary)';">${escapeHtml(nickname || `${address.slice(0, 6)}...`)}</button>
+              <button class="wallet-tag-view" type="button" data-wallet-action="view" data-address="${escapeHtml(address)}" data-nickname="${escapeHtml(nickname)}" style="cursor:pointer; text-decoration:underline; text-underline-offset:2px; font-weight:600; color:var(--text-secondary); transition:color 0.2s; background:none; border:0; padding:0;">${escapeHtml(nickname || `${address.slice(0, 6)}...`)}</button>
               <button type="button" data-wallet-action="remove" data-address="${escapeHtml(address)}">
                 <i data-lucide="x" style="width:10px; height:10px;"></i>
               </button>
@@ -5380,7 +4949,11 @@ let currentSnifferUiState = 'Offline';
     dashWalletAddBtn.addEventListener('click', async () => {
       const w = dashWalletInput.value.trim().toLowerCase();
       const n = dashWalletNick ? dashWalletNick.value.trim() : "";
-      if (w.length > 0 && !activeTrackedWallets.some(x => x.address === w)) {
+      if (!/^0x[a-f0-9]{40}$/.test(w)) {
+        showCustomAlert("Masukkan alamat wallet EVM yang valid.");
+        return;
+      }
+      if (!activeTrackedWallets.some(x => x.address === w)) {
         dashWalletAddBtn.innerText = 'Adding...';
         activeTrackedWallets.push({ address: w, nickname: n });
         dashWalletInput.value = "";
@@ -5463,16 +5036,21 @@ let currentSnifferUiState = 'Offline';
 
   window.viewWalletPositions = async (address, nickname) => {
     if (!positionsModal || !positionsTabContent) return;
+    const normalizedAddress = String(address || "").trim().toLowerCase();
+    if (!/^0x[a-f0-9]{40}$/.test(normalizedAddress)) {
+      showCustomAlert("Alamat wallet tidak valid.");
+      return;
+    }
     positionsModal.style.display = 'flex';
     
     // Reset Tabs
     if (tabWalletPositions) tabWalletPositions.click();
     
     if (walletDashboardNickname) walletDashboardNickname.textContent = nickname || 'Unknown Wallet';
-    if (walletDashboardAddress) walletDashboardAddress.textContent = address;
+    if (walletDashboardAddress) walletDashboardAddress.textContent = normalizedAddress;
     if (walletDashboardValue) walletDashboardValue.textContent = '...';
     if (walletDashboardAllTimePnl) walletDashboardAllTimePnl.textContent = '...';
-    if (btnViewOnPoly) btnViewOnPoly.href = `https://polymarket.com/profile/${address}`;
+    if (btnViewOnPoly) btnViewOnPoly.href = `https://polymarket.com/profile/${encodeURIComponent(normalizedAddress)}`;
 
     positionsTabContent.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-tertiary);"><i data-lucide="loader" class="radar-anim" style="width:24px; height:24px; margin-bottom:10px;"></i><br>Fetching portfolio data...</div>`;
     historyTabContent.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-tertiary);"><i data-lucide="loader" class="radar-anim" style="width:24px; height:24px; margin-bottom:10px;"></i><br>Fetching history...</div>`;
@@ -5482,7 +5060,7 @@ let currentSnifferUiState = 'Offline';
     }
 
     try {
-      const res = await fetch(`/api/wallet-profile/${address}`);
+      const res = await fetch(`/api/wallet-profile/${encodeURIComponent(normalizedAddress)}`);
       const data = await res.json();
       
       if (walletDashboardValue) {
@@ -5509,11 +5087,11 @@ let currentSnifferUiState = 'Offline';
           const pnlText = (pnl > 0 ? "+" : "") + pnl.toFixed(1) + "%";
           
           html += `
-            <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:16px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; transition:border-color 0.2s; cursor:pointer;" onmouseover="this.style.borderColor='var(--neon-amber)'" onmouseout="this.style.borderColor='var(--border)'">
+            <div class="wallet-position-card" style="background:var(--bg-elevated); border:1px solid var(--border); padding:16px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; transition:border-color 0.2s; cursor:pointer;">
               <div style="display:flex; flex-direction:column; gap:8px; flex:1; padding-right:16px;">
-                <div style="font-weight:600; color:var(--text-primary); font-size:14px; line-height:1.4;">${p.title}</div>
+                 <div style="font-weight:600; color:var(--text-primary); font-size:14px; line-height:1.4;">${escapeHtml(p.title)}</div>
                 <div style="display:flex; gap:16px; font-family:var(--font-mono); font-size:11px;">
-                  <span style="color:var(--text-secondary); background:rgba(0,0,0,0.2); padding:2px 6px; border-radius:4px;">Outcome: <span style="color:var(--neon-amber); font-weight:bold;">${p.outcome}</span></span>
+                   <span style="color:var(--text-secondary); background:rgba(0,0,0,0.2); padding:2px 6px; border-radius:4px;">Outcome: <span style="color:var(--neon-amber); font-weight:bold;">${escapeHtml(p.outcome)}</span></span>
                   <span style="color:var(--text-secondary); background:rgba(0,0,0,0.2); padding:2px 6px; border-radius:4px;">Size: ${parseFloat(p.size).toFixed(0)} shares</span>
                   <span style="color:var(--text-secondary); background:rgba(0,0,0,0.2); padding:2px 6px; border-radius:4px;">Avg Price: $${parseFloat(p.avgPrice).toFixed(3)}</span>
                 </div>
@@ -5542,11 +5120,11 @@ let currentSnifferUiState = 'Offline';
             <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:12px 16px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
               <div style="display:flex; align-items:center; gap:16px; flex:1; padding-right:16px;">
                 <div style="background:${sideBg}; color:${sideColor}; border:1px solid ${sideColor}40; padding:4px 10px; border-radius:4px; font-weight:bold; font-size:11px; font-family:var(--font-mono); min-width:48px; text-align:center;">
-                  ${t.side}
+                  ${escapeHtml(t.side)}
                 </div>
                 <div style="display:flex; flex-direction:column; gap:4px;">
-                  <div style="font-weight:500; color:var(--text-primary); font-size:13px;">${t.title}</div>
-                  <div style="font-size:11px; color:var(--text-tertiary);">${date}</div>
+                  <div style="font-weight:500; color:var(--text-primary); font-size:13px;">${escapeHtml(t.title)}</div>
+                  <div style="font-size:11px; color:var(--text-tertiary);">${escapeHtml(date)}</div>
                 </div>
               </div>
               <div style="display:flex; flex-direction:column; align-items:flex-end; gap:2px; min-width:90px; font-family:var(--font-mono); font-size:12px;">
@@ -5560,8 +5138,8 @@ let currentSnifferUiState = 'Offline';
       }
     } catch (e) {
       console.error(e);
-      positionsTabContent.innerHTML = `<div style="text-align:center; padding:40px; color:#ef4444;">Failed to load data: ${e.message}</div>`;
-      historyTabContent.innerHTML = `<div style="text-align:center; padding:40px; color:#ef4444;">Failed to load history: ${e.message}</div>`;
+      positionsTabContent.textContent = `Failed to load data: ${e.message}`;
+      historyTabContent.textContent = `Failed to load history: ${e.message}`;
     }
   };
 
@@ -5599,153 +5177,6 @@ livePriceSource.onmessage = (event) => {
   } catch(e) {}
 };
 
-/* --- X INTELLIGENCE PANEL LOGIC --- */
-const liveAlertsSource = new EventSource('/api/live-alerts');
-const xAlertCount = document.getElementById('xAlertCount');
-const xWhaleFeed = document.getElementById('xWhaleFeed');
-const xWhaleEmpty = document.getElementById('xWhaleEmpty');
-const xMiniVibeCheck = document.getElementById('xMiniVibeCheck');
-const xVibeContent = document.getElementById('xVibeContent');
-
-let alertCount = 0;
-
-liveAlertsSource.onmessage = (event) => {
-  try {
-    const data = JSON.parse(event.data);
-    if (data.type === "HOT_NICHE_UPDATE") {
-      alertCount++;
-      if(xAlertCount) {
-        xAlertCount.style.display = "inline";
-        xAlertCount.textContent = alertCount;
-      }
-      
-      if(xWhaleEmpty) xWhaleEmpty.style.display = "none";
-      
-      const el = document.createElement("div");
-      el.style.background = "rgba(239, 68, 68, 0.1)";
-      el.style.border = "1px solid rgba(239, 68, 68, 0.3)";
-      el.style.padding = "10px";
-      el.style.borderRadius = "8px";
-      el.innerHTML = `
-        <div style="font-size:10px; color:var(--text-tertiary); margin-bottom:4px; font-weight:bold;">🔥 HOT NICHE DETECTED</div>
-        <div style="font-weight:600; font-size:13px; color:var(--text-primary); margin-bottom:8px; line-height:1.4;">${data.marketInfo.question}</div>
-        <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-secondary); background:rgba(0,0,0,0.3); padding:4px 8px; border-radius:4px;">${data.volumeSpike}</div>
-      `;
-      if(xWhaleFeed) xWhaleFeed.prepend(el);
-      
-      if(xMiniVibeCheck) {
-        xMiniVibeCheck.style.display = "block";
-        xMiniVibeCheck.textContent = data.sentiment;
-        if (data.sentiment === "BULLISH") {
-           xMiniVibeCheck.style.color = "var(--neon-green)";
-           xMiniVibeCheck.style.borderColor = "var(--neon-green)";
-           xMiniVibeCheck.style.background = "rgba(16,185,129,0.1)";
-        } else if (data.sentiment === "BEARISH") {
-           xMiniVibeCheck.style.color = "var(--neon-red)";
-           xMiniVibeCheck.style.borderColor = "var(--neon-red)";
-           xMiniVibeCheck.style.background = "rgba(239,68,68,0.1)";
-        } else {
-           xMiniVibeCheck.style.color = "var(--text-secondary)";
-           xMiniVibeCheck.style.borderColor = "var(--border-strong)";
-           xMiniVibeCheck.style.background = "rgba(255,255,255,0.05)";
-        }
-      }
-      
-      if(xVibeContent) {
-        xVibeContent.innerHTML = `
-          <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:16px; border-radius:8px;">
-            <div style="font-size:11px; color:var(--text-tertiary); margin-bottom:6px; text-transform:uppercase;">AI Sentiment Analysis</div>
-            <div style="font-weight:bold; font-size:18px; color:${xMiniVibeCheck ? xMiniVibeCheck.style.color : '#fff'}; margin-bottom:12px;">${data.sentiment}</div>
-            <div style="font-size:13px; color:var(--text-secondary); line-height:1.6; margin-bottom:12px;">${data.summary}</div>
-            <div style="padding-top:12px; border-top:1px dashed var(--border); font-size:10px; color:var(--text-tertiary);">Market: ${data.marketInfo.question}</div>
-          </div>
-        `;
-      }
-    }
-  } catch(e) {}
-};
-
-document.querySelectorAll(".x-tab-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".x-tab-btn").forEach(b => {
-      b.classList.remove("active");
-      b.style.background = "transparent";
-      b.style.color = "var(--text-secondary)";
-    });
-    btn.classList.add("active");
-    btn.style.background = "rgba(255,255,255,0.1)";
-    btn.style.color = "var(--text-primary)";
-    
-    document.querySelectorAll(".x-tab-content").forEach(c => c.style.display = "none");
-    const targetId = btn.dataset.target;
-    if(targetId) {
-       const tab = document.getElementById(targetId);
-       if (tab) tab.style.display = "flex";
-       if (targetId === "xTabWhales") {
-         alertCount = 0;
-         if(xAlertCount) xAlertCount.style.display = "none";
-       }
-    }
-  });
-});
-
-const titleObserver = new MutationObserver((mutations) => {
-  mutations.forEach((mutation) => {
-    if (mutation.type === "childList" || mutation.type === "characterData") {
-      const polyTitleEl = document.getElementById("polyTitle");
-      if (polyTitleEl) {
-        const text = polyTitleEl.textContent;
-        if (text && text !== "Embed panel") {
-          const wrapper = document.getElementById("xEmbedWrapper");
-          if (wrapper) {
-            wrapper.innerHTML = `
-              <div style="padding:20px; text-align:center;">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="color:#1DA1F2; margin-bottom:10px;"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                <div style="color:var(--text-secondary); font-size:12px; margin-bottom:16px;">Mencari obrolan X tentang:<br><strong style="color:#fff;">${text}</strong></div>
-                <div id="xSearchResults" style="display:flex; flex-direction:column; gap:10px; text-align:left;">
-                  <div style="color:var(--text-secondary); font-size:12px; font-style:italic;">Loading live tweets...</div>
-                </div>
-              </div>
-            `;
-
-            fetch('/api/twitter-search?q=' + encodeURIComponent(text))
-              .then(r => r.json())
-              .then(data => {
-                const resultsContainer = document.getElementById('xSearchResults');
-                if (!resultsContainer) return;
-                
-                if (!data.tweets || data.tweets.length === 0) {
-                  resultsContainer.innerHTML = `<div style="color:var(--neon-red); font-size:12px; text-align:center; padding:10px; background:rgba(239,68,68,0.1); border-radius:8px;">Tidak ada obrolan terbaru ditemukan.</div>`;
-                  return;
-                }
-
-                resultsContainer.innerHTML = data.tweets.map(tweet => `
-                  <div style="background:var(--bg-secondary); border:1px solid var(--border-strong); padding:12px; border-radius:8px; font-size:13px; line-height:1.4; color:var(--text-primary);">
-                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px; font-size:11px; color:var(--text-secondary);">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="#1DA1F2"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-                      Postingan X Terbaru
-                    </div>
-                    ${tweet}
-                  </div>
-                `).join('');
-              })
-              .catch(err => {
-                const resultsContainer = document.getElementById('xSearchResults');
-                if (resultsContainer) {
-                  resultsContainer.innerHTML = `<div style="color:var(--text-secondary); font-size:12px;">Gagal memuat tweets.</div>`;
-                }
-              });
-          }
-        }
-      }
-    }
-  });
-});
-const polyTitleEl = document.getElementById("polyTitle");
-if (polyTitleEl) {
-  titleObserver.observe(polyTitleEl, { childList: true, characterData: true, subtree: true });
-}
-
 /* --- Engines Popup Toggle (Body-Level Fixed Positioning) --- */
 setTimeout(() => {
   const btn = document.getElementById('btnToggleEngines');
@@ -5777,74 +5208,6 @@ setTimeout(() => {
   }
 }, 1000);
 
-/* --- Agent Modal Logic --- */
-const agentConclusionBox = document.querySelector("#agentConclusionBox");
-const agentModal = document.querySelector("#agentModal");
-const closeAgentModal = document.querySelector("#closeAgentModal");
-
-if (agentConclusionBox && agentModal && closeAgentModal) {
-  agentConclusionBox.addEventListener("click", () => {
-    agentModal.style.display = "flex";
-  });
-  closeAgentModal.addEventListener("click", () => {
-    agentModal.style.display = "none";
-  });
-  agentModal.addEventListener("click", (e) => {
-    if (e.target === agentModal) {
-      agentModal.style.display = "none";
-    }
-  });
-}
-
-/* --- Dashboard Drag and Drop Logic --- */
-function initDashboardDragDrop() {
-  const centerDashboard = document.getElementById("centerDashboard");
-  if (!centerDashboard) return;
-
-  if (typeof Sortable === 'undefined') {
-    console.error('[DragDrop] SortableJS not loaded — drag disabled');
-    return;
-  }
-
-  // Restore saved card order first before creating Sortable instance
-  try {
-    const savedOrder = JSON.parse(localStorage.getItem("dashboardCardOrder"));
-    if (savedOrder && Array.isArray(savedOrder) && savedOrder.length) {
-      savedOrder.forEach(id => {
-        const el = document.getElementById(id);
-        if (el && el.classList.contains('dash-bottom-card')) {
-          centerDashboard.appendChild(el);
-        }
-      });
-    }
-  } catch(e) {}
-
-  if (!centerDashboard._sortableInited) {
-    centerDashboard._sortableInited = true;
-    Sortable.create(centerDashboard, {
-      animation: 150,
-      handle: '.card-drag-strip',
-      draggable: '.dash-bottom-card',
-      ghostClass: "sortable-ghost",
-      chosenClass: "sortable-chosen",
-      onStart: function (evt) {
-        evt.item.style.opacity = '0.8';
-      },
-      onEnd: function (evt) {
-        evt.item.style.opacity = '';
-        const cards = Array.from(centerDashboard.querySelectorAll('.dash-bottom-card'));
-        const newOrder = cards.map(c => c.id).filter(Boolean);
-        localStorage.setItem("dashboardCardOrder", JSON.stringify(newOrder));
-      }
-    });
-  }
-}
-
-if (document.readyState === 'complete' || document.readyState === 'interactive') {
-  initDashboardDragDrop();
-}
-document.addEventListener('DOMContentLoaded', initDashboardDragDrop);
-window.addEventListener('load', initDashboardDragDrop);
 
 function closeStaticPanel() {
   marketSummaryClosed = true;
@@ -5886,198 +5249,6 @@ function toggleWhaleVolume() {
   }
 }
 window.toggleWhaleVolume = toggleWhaleVolume;
-
-// ==========================================
-// BULK TRADE PANEL LOGIC
-// ==========================================
-
-window.openTradePanel = async function() {
-  document.getElementById('tradePanelModal').style.display = 'flex';
-  await populateTradePanel();
-};
-
-window.closeTradePanel = function() {
-  document.getElementById('tradePanelModal').style.display = 'none';
-};
-
-window.selectAllTradeItems = function() {
-  const items = document.querySelectorAll('.trade-item');
-  if (items.length === 0) return;
-  const allSelected = Array.from(items).every(item => item.classList.contains('selected'));
-  
-  items.forEach(item => {
-    if (allSelected) {
-      item.classList.remove('selected');
-    } else {
-      item.classList.add('selected');
-    }
-  });
-};
-
-window.toggleTradeItem = function(element) {
-  element.classList.toggle('selected');
-};
-
-async function populateTradePanel() {
-  const listEl = document.getElementById('tradePanelList');
-  listEl.innerHTML = '<div style="text-align:center; padding:30px; color:#aaa;">Loading queue & predictions...</div>';
-  document.getElementById('tradePanelStatus').innerText = '';
-  
-  try {
-    const queueData = { queue: Array.isArray(analysisQueue) ? analysisQueue : [] };
-    
-    if (!queueData.queue || queueData.queue.length === 0) {
-      listEl.innerHTML = '<div style="text-align:center; padding:30px; color:#666; font-size:12px;">Queue is empty. Analyze some events first.</div>';
-      return;
-    }
-    
-    if (!Array.isArray(allHistoryEvents) || allHistoryEvents.length === 0) {
-      if (typeof fetchHistoryEvents === 'function') await fetchHistoryEvents(); 
-    }
-    
-    let html = '';
-    let hasValid = false;
-    
-    queueData.queue.forEach(item => {
-      const historyMatch = (allHistoryEvents || []).find(h => String(h.market_id) === String(item.id));
-      
-      let predictionText = "UNKNOWN";
-      let predictionColor = "#aaa";
-      let canTrade = false;
-      
-      if (historyMatch && historyMatch.prediction) {
-        const pred = historyMatch.prediction.toUpperCase();
-        if ((pred === "YES" || pred === "UP") && historyMatch.actionable === 1) {
-          predictionText = pred;
-          predictionColor = "var(--neon-green)";
-          canTrade = true;
-        } else if ((pred === "NO" || pred === "DOWN") && historyMatch.actionable === 1) {
-          predictionText = pred;
-          predictionColor = "var(--neon-red)";
-          canTrade = true;
-        } else {
-          predictionText = ["YES", "UP", "NO", "DOWN"].includes(pred) ? `${pred} / SKIP ENTRY` : "NO SIGNAL / NO ENTRY";
-        }
-      } else {
-        predictionText = item.status === "DONE" ? "WAITING FOR SYNC" : item.status;
-      }
-
-      if (isDynamicEntryItem(item)) {
-        const scannerResult = normalizeEntryScannerResult(item.entryScanner);
-        predictionText = scannerResult.outcome === "ENTRY"
-          ? `${scannerResult.issuedSignal?.direction || scannerDirectionLabel(scannerResult.diagnosticLean)} / MANUAL ENTRY ONLY`
-          : `${scannerResult.outcome || "WAITING"} / MANUAL / NO TRADE`;
-        canTrade = false;
-      }
-
-      const safeQuestion = escapePulseHtml(item.question || item.id);
-      const safePrediction = escapePulseHtml(predictionText);
-      
-      if (!canTrade) {
-        html += `
-          <div class="trade-item" style="opacity:0.5; cursor:not-allowed;">
-            <div class="trade-checkbox"></div>
-            <div style="flex:1; overflow:hidden;">
-              <div style="font-size:12px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${safeQuestion}</div>
-              <div style="font-size:10px; color:#aaa;">Signal: ${safePrediction} (Cannot Trade)</div>
-            </div>
-          </div>
-        `;
-      } else {
-        hasValid = true;
-        html += `
-          <div class="trade-item selected" onclick="toggleTradeItem(this)" data-marketid="${escapePulseHtml(item.id)}" data-prediction="${safePrediction}">
-            <div class="trade-checkbox"></div>
-            <div style="flex:1; overflow:hidden;">
-              <div style="font-size:12px; font-weight:bold; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${safeQuestion}</div>
-              <div style="font-size:10px; color:#ccc;">AI Signal: <span style="color:${predictionColor}; font-weight:bold;">${safePrediction}</span></div>
-            </div>
-          </div>
-        `;
-      }
-    });
-    
-    if (!hasValid) {
-      html += '<div style="text-align:center; padding:10px; color:#666; font-size:12px;">No clear UP/DOWN signals in the queue to trade.</div>';
-    }
-    
-    listEl.innerHTML = html;
-  } catch (err) {
-    listEl.innerHTML = `<div style="text-align:center; padding:30px; color:var(--neon-red);">${err.message}</div>`;
-  }
-}
-
-window.executeBulkTrade = async function() {
-  const selectedItems = document.querySelectorAll('.trade-item.selected');
-  if (selectedItems.length === 0) {
-    alert("Please select at least one market to trade.");
-    return;
-  }
-  
-  const sizeInput = document.getElementById('tradePanelSizeInput').value;
-  const sizeUsdc = parseFloat(sizeInput);
-  if (isNaN(sizeUsdc) || sizeUsdc <= 0) {
-    alert("Please enter a valid Trade Size (USDC).");
-    return;
-  }
-  
-  const trades = [];
-  selectedItems.forEach(el => {
-    trades.push({
-      marketId: el.getAttribute('data-marketid'),
-      prediction: el.getAttribute('data-prediction'),
-      sizeUsdc: sizeUsdc
-    });
-  });
-
-  const totalUsdc = trades.reduce((sum, trade) => sum + trade.sizeUsdc, 0);
-  if (!window.confirm(`Confirm ${trades.length} FOK order(s), maximum total ${totalUsdc.toFixed(2)} USDC? Unfilled orders will be cancelled.`)) {
-    return;
-  }
-  
-  const statusEl = document.getElementById('tradePanelStatus');
-  const btn = document.getElementById('btnExecuteTrade');
-  
-  btn.disabled = true;
-  btn.innerText = "EXECUTING...";
-  btn.style.opacity = "0.5";
-  statusEl.style.color = "var(--neon-green)";
-  statusEl.innerText = `Sending ${trades.length} market orders to Polygon...`;
-  
-  try {
-    const res = await fetch("/api/execute-trade", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        trades,
-        idempotencyKey: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
-      })
-    });
-    
-    const data = await res.json();
-    if (!res.ok || !data.ok) throw new Error(data.error || "Execution failed");
-    
-    let successCount = 0;
-    let failCount = 0;
-    data.results.forEach(r => {
-      if (r.success) successCount++;
-      else failCount++;
-    });
-    
-    statusEl.innerText = `Done! ${successCount} successful, ${failCount} failed.`;
-    if (failCount > 0) statusEl.style.color = "var(--neon-red)";
-    
-    setTimeout(() => { if (typeof fetchWsStatus === 'function') fetchWsStatus(); }, 2000); 
-    
-  } catch (err) {
-    statusEl.style.color = "var(--neon-red)";
-    statusEl.innerText = `Error: ${err.message}`;
-  } finally {
-    btn.disabled = false;
-    btn.innerText = "EXECUTE TRADES";
-    btn.style.opacity = "1";
-  }
-};
 
 let selectedPulseAsset = "BTC";
 let selectedPulseTimeframe = "5m";

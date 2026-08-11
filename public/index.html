@@ -1,249 +1,21 @@
 <!doctype html>
-<html lang="id" data-mode="dark">
+<html lang="id" data-mode="dark" data-font="geist">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- Anti-flash: apply stored color mode before any CSS renders -->
-    <script>!function(){var m=localStorage.getItem('razorbot_mode')||'dark';document.documentElement.setAttribute('data-mode',m);}();</script>
   <title>Spectre</title>
   <link rel="icon" type="image/png" href="/spectreputih.png" />
   <link rel="stylesheet" href="/terminal-shell.css" />
   <meta name="description" content="Professional Polymarket prediction market analysis terminal with real-time data, AI-powered insights, and order book analysis." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Geist:wght@400;500;600;700;800&display=swap"
-    rel="stylesheet"
-  />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <script src="/Sortable.min.js"></script>
-  <!-- Trade Panel Modal -->
-  <div id="tradePanelModal" class="padre-modal-overlay" style="display:none; z-index: 10000; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px);">
-    <div style="width: 800px; max-width: 90vw; max-height: 90vh; background: #0a0a0e; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 32px 100px rgba(0,0,0,0.8); margin: auto;">
-      
-      <!-- Header -->
-      <div style="padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.5);">
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <i data-lucide="zap" style="color:var(--neon-purple); width:20px; height:20px;"></i>
-          <h3 style="margin: 0; font-size: 16px; font-family: var(--font-primary); font-weight: 700; color: #fff;">Bulk Trade Panel</h3>
-        </div>
-        <button onclick="closeTradePanel()" style="background: none; border: none; color: var(--text-tertiary); cursor: pointer;"><i data-lucide="x" style="width:20px;height:20px;"></i></button>
-      </div>
-
-      <!-- Content: Queue List -->
-      <div style="flex:1; overflow-y:auto; padding:20px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-          <span style="font-family:var(--font-secondary); font-size:11px; color:#aaa; text-transform:uppercase; letter-spacing:0.1em;">Select Markets from Queue</span>
-          <button onclick="selectAllTradeItems()" style="background:none; border:1px solid rgba(255,255,255,0.1); color:#fff; padding:4px 10px; border-radius:4px; font-size:10px; cursor:pointer;">Select All</button>
-        </div>
-        <div id="tradePanelList" style="display:flex; flex-direction:column; gap:12px;">
-          <!-- JS will populate -->
-          <div style="text-align:center; padding:30px; color:#666; font-size:12px;">Queue is empty or no valid predictions available.</div>
-        </div>
-      </div>
-
-      <!-- Footer: Controls & Execute -->
-      <div style="padding:20px; border-top:1px solid rgba(255,255,255,0.05); background:rgba(255,255,255,0.02); display:flex; flex-direction:column; gap:16px;">
-        
-        <!-- Size Selector -->
-        <div style="display:flex; gap:12px; align-items:center;">
-          <span style="font-family:var(--font-secondary); font-size:11px; color:#aaa;">Trade Size per Market:</span>
-          <input type="number" id="tradePanelSizeInput" value="10" style="width:100px; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:#fff; padding:8px 12px; font-family:var(--font-primary); font-size:14px;">
-          <span style="color:#aaa; font-size:12px;">USDC</span>
-          
-          <div style="display:flex; gap:6px; margin-left:12px;">
-            <button class="preset-btn" onclick="document.getElementById('tradePanelSizeInput').value=5">$5</button>
-            <button class="preset-btn" onclick="document.getElementById('tradePanelSizeInput').value=10">$10</button>
-            <button class="preset-btn" onclick="document.getElementById('tradePanelSizeInput').value=25">$25</button>
-            <button class="preset-btn" onclick="document.getElementById('tradePanelSizeInput').value=50">$50</button>
-          </div>
-        </div>
-
-        <!-- Execute Button -->
-        <button id="btnExecuteTrade" onclick="executeBulkTrade()" style="width:100%; padding:16px; background:var(--neon-green); color:#000; border:none; border-radius:12px; font-family:var(--font-primary); font-weight:800; font-size:15px; cursor:pointer; text-transform:uppercase; letter-spacing:0.05em; transition:all 0.2s ease;">
-          Execute Trades
-        </button>
-        <div id="tradePanelStatus" style="font-size:12px; color:#aaa; text-align:center; height:16px;"></div>
-      </div>
-    </div>
-  </div>
-
-  <style>
-  .preset-btn {
-    background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); border-radius:6px; color:#fff; padding:6px 12px; cursor:pointer; font-family:var(--font-primary); font-size:12px; transition:all 0.2s;
-  }
-  .preset-btn:hover { background:rgba(255,255,255,0.1); border-color:var(--neon-purple); }
-  .trade-item {
-    background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:8px; padding:12px; display:flex; gap:12px; align-items:center; cursor:pointer; transition:all 0.2s;
-  }
-  .trade-item:hover { border-color:rgba(255,255,255,0.2); }
-  .trade-item.selected { border-color:var(--neon-green); background:rgba(16, 185, 129, 0.05); }
-  .trade-checkbox {
-    width:18px; height:18px; border-radius:4px; border:2px solid rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center;
-  }
-  .trade-item.selected .trade-checkbox {
-    background:var(--neon-green); border-color:var(--neon-green);
-  }
-  .trade-checkbox::after {
-    content: '✓'; color:#000; font-weight:bold; font-size:12px; display:none;
-  }
-  .trade-item.selected .trade-checkbox::after { display:block; }
-  </style>
-
   <script src="/lucide.min.js"></script>
-  <link rel="stylesheet" href="/styles-v2.css?v=146-dynamic-ev" />
-  <style>
-/* ================================================================
-   FONT VARIABLES (DATA-FONT ATTR)
-   ================================================================ */
-html[data-font="padre"] {
-  --font-primary: "Outfit", sans-serif;
-  --font-secondary: "Plus Jakarta Sans", sans-serif;
-}
-html[data-font="geist"] {
-  --font-primary: "Geist", sans-serif;
-  --font-secondary: "Geist", sans-serif;
-}
-html[data-font="inter"] {
-  --font-primary: "Inter", sans-serif;
-  --font-secondary: "Inter", sans-serif;
-}
-
-/* ================================================================
-   BENTO GRID DESIGN
-   ================================================================ */
-.bento-grid-container {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background: transparent;
-  padding: 0;
-  width: 100%;
-}
-.bento-glass-panel {
-  background: rgba(25, 25, 28, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.2), inset 0 0 20px rgba(255, 255, 255, 0.02);
-  position: relative;
-  overflow: hidden;
-}
-.bento-title-header {
-  font-family: var(--font-primary);
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: 0.05em;
-  margin-bottom: 12px;
-  text-shadow: 0 0 10px rgba(255,255,255,0.1);
-}
-.bento-row {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 0px;
-}
-.bento-box {
-  flex: 1;
-  background: rgba(20, 20, 22, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  transition: all 0.2s ease;
-}
-.bento-box:hover {
-  background: rgba(30, 30, 33, 0.9);
-  border-color: rgba(255, 255, 255, 0.15);
-}
-.bento-box.interactive {
-  cursor: pointer;
-}
-.bento-box.interactive:hover {
-  border-color: rgba(16, 185, 129, 0.5);
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
-}
-.bento-box-label {
-  font-family: var(--font-secondary);
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.bento-box-value {
-  font-family: var(--font-primary);
-  font-size: 24px;
-  font-weight: 800;
-  line-height: 1.1;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.bento-box-sub {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-top: 8px;
-  font-family: var(--font-secondary);
-  line-height: 1.4;
-}
-.bento-glow-up {
-  color: var(--neon-green);
-  text-shadow: 0 0 15px rgba(16, 185, 129, 0.5);
-}
-.bento-glow-down {
-  color: var(--neon-red);
-  text-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
-}
-.bento-glow-neutral {
-  color: var(--neon-cyan);
-  text-shadow: 0 0 15px rgba(6, 182, 212, 0.5);
-}
-.bento-badge-up {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--neon-green);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  padding: 4px 12px;
-  border-radius: 6px;
-  font-size: 20px;
-  font-weight: 800;
-  box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
-  display: inline-block;
-}
-.bento-badge-down {
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--neon-red);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  padding: 4px 12px;
-  border-radius: 6px;
-  font-size: 20px;
-  font-weight: 800;
-  box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
-  display: inline-block;
-}
-.bento-badge-outline-cyan {
-  background: rgba(6, 182, 212, 0.15);
-  color: var(--neon-cyan);
-  border: 1px solid rgba(6, 182, 212, 0.3);
-  padding: 4px 12px;
-  border-radius: 6px;
-  font-size: 20px;
-  font-weight: 800;
-  box-shadow: 0 0 15px rgba(6, 182, 212, 0.2);
-  display: inline-block;
-}
-</style>
 </head>
   <body>
     <!-- Sidebar backdrop (closes drawer on tap) -->
-    <div id="sidebarBackdrop" onclick="document.body.classList.remove('sidebar-open')"></div>
+    <div id="sidebarBackdrop"></div>
 
     <!-- Left Sidebar - Houses Short Market and Queue Panel -->
     <aside id="leftSidebar" style="position:fixed; top:70px; bottom:40px; left:12px; width:420px; z-index:9000; display:flex; flex-direction:column; gap:12px; pointer-events:none;">
@@ -254,18 +26,18 @@ html[data-font="inter"] {
         <span style="font-size:12px; font-weight:600; color:#e8e8e8; letter-spacing:0.01em;">Short Market Events</span>
         <div style="display:flex; align-items:center; gap:6px;">
           <span id="shortMarketStatus" style="font-size:9px; color:#666; font-family:monospace;"></span>
-          <button type="button" id="btnBulkAddShort" style="background:none; border:none; cursor:pointer; color:#555; padding:2px; display:flex; align-items:center;" title="Bulk Add All to Queue" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">
+          <button type="button" id="btnBulkAddShort" class="terminal-icon-button" title="Bulk Add All to Queue" aria-label="Bulk add markets to queue">
             <i data-lucide="layers" style="width:12px; height:12px;"></i>
           </button>
-          <button type="button" id="btnRefreshShortMarket" style="background:none; border:none; cursor:pointer; color:#555; padding:2px; display:flex; align-items:center;" title="Refresh" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">
+          <button type="button" id="btnRefreshShortMarket" class="terminal-icon-button" title="Refresh" aria-label="Refresh short markets">
             <i data-lucide="refresh-cw" style="width:11px; height:11px;"></i>
           </button>
         </div>
-        
+
         <!-- Bulk Add Dropdown Menu -->
         <div id="bulkAddDropdown" style="display:none; position:absolute; top:32px; right:12px; background:var(--bg-elevated); border:1px solid var(--border-bright); border-radius:8px; padding:12px; z-index:100; flex-direction:column; gap:10px; width:220px; box-shadow:0 10px 30px rgba(0,0,0,0.8);">
           <div style="font-size:11px; font-weight:600; color:var(--text-primary); padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.05); text-transform:uppercase; letter-spacing:0.05em;">Bulk Add to Queue</div>
-          
+
           <div style="display:flex; flex-direction:column; gap:4px; position:relative;">
             <label style="font-size:10px; color:var(--text-tertiary);">Mulai dari market:</label>
             <div id="customBulkStartDisplay" style="padding:6px 8px; font-size:11px; background:rgba(0,0,0,0.2); border:1px solid var(--border-bright); border-radius:4px; color:var(--text-primary); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
@@ -276,7 +48,7 @@ html[data-font="inter"] {
             <div id="customBulkStartOptions" style="display:none; position:absolute; top:45px; left:0; width:100%; max-height:150px; overflow-y:auto; background:var(--bg-elevated); border:1px solid var(--border-bright); border-radius:4px; z-index:101; flex-direction:column; box-shadow:0 4px 12px rgba(0,0,0,0.5);">
             </div>
           </div>
-          
+
           <div style="display:flex; flex-direction:column; gap:4px;">
             <label style="font-size:10px; color:var(--text-tertiary);">Jumlah market:</label>
             <select id="inputBulkCount" style="padding:6px; font-size:11px; background:rgba(0,0,0,0.2); border:1px solid var(--border-bright); border-radius:4px; color:var(--text-primary); cursor:pointer;">
@@ -285,7 +57,7 @@ html[data-font="inter"] {
               <option value="all">Semua Market Aktif</option>
             </select>
           </div>
-          
+
           <button id="btnConfirmBulkAdd" class="btn-primary" style="margin-top:4px; padding:8px; font-size:11px; width:100%; border-radius:4px;">
             <i data-lucide="plus" style="width:12px; height:12px; margin-right:4px;"></i> Tambahkan
           </button>
@@ -320,12 +92,12 @@ html[data-font="inter"] {
         </span>
         <div style="display:flex; align-items:center; gap:8px;">
           <span id="queueProgressText" style="display:none; font-size:9px; color:var(--neon-amber); font-family:monospace;"></span>
-          <button type="button" id="btnClearQueue" style="background:none; border:none; cursor:pointer; color:#555; padding:2px; display:flex; align-items:center;" title="Clear Queue" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">
+          <button type="button" id="btnClearQueue" class="terminal-icon-button" title="Clear Queue" aria-label="Clear queue">
             <i data-lucide="trash-2" style="width:11px; height:11px;"></i>
           </button>
         </div>
       </div>
-      
+
       <!-- Dropzone & List -->
       <div id="queuePanelContent" style="display:flex; flex-direction:column; flex:1; min-height:0; overflow:hidden;">
         <section id="entrySignalPanel" class="entry-signal-panel" hidden aria-live="assertive">
@@ -333,13 +105,18 @@ html[data-font="inter"] {
             <span id="entrySignalStatus" class="entry-signal-status">WATCHING</span>
             <span id="entrySignalExpiry" class="entry-signal-expiry">--</span>
           </div>
+          <div id="entrySignalMarket" class="entry-signal-market">--</div>
           <div class="entry-signal-main">
             <div><span class="entry-signal-label">Direction</span><strong id="entrySignalDirection">--</strong></div>
+            <div><span class="entry-signal-label">Observed</span><strong id="entrySignalObserved">--</strong></div>
             <div><span class="entry-signal-label">Ask</span><strong id="entrySignalAsk">--</strong></div>
-            <div><span class="entry-signal-label">Max</span><strong id="entrySignalMaxAsk">--</strong></div>
+            <div><span class="entry-signal-label">Gross EV</span><strong id="entrySignalGrossEv">--</strong></div>
             <div><span class="entry-signal-label">Net EV</span><strong id="entrySignalEv">--</strong></div>
             <div><span class="entry-signal-label">Fair</span><strong id="entrySignalFair">--</strong></div>
+            <div><span class="entry-signal-label">Confirms</span><strong id="entrySignalConfirmations">--</strong></div>
+            <div><span class="entry-signal-label">Data</span><strong id="entrySignalData">--</strong></div>
           </div>
+          <p id="entrySignalGates" class="entry-signal-gates">No failed gates.</p>
         </section>
         <div id="queueDropzone" style="flex:1; overflow-y:auto; padding:8px 12px; display:flex; flex-direction:column; gap:6px; border:2px dashed transparent; transition: border-color 0.2s;">
           <div id="queueEmpty" style="text-align:center; padding:30px 10px; color:#444; font-size:10px; pointer-events:none; margin:auto;">
@@ -347,7 +124,7 @@ html[data-font="inter"] {
             Drag & Drop markets here
           </div>
         </div>
-        
+
         <!-- Action Footer -->
         <div style="padding:8px; border-top:1px solid rgba(255,255,255,0.05); background:rgba(0,0,0,0.2);">
           <button id="btnRunQueue" class="btn-primary" type="button" style="width:100%; justify-content:center; height:26px; font-size:10px; font-weight:600; background:rgba(245, 158, 11, 0.1); color:var(--neon-amber); border:1px solid rgba(245, 158, 11, 0.3); transition:all 0.2s;">
@@ -362,7 +139,7 @@ html[data-font="inter"] {
       <!-- === HEADER BAR === -->
       <header class="topbar">
         <div class="topbar-leading">
-          <button id="sidebarToggleBtn" type="button" aria-label="Buka panel market" aria-controls="leftSidebar" onclick="document.body.classList.toggle('sidebar-open')">
+          <button id="sidebarToggleBtn" type="button" aria-label="Buka panel market" aria-controls="leftSidebar">
             <i data-lucide="panel-left" aria-hidden="true"></i>
           </button>
 
@@ -405,111 +182,6 @@ html[data-font="inter"] {
 
       <!-- === MAIN WORKSPACE === -->
       <main class="workspace">
-        <!-- Sidebar: Unified Smart Input -->
-        <aside class="control-panel">
-
-
-
-          <!-- Section 2: Smart Input -->
-          <div class="panel-section grow">
-            <div class="section-header" style="display:flex; align-items:center; gap:6px;">
-              <span class="section-icon input-icon"></span>
-              <span class="section-label">Analyze</span>
-              <div class="tooltip-container">
-                <i data-lucide="help-circle" class="chip-icon" style="width:14px; height:14px; color:var(--text-tertiary); cursor:help;"></i>
-                <div class="tooltip-content">
-                  <strong>Available Commands:</strong><br><br>
-                  <span style="color:var(--neon-cyan)">/analyze [id]</span> - Deep dive 1 market<br>
-                  <span style="color:var(--neon-cyan)">/search [keyword]</span> - Cari market ID dari keyword<br>
-                  <span style="color:var(--neon-cyan)">/quickscan [url]</span> - Scan cepat seluruh market di 1 event<br>
-                  <span style="color:var(--neon-cyan)">/top3 [url]</span> - Analisis 3 market teratas dari event<br>
-                  <span style="color:var(--neon-cyan)">/analyzebest [url]</span> - Analisis 1 market paling mis-priced<br>
-                  <span style="color:var(--neon-cyan)">/analyzeall [url]</span> - Analisis seluruh market dalam event<br>
-                  <span style="color:var(--neon-cyan)">/book [id]</span> - Intip orderbook dan likuiditas<br>
-                  <span style="color:var(--neon-cyan)">/top</span> - Lihat 5 market paling aktif saat ini<br>
-                  <hr style="border: 1px solid rgba(255,255,255,0.1); margin: 8px 0;">
-                  <strong>CloddsBot Commands:</strong><br><br>
-                  <span style="color:var(--neon-purple)">/kelly [edge] [conf]</span> - Hitung position sizing<br>
-                  <span style="color:var(--neon-purple)">/alert [id] [cond]</span> - Set price alert<br>
-                  <span style="color:var(--neon-purple)">/delalert [id]</span> - Hapus alert<br>
-                  <span style="color:var(--neon-purple)">/whales [min$]</span> - Custom whale tracker<br>
-                  <span style="color:var(--neon-purple)">/arb</span> - Scan semua arbitrase
-                </div>
-              </div>
-            </div>
-
-            <div class="smart-input-area">
-              <textarea
-                id="commandInput"
-                spellcheck="false"
-                rows="3"
-                placeholder="Paste Polymarket link, market ID, keyword, atau event slug..."
-              ></textarea>
-              <div class="input-detected" id="inputDetected"></div>
-            </div>
-
-            <!-- Action buttons: appear based on input -->
-            <div class="smart-actions" id="smartActions">
-              <p class="smart-hint" id="smartHint">Paste link atau ketik keyword di atas, lalu pilih aksi:</p>
-
-              <!-- Single market actions -->
-              <div class="action-group" id="singleActions">
-                <span class="group-label">Market</span>
-                <div class="action-row">
-                  <button type="button" class="action-chip primary" data-action="analyze" id="btnAnalyze">
-                    <i data-lucide="cpu" class="chip-icon"></i>
-                    <span>Deep Analyze</span>
-                    <span class="chip-tag ai">AI</span>
-                  </button>
-                  <button type="button" class="action-chip" data-action="search" id="btnSearch">
-                    <i data-lucide="search" class="chip-icon"></i>
-                    <span>Search</span>
-                  </button>
-                  <button type="button" class="action-chip" data-action="book" id="btnBook">
-                    <i data-lucide="book-open" class="chip-icon"></i>
-                    <span>Orderbook</span>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Event actions -->
-              <div class="action-group" id="eventActions">
-                <span class="group-label">Event</span>
-                <div class="action-row">
-                  <button type="button" class="action-chip primary" data-action="analyzebest" id="btnAnalyzeBest">
-                    <i data-lucide="target" class="chip-icon"></i>
-                    <span>AI Best Pick</span>
-                    <span class="chip-tag ai">AI</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Run / Clear row -->
-            <div class="run-row">
-              <button id="clearButton" class="btn-secondary" type="button">
-                <i data-lucide="x" class="btn-icon"></i>
-                Clear
-              </button>
-              <button id="runButton" class="btn-primary" type="button" aria-label="Run analysis">
-                <i data-lucide="play" class="btn-icon run-icon" id="runIcon"></i>
-                <span id="runLabel">Run</span>
-              </button>
-            </div>
-          </div>
-
-
-
-          <!-- Section 3: Guard Rail (compact) -->
-          <div class="panel-section">
-            <div class="guard-compact">
-              <span class="guard-dot" id="guardDot"></span>
-              <span class="guard-text">Guard Rail</span>
-              <span class="guard-status" id="guardStatus">Ready</span>
-            </div>
-          </div>
-        </aside>
-
         <!-- Main: Result Panel -->
         <section class="result-panel">
           <div class="console-head">
@@ -518,16 +190,6 @@ html[data-font="inter"] {
               <h2>Market Intelligence</h2>
             </div>
             <div class="console-actions" style="position:relative; display:flex; gap:8px; align-items:center;">
-              <style>
-                .hover-tooltip { position: relative; display: inline-flex; align-items: center; justify-content: center; cursor: help; width: 26px; height: 26px; background: rgba(255,255,255,0.05); border-radius: 4px; border: 1px solid var(--border-bright); }
-                .hover-tooltip .tooltip-text { visibility: hidden; opacity: 0; width: 260px; background-color: rgba(0,0,0,0.95); color: #fff; text-align: left; padding: 10px; border-radius: 6px; position: absolute; z-index: 9999; top: 130%; left: 0; font-size: 11px; line-height: 1.5; border: 1px solid rgba(16,185,129,0.5); transition: opacity 0.2s; pointer-events: none; font-weight: normal; }
-                .hover-tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
-              </style>
-              <button id="aggressiveModeBtn" class="btn-secondary" type="button" title="Mode Agresif: Paksa UP atau DOWN, tidak ada NETRAL" style="height: 26px; font-size: 10px; padding: 0 10px; border-color: rgba(239,68,68,0.35); color: var(--text-secondary); font-weight: bold; gap: 5px; min-width: 110px; justify-content: center;">
-                <i data-lucide="swords" style="width: 12px; height: 12px;"></i>
-                <span id="aggressiveModeText">NO NETRAL: OFF</span>
-              </button>
-
               <button id="btnShortMarket" class="btn-secondary" type="button" style="height: 26px; font-size: 10px; padding: 0 10px; border-color: rgba(245, 158, 11, 0.3);">
                 <i data-lucide="zap" class="btn-icon" style="width:12px; height:12px; color:var(--neon-amber);"></i> Short Market
               </button>
@@ -583,155 +245,44 @@ html[data-font="inter"] {
                   </div>
                 </div>
               </div>
-            </div>
-
-            <!-- === CENTER DASHBOARD (Live Readiness & Agent) === -->
-            <div id="centerDashboard" class="center-dashboard" style="position:fixed; bottom:40px; left:440px; right:20px; height:280px; display:flex; gap:10px; padding:0; z-index:90; pointer-events:none;">
-
-
-
-              <!-- === CARD 1: Analisis Agent === -->
-              <div class="dash-bottom-card premium-card premium-card-hover" id="cardAnalisisAgent">
-                <div class="dash-inner-core">
-                  <div class="card-drag-strip">
-                    <i data-lucide="grip-horizontal" class="card-drag-handle"></i>
-                  </div>
-                  <div class="dash-col-header" style="justify-content:space-between;">
-                    <span>Analisis Agent</span>
-                    <span class="card-badge">VALUE ENGINE</span>
-                  </div>
-                  <div style="margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-                    <span style="font-size:11px; font-weight:600;">Sinyal Terakhir</span>
-                    <span id="dashSignalAsset" style="font-weight:700; color:var(--text-primary); font-size:11px;">-</span>
-                    <span id="dashSignalDir" class="dir-badge">WAITING</span>
-                  </div>
-                  <div class="agent-conclusion-box interactive" id="agentConclusionBox" title="Klik untuk melihat detail analisis AI">
-                    <span id="dashConclusionText">Menunggu sinyal...</span>
-                    <div style="margin-top:6px; color:var(--text-tertiary); font-size:9px;">Model: <span style="color:var(--text-secondary)">Q-Wealth</span></div>
-                  </div>
-                  <div style="margin-top:12px;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                      <span style="font-size:9.5px; color:var(--text-secondary);">Signal Confidence</span>
-                      <span id="dashConfluenceScore" style="font-size:10px; font-weight:bold;">0%</span>
-                    </div>
-                    <div class="confluence-bar-bg">
-                      <div id="dashConfluenceFill" class="confluence-bar-fill" style="width:0%;"></div>
-                    </div>
-                  </div>
-                  <div style="margin-top:12px;">
-                    <span style="font-size:9.5px; color:var(--text-secondary); margin-bottom:6px; display:block;">PLAY Performance · All-time</span>
-                    <div class="play-stats">
-                      <div class="play-stat">
-                        <span class="play-stat-label">Sample</span>
-                        <span id="dashPlaySampleSize" class="play-stat-value">0</span>
-                      </div>
-                      <div class="play-stat">
-                        <span class="play-stat-label">Wins</span>
-                        <span id="dashPlayWins" class="play-stat-value" style="color:var(--neon-green);">0</span>
-                      </div>
-                      <div class="play-stat">
-                        <span class="play-stat-label">Losses</span>
-                        <span id="dashPlayLosses" class="play-stat-value" style="color:var(--neon-red);">0</span>
-                      </div>
-                      <div class="play-stat">
-                        <span class="play-stat-label">Win Rate</span>
-                        <span id="dashPlayWinRate" class="play-stat-value" style="color:var(--neon-cyan);">0%</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border-weak); display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
-                    <div style="display:flex; flex-direction:column; gap:2px; flex:1;">
-                      <span style="font-size:9.5px; color:var(--text-secondary);">Event</span>
-                      <span id="dashEventName" style="font-size:10px; font-weight:600; color:var(--text-primary); line-height:1.2;">-</span>
-                    </div>
-                    <div style="display:flex; flex-direction:column; gap:2px; text-align:right; max-width:120px;">
-                      <span style="font-size:9.5px; color:var(--text-secondary);">Waktu</span>
-                      <span id="dashEventTime" style="font-size:10px; font-weight:600; color:var(--text-primary); line-height:1.2;">-</span>
-                    </div>
-                  </div>
+              <div id="dynamicEVPanel" class="ev-scan-footer" style="display:none">
+                <div class="ev-scan-header">
+                  <span class="ev-scan-badge">EV SCANNER</span>
+                  <span class="ev-scan-status" id="evStatus">IDLE</span>
+                </div>
+                <div class="ev-scan-grid" id="evGrid">
+                  <span style="color:var(--text-tertiary)">Waiting for scan...</span>
                 </div>
               </div>
+            </div>
 
-              <!-- === CARD 2: Archive === -->
+            <!-- === CENTER DASHBOARD (Archive + Sniffer) === -->
+            <div id="centerDashboard" class="center-dashboard" style="position:fixed; bottom:40px; left:440px; right:20px; height:280px; display:flex; gap:10px; padding:0; z-index:90; pointer-events:none;">
+
+              <!-- === CARD 1: Archive === -->
               <aside class="dash-bottom-card premium-card premium-card-hover" id="dashboardArchivePanel">
                 <div class="dash-inner-core">
-                  <div class="card-drag-strip">
-                    <i data-lucide="grip-horizontal" class="card-drag-handle"></i>
-                  </div>
                   <div class="poly-head" style="padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
                     <div>
                       <span class="panel-kicker" style="color:var(--neon-purple); font-size:10px; font-weight:bold; letter-spacing:1px; text-transform:uppercase;">Archive</span>
                       <strong style="color:var(--text-primary); display:block; font-size:13px; margin-top:2px;">Analisis Sebelumnya</strong>
                     </div>
                     <div style="display:flex; gap:6px; align-items:center;">
-                      <input type="date" id="archiveFilterDate" style="padding:6px 8px; border-radius:6px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:var(--text-primary); font-size:10px; font-family:'JetBrains Mono', monospace; cursor:pointer; outline:none; transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--neon-purple)'" onblur="this.style.borderColor='rgba(255,255,255,0.1)'">
-                      <button id="btnResetArchiveDate" title="Reset Filter" style="padding:6px; border-radius:6px; background:rgba(255,255,255,0.03); color:var(--text-secondary); border:1px solid rgba(255,255,255,0.08); cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.08)'; this.style.color='#fff';" onmouseout="this.style.background='rgba(255,255,255,0.03)'; this.style.color='var(--text-secondary)';">
+                      <input type="date" id="archiveFilterDate" style="padding:6px 8px; border-radius:6px; background:rgba(0,0,0,0.2); border:1px solid rgba(255,255,255,0.1); color:var(--text-primary); font-size:10px; font-family:'JetBrains Mono', monospace; cursor:pointer; outline:none; transition:border-color 0.2s;">
+                      <button id="btnResetArchiveDate" class="terminal-reset-button" title="Reset Filter" aria-label="Reset archive date filter">
                         <i data-lucide="x" style="width:12px; height:12px;"></i>
                       </button>
                     </div>
                   </div>
-                  <style>#historyListContainer::-webkit-scrollbar { display: none; }</style>
                   <div id="historyListContainer" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:4px; scrollbar-width:none; -ms-overflow-style:none;">
                     <div style="text-align:center; padding:20px; color:var(--text-tertiary);">Loading history...</div>
                   </div>
                 </div>
               </aside>
 
-              <style>
-                .maximized-tracker {
-                  position: fixed !important;
-                  top: 50% !important;
-                  left: 50% !important;
-                  transform: translate(-50%, -50%) !important;
-                  z-index: 9999 !important;
-                  width: 1000px !important;
-                  max-width: 90vw !important;
-                  height: 750px !important;
-                  max-height: 85vh !important;
-                  margin: 0 !important;
-                  box-shadow: 0 0 100px rgba(0,0,0,0.8), 0 0 0 100vw rgba(0,0,0,0.6) !important;
-                  border-radius: 20px !important;
-                  display: flex !important;
-                  flex-direction: column !important;
-                  background: var(--bg-base) !important;
-                  border: 1px solid rgba(255,255,255,0.1) !important;
-                }
-                .maximized-tracker .tracker-inner {
-                  flex: 1 !important;
-                  display: flex !important;
-                  flex-direction: column !important;
-                  height: 100% !important;
-                }
-                .maximized-tracker .tracker-pane {
-                  flex: 1 !important;
-                  max-height: none !important;
-                  overflow-y: auto !important;
-                }
-                .maximized-tracker .tracker-feed {
-                  flex: 1 !important;
-                  max-height: none !important;
-                  height: 100% !important;
-                }
-                .maximized-tracker .card-drag-strip {
-                  display: none !important;
-                }
-                .maximized-tracker #trackerCardPaneWallet {
-                  flex-direction: row !important;
-                  gap: 16px !important;
-                }
-                .maximized-tracker #trackerCardPaneWallet .tracker-wallet-add {
-                  flex: 0 0 350px !important;
-                  border-right: 1px solid rgba(255,255,255,0.05);
-                  padding-right: 16px;
-                  overflow-y: auto;
-                }
-              </style>
               <!-- === CARD 3: Tracker (Live Sniffer + Wallet) === -->
               <div class="dash-bottom-card premium-card premium-card-hover" id="dashTrackerCard">
                 <div class="tracker-inner">
-                  <div class="card-drag-strip">
-                    <i data-lucide="grip-horizontal" class="card-drag-handle"></i>
-                  </div>
                   <div class="tracker-tab-bar">
                     <button class="tracker-tab-btn active" id="trackerCardTabSniffer" title="Live Whale Sniffer">
                       <span class="tab-dot"></span>
@@ -753,7 +304,7 @@ html[data-font="inter"] {
                     <div class="tracker-controls">
                       <label>Min $</label>
                       <input type="number" id="dashTrackerMinSize" value="1000" min="100" step="100">
-                      
+
                       <div id="dashTrackerAssetTabs" style="display:flex; gap:2px; margin-left:4px;">
                         <button type="button" class="tracker-asset-tab active" data-asset="all" style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:2px 6px; font-size:9px; color:#fff; cursor:pointer;">ALL</button>
                         <button type="button" class="tracker-asset-tab" data-asset="btc" style="background:transparent; border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:2px 6px; font-size:9px; color:#aaa; cursor:pointer;">BTC</button>
@@ -766,9 +317,9 @@ html[data-font="inter"] {
                         Turn Off
                       </button>
                     </div>
-                    
+
                     <div style="padding: 0 12px 8px; font-size: 10px; font-family: 'JetBrains Mono', monospace; display: flex; flex-direction:column; gap:4px;">
-                      <div style="display:flex; align-items:center; justify-content:space-between; cursor:pointer; padding:2px 0;" onclick="toggleWhaleVolume()" title="Sembunyikan / Tampilkan Whale Volume">
+                      <div id="whaleVolumeToggle" role="button" tabindex="0" style="display:flex; align-items:center; justify-content:space-between; cursor:pointer; padding:2px 0;" title="Sembunyikan / Tampilkan Whale Volume">
                         <span style="color:#aaa; font-size:9px; text-transform:uppercase; letter-spacing:0.1em;">Whale Volume Accumulation</span>
                         <i data-lucide="chevron-up" id="whaleVolumeToggleIcon" style="width:12px; height:12px; color:#aaa; transition:transform 0.3s;"></i>
                       </div>
@@ -812,7 +363,7 @@ html[data-font="inter"] {
 
       <!-- === STATUS BAR (PADRE STYLE) === -->
       <footer class="status-bar padre-footer" id="statusBar">
-        
+
         <!-- Left Section: Signal, Ping, Settings, Theme -->
         <div class="padre-footer-left">
           <div class="padre-status-item">
@@ -824,7 +375,7 @@ html[data-font="inter"] {
             <span id="sbLatency" style="font-weight:600; color:var(--text-secondary);">--ms</span>
           </div>
 
-          
+
           <div class="padre-status-item interactive" style="position: relative;">
             <div id="aiTokenBtn" style="display:flex; align-items:center; gap:4px; font-weight:bold; color:var(--text-secondary);">
               <i data-lucide="bot" style="width:12px;height:12px"></i>
@@ -839,22 +390,19 @@ html[data-font="inter"] {
               </div>
             </div>
           </div>
-          
+
           <div style="position:relative; display:flex; align-items:center;">
             <div class="padre-system-status interactive" id="btnToggleEngines" style="cursor:pointer;" title="View Engine Statuses">
               3 Engines Loaded
             </div>
           </div>
-          
+
           <div style="width:1px; height:12px; background:var(--border-strong); margin:0 4px;"></div>
-          
+
           <div class="padre-status-item interactive" id="btnSettings" title="Settings">
             <i data-lucide="settings" style="width:12px; height:12px;"></i>
           </div>
-          <div class="padre-status-item interactive" id="btnThemePanelTrigger" title="Customize Appearance">
-            <i data-lucide="palette" style="width:12px; height:12px;"></i>
-          </div>
-          
+
 
 
           <div style="display:none;">
@@ -899,57 +447,6 @@ html[data-font="inter"] {
 
 
 
-      <!-- Theme Panel Modal (Padre Style) -->
-      <div id="themePanelModal" class="padre-modal-overlay" style="display:none;">
-        <div class="padre-modal-content">
-          <div class="padre-modal-header">
-            <h3>Customize appearance</h3>
-            <button id="closeThemeModalBtn" class="close-btn"><i data-lucide="x"></i></button>
-          </div>
-          <div class="padre-modal-body">
-            
-            <!-- Language -->
-            <div class="theme-section">
-              <label>Language</label>
-              <div class="theme-btn-group" id="themeLangGroup">
-                <button class="theme-btn active" data-lang="English">English</button>
-                <button class="theme-btn" data-lang="Indonesia">Indonesia</button>
-                <button class="theme-btn" data-lang="Spanish">Spanish</button>
-                <button class="theme-btn" data-lang="Russian">Russian</button>
-              </div>
-            </div>
-
-            <!-- Font -->
-            <div class="theme-section">
-              <label>Font</label>
-              <div class="theme-btn-group" id="themeFontGroup">
-                <button class="theme-btn active" data-font="padre">Padre</button>
-                <button class="theme-btn" data-font="geist">Geist</button>
-                <button class="theme-btn" data-font="inter">Inter</button>
-              </div>
-            </div>
-
-            <!-- Color Theme -->
-            <div class="theme-section">
-              <label>Color theme</label>
-              <div class="theme-grid">
-                <button class="theme-grid-item active" data-theme="dark"><span class="theme-circle" style="background:#0a0a0a; border:1px solid #333;"></span>Dark (Default)</button>
-                <button class="theme-grid-item" data-theme="hacker"><span class="theme-circle" style="background:#020d02; border:1px solid #00ff41;"></span>Hacker</button>
-                <button class="theme-grid-item" data-theme="gold"><span class="theme-circle" style="background:#0c0900; border:1px solid #f5bc20;"></span>Gold</button>
-                <button class="theme-grid-item" data-theme="synthwave"><span class="theme-circle" style="background:#0e0015; border:1px solid #c800ff;"></span>Synthwave</button>
-              </div>
-            </div>
-
-          </div>
-          <div class="padre-modal-footer">
-            <button class="padre-btn-secondary">Import</button>
-            <button id="applyThemeBtn" class="padre-btn-primary">Done</button>
-          </div>
-        </div>
-      </div>
-      
-
-      
       <!-- History Modal -->
       <div id="historyModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9999; justify-content:center; align-items:center;">
         <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,0.5); width:80%; max-width:900px; max-height:80vh; display:flex; flex-direction:column;">
@@ -967,9 +464,9 @@ html[data-font="inter"] {
               </button>
             </div>
           </div>
-          
+
           <div style="padding:14px 20px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.25); display:flex; flex-direction:column; gap:12px;">
-            <!-- Top Row: Preset Filters (Asset, Duration, Netral) -->
+            <!-- Top Row: Preset Filters (Asset, Duration) -->
             <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:center; justify-content:flex-start;">
               <!-- Asset filter -->
               <div style="display:flex; align-items:center; gap:8px;">
@@ -993,14 +490,6 @@ html[data-font="inter"] {
                 </div>
               </div>
 
-              <!-- Netral filter -->
-              <div style="display:flex; align-items:center; gap:8px;">
-                <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Netral</div>
-                <div style="display:flex; gap:2px; background:rgba(0,0,0,0.4); padding:2px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
-                  <button class="history-netral-btn active" data-netral="all" style="padding:4px 12px; border-radius:4px; background:var(--neon-amber); color:#000; font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">Semua</button>
-                  <button class="history-netral-btn" data-netral="hide" style="padding:4px 12px; border-radius:4px; background:transparent; color:var(--text-secondary); font-weight:bold; border:none; cursor:pointer; font-size:10px; transition:all 0.2s;">Tanpa Netral</button>
-                </div>
-              </div>
             </div>
 
             <!-- Bottom Row: Date Range, Limit, Reset -->
@@ -1016,7 +505,7 @@ html[data-font="inter"] {
                     <button id="btnFilterHistoryDate" style="padding:4px 10px; border-radius:4px; background:rgba(168,85,247,0.15); color:var(--neon-purple); border:1px solid rgba(168,85,247,0.3); cursor:pointer; font-size:10px; font-weight:bold; margin-left:4px; transition:all 0.2s;">Filter</button>
                   </div>
                 </div>
-                
+
                 <!-- Limit filter -->
                 <div style="display:flex; align-items:center; gap:8px;">
                   <div style="color:var(--text-tertiary); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Batas Tampil</div>
@@ -1061,11 +550,11 @@ html[data-font="inter"] {
           </div>
         </div>
       </div>
-      
+
       <!-- Manual / Guidebook Modal -->
       <div id="manualModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; justify-content:center; align-items:center; backdrop-filter: blur(4px);">
         <div style="background:var(--bg-surface); border:1px solid var(--border-bright); border-radius:var(--radius-lg); box-shadow: 0 8px 32px rgba(0, 255, 255, 0.1); width:80%; max-width:850px; max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
-          
+
           <div style="padding:16px 20px; border-bottom:1px solid var(--border); background:rgba(6, 182, 212, 0.05); display:flex; justify-content:space-between; align-items:center;">
             <h3 style="margin:0; color:var(--text-primary); display:flex; align-items:center; gap:10px; font-family:var(--font-mono); font-size:14px;">
               <i data-lucide="terminal" style="width:18px; height:18px; color:var(--neon-cyan);"></i>
@@ -1077,14 +566,14 @@ html[data-font="inter"] {
           </div>
 
           <div style="overflow-y:auto; flex:1; padding:24px 32px; font-size:13px; line-height:1.6; color:var(--text-secondary);" class="manual-content">
-            
+
             <h2 style="color:var(--text-primary); font-size:18px; margin-top:0; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:8px;">
               <span style="color:var(--neon-cyan);">#</span> Tentang MVPM Terminal
             </h2>
             <p style="margin-bottom:20px;">MVPM (Minimum Viable Prediction Market) Terminal adalah command-center untuk menganalisa, memonitor, dan mencari peluang cuan di Polymarket secara otomatis menggunakan teknologi AI Qwen.</p>
-            
+
             <h3 style="color:var(--text-primary); margin-top:24px; margin-bottom:12px; font-size:15px;"><span style="color:var(--neon-purple);">##</span> Fitur Utama</h3>
-            
+
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:32px;">
               <div style="background:rgba(255,255,255,0.03); padding:16px; border-radius:8px; border:1px solid var(--border);">
                 <strong style="color:var(--neon-cyan); display:block; margin-bottom:4px;">🔍 Discover (Pencarian Otomatis)</strong>
@@ -1122,7 +611,7 @@ html[data-font="inter"] {
             <div style="background:#0f1115; border:1px solid rgba(245, 158, 11, 0.3); padding:16px; border-radius:8px;">
               <h4 style="color:var(--neon-amber); margin-top:0; margin-bottom:12px; font-family:var(--font-mono); font-size:13px;">&gt; CROSS-PLATFORM ARBITRAGE (2 Platform)</h4>
               <p>Memanfaatkan perbedaan harga antara Polymarket dan Manifold Markets.</p>
-              
+
               <p style="margin-top:12px;"><strong>Skenario Belanja (Bawa Modal $20):</strong></p>
               <ul style="margin-left:20px; margin-bottom:16px;">
                 <li><strong>Warung Polymarket:</strong> Harga "YES" lagi murah (40¢). Lu ngeluarin $10 untuk beli <strong>25 tiket YES</strong>.</li>
@@ -1156,7 +645,7 @@ html[data-font="inter"] {
       <!-- Settings Modal -->
       <div id="settingsModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(6px); z-index:10002; justify-content:center; align-items:center;">
         <div style="background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:16px; width:min(92vw,860px); height:min(85vh,640px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,0.7);">
-          
+
           <!-- Header -->
           <div style="padding:0 20px; height:52px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--bg-surface); flex-shrink:0;">
             <h3 style="margin:0; font-size:14px; font-weight:600; color:var(--text-primary); font-family:var(--font-primary); letter-spacing:-0.01em;">System Settings</h3>
@@ -1167,15 +656,14 @@ html[data-font="inter"] {
 
           <!-- Body -->
           <div style="display:flex; flex:1; min-height:0;">
-            
+
             <!-- Left Sidebar -->
             <div style="width:190px; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:12px 10px; gap:2px; background:var(--bg-surface); flex-shrink:0;">
               <button class="settings-tab active" data-target="pane-language" style="text-align:left; padding:9px 14px; background:rgba(255,255,255,0.06); border:none; border-radius:var(--radius-md); color:var(--text-primary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Language</button>
               <button class="settings-tab" data-target="pane-alerts" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Alerts &amp; Audio</button>
               <button class="settings-tab" data-target="pane-sniper" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Sniper Trigger</button>
               <button class="settings-tab" data-target="pane-analytics" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Analytics</button>
-              <button class="settings-tab" data-target="pane-learning" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Proses Belajar</button>
-              
+
               <div style="margin-top:auto; padding-top:12px; border-top:1px solid var(--border);">
                 <button id="btnSaveSettings" class="btn-primary" style="width:100%; justify-content:center;">
                   <i data-lucide="check" style="width:13px; height:13px;"></i> Done
@@ -1185,14 +673,14 @@ html[data-font="inter"] {
 
             <!-- Right Content -->
             <div style="flex:1; overflow-y:auto; padding:28px 32px; background:var(--bg-base); scrollbar-width:thin; scrollbar-color:var(--border-strong) transparent;">
-              
+
               <!-- Appearance Pane Removed -> Moved to new Padre Theme Panel -->
 
               <!-- Language Pane -->
               <div id="pane-language" class="settings-pane" style="display:block;">
                 <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Language</h2>
                 <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Pilih bahasa yang akan digunakan Qwen untuk merespons hasil analisis.</p>
-                
+
                 <div style="display:flex; flex-direction:column; gap:12px;">
                   <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:16px 18px; border-radius:10px; border:1px solid var(--border);">
                     <div style="display:flex; flex-direction:column; gap:4px;">
@@ -1213,7 +701,7 @@ html[data-font="inter"] {
               <div id="pane-alerts" class="settings-pane" style="display:none;">
                 <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Alerts &amp; Audio</h2>
                 <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Configure system notifications and sound alerts.</p>
-                
+
                 <div style="display:flex; flex-direction:column; gap:12px;">
                   <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:16px 18px; border-radius:10px; border:1px solid var(--border);">
                     <div style="display:flex; flex-direction:column; gap:3px;">
@@ -1225,7 +713,7 @@ html[data-font="inter"] {
 
                   <div style="display:flex; flex-direction:column; background:var(--bg-elevated); padding:16px 18px; border-radius:10px; border:1px solid var(--border); gap:12px;">
                     <div style="color:var(--text-primary); font-size:13px; font-weight:500; font-family:var(--font-primary);">Notification Sounds:</div>
-                    
+
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                       <div style="display:flex; align-items:center; gap:8px;">
                         <input type="checkbox" id="chkSoundSniffer" checked style="cursor:pointer; width:16px; height:16px; accent-color:var(--neon-amber);">
@@ -1240,7 +728,7 @@ html[data-font="inter"] {
                         <button class="btnTestSound" data-type="sniffer" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:var(--radius-md); padding:0 8px; color:var(--text-secondary); cursor:pointer; height:24px; display:flex; align-items:center; justify-content:center;"><i data-lucide="play" style="width:10px;height:10px;"></i></button>
                       </div>
                     </div>
-                    
+
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                       <div style="display:flex; align-items:center; gap:8px;">
                         <input type="checkbox" id="chkSoundQueue" checked style="cursor:pointer; width:16px; height:16px; accent-color:var(--neon-purple);">
@@ -1278,7 +766,7 @@ html[data-font="inter"] {
               <div id="pane-sniper" class="settings-pane" style="display:none;">
                 <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Dynamic EV Scanner</h2>
                 <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Market 5 menit dipantau tanpa menunggu AI. Entry hanya muncul saat arah stabil, harga executable, dan EV lolos.</p>
-                
+
                 <div style="display:flex; flex-direction:column; gap:8px;">
                   <div style="background:linear-gradient(135deg, rgba(16,185,129,0.08), rgba(6,182,212,0.04)); padding:16px 18px; border-radius:10px; border:1px solid rgba(16,185,129,0.28);">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
@@ -1329,7 +817,7 @@ html[data-font="inter"] {
               <div id="pane-analytics" class="settings-pane" style="display:none;">
                 <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Analytics Stats</h2>
                 <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Ringkasan performa dan prediksi dari Qwen.</p>
-                
+
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                   <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:20px; border-radius:10px; text-align:center;">
                     <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-tertiary); margin-bottom:8px; font-family:var(--font-primary);">Total Analyzed</div>
@@ -1342,84 +830,9 @@ html[data-font="inter"] {
                 </div>
               </div>
 
-              <!-- Learning Pane -->
-              <div id="pane-learning" class="settings-pane" style="display:none; flex-direction:column;">
-                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Proses Belajar</h2>
-                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:16px; line-height:1.5;">Apa saja yang sudah Qwen improve dari evaluasi kekalahan sebelumnya.</p>
-                
-                <div style="background:var(--bg-elevated); padding:16px; border-radius:10px; border:1px solid var(--border); margin-bottom:14px;">
-                  <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                    <span style="font-size:12px; color:var(--text-secondary); font-weight:500; font-family:var(--font-primary);">Perkiraan Peningkatan (Improvement)</span>
-                    <span id="improvementPercentage" style="font-size:12px; color:var(--green); font-weight:700; font-family:'JetBrains Mono',monospace;">0%</span>
-                  </div>
-                  <div style="height:5px; background:var(--border); border-radius:3px; overflow:hidden;">
-                    <div id="improvementBar" style="height:100%; width:0%; background:var(--green); transition:width 1s ease-out; border-radius:3px;"></div>
-                  </div>
-                </div>
-
-                <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border); margin-bottom:14px;">
-                  <div style="display:flex; flex-direction:column; gap:3px;">
-                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">Short Market Memory (15 Traps)</span>
-                    <span style="color:var(--text-tertiary); font-size:11px;">Membaca intisari 15 evaluasi terakhir untuk menghindari jebakan market lintas-topik.</span>
-                  </div>
-                  <style>
-                    #chkShortMarketLearning:checked + span {
-                      background-color: var(--neon-cyan) !important;
-                      border-color: var(--neon-cyan) !important;
-                    }
-                    #chkShortMarketLearning:checked + span > span {
-                      transform: translateX(16px);
-                      background-color: #000 !important;
-                    }
-                  </style>
-                  <label style="position:relative; display:inline-block; width:36px; height:20px;">
-                    <input type="checkbox" id="chkShortMarketLearning" style="opacity:0; width:0; height:0;">
-                    <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:var(--bg-base); transition:.4s; border-radius:34px; border:1px solid var(--border-strong);">
-                      <span style="position:absolute; content:''; height:14px; width:14px; left:2px; bottom:2px; background-color:var(--text-tertiary); transition:.4s; border-radius:50%;"></span>
-                    </span>
-                  </label>
-                </div>
-                
-                <div style="display:flex; border-bottom:1px solid var(--border); margin-bottom:14px;">
-                  <button id="tabLearningEval" style="flex:1; padding:8px; background:rgba(255,255,255,0.05); color:var(--text-primary); border:none; border-bottom:2px solid var(--neon-cyan); font-size:12px; font-weight:600; cursor:pointer;">Evaluasi Market (15)</button>
-                  <button id="tabLearningShort" style="flex:1; padding:8px; background:transparent; color:var(--text-tertiary); border:none; border-bottom:2px solid transparent; font-size:12px; font-weight:500; cursor:pointer;">Memori Vibe Check</button>
-                </div>
-                
-                <div id="learningListContainer" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
-                  <div style="margin-bottom:12px;">
-                    <button id="btnViewMemoryPrompt" class="btn-secondary" style="width:100%; justify-content:center; padding:8px; font-size:12px; color:var(--neon-purple); border-color:rgba(168,85,247,0.3);"><i data-lucide="code" style="width:14px; height:14px; margin-right:6px;"></i>Lihat Kompilasi Memori (Wujud Asli ke AI)</button>
-                  </div>
-                  <div id="learningList" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding-right:4px;">
-                    <div style="text-align:center; padding:20px; color:var(--text-tertiary); font-size:12px;">Memuat data...</div>
-                  </div>
-                </div>
-                
-                <div id="shortMemoryList" style="flex:1; overflow-y:auto; display:none; flex-direction:column; gap:10px; padding-right:4px;">
-                  <div style="text-align:center; padding:20px; color:var(--text-tertiary); font-size:12px;">Memuat data memori...</div>
-                </div>
-              </div>
-
             </div>
           </div>
-          
-        </div>
-      </div>
 
-      <!-- Improvement Modal -->
-      <div id="improvementModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:10005; justify-content:center; align-items:center;">
-        <div style="background:#000000; border:1px solid var(--neon-cyan); width:90%; max-width:600px; max-height:80vh; display:flex; flex-direction:column; overflow:hidden;">
-          <div style="padding:8px 12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:#000000;">
-            <h3 style="margin:0; font-size:14px; font-weight:bold; color:var(--neon-cyan); display:flex; align-items:center; gap:8px;">
-              <i data-lucide="lightbulb" style="width:18px; height:18px;"></i>
-              Detail Improvement
-            </h3>
-            <button id="closeImprovementModal" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;">
-              <i data-lucide="x" style="width:20px; height:20px;"></i>
-            </button>
-          </div>
-          <div style="padding:20px; flex:1; overflow-y:auto; font-size:12px; color:var(--text-primary); line-height:1.6;" id="improvementModalContent">
-            <!-- Content goes here -->
-          </div>
         </div>
       </div>
 
@@ -1445,7 +858,7 @@ html[data-font="inter"] {
           <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
             <h3 style="margin:0; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
               <i data-lucide="file-text" style="width:16px; height:16px; color:var(--neon-cyan);"></i>
-              Alasan & Evaluasi
+              Alasan & Hasil
             </h3>
             <button id="closeReasonModal" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;">
               <i data-lucide="x" style="width:20px; height:20px;"></i>
@@ -1465,21 +878,9 @@ html[data-font="inter"] {
                 </div>
               </div>
             </div>
-            
+
             <div style="font-size:12px; color:var(--text-secondary); line-height:1.6; white-space:pre-wrap;" id="reasonModalContent">Memuat...</div>
-            
-            <div id="reflectionContainer" style="display:none; padding:16px; background:rgba(239, 68, 68, 0.05); border:1px solid rgba(239, 68, 68, 0.3); border-radius:8px;">
-              <h4 style="margin:0 0 8px 0; color:var(--neon-red); display:flex; align-items:center; gap:6px;">
-                <i data-lucide="brain" style="width:14px; height:14px;"></i> Catatan Evaluasi (Lesson Learned)
-              </h4>
-              <div id="reflectionText" style="font-size:12px; color:var(--text-primary); line-height:1.5;"></div>
-            </div>
-            
-            <div id="evaluateBtnContainer" style="display:none; text-align:center; padding-top:10px;">
-              <button id="btnEvaluateSingle" class="btn-primary" style="background:rgba(239, 68, 68, 0.2); color:var(--neon-red); border:1px solid rgba(239, 68, 68, 0.5);">
-                <i data-lucide="alert-triangle" style="width:14px; height:14px; margin-right:6px;"></i> Evaluate Kesalahan
-              </button>
-            </div>
+
           </div>
         </div>
       </div>
@@ -1487,38 +888,6 @@ html[data-font="inter"] {
 
     <script src="/app.js?v=112-dynamic-ev" type="module"></script>
     <script src="/terminal-shell.js"></script>
-  <!-- Agent Analysis Modal -->
-  <div id="agentModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:9999; background:rgba(0,0,0,0.8); backdrop-filter:blur(4px); align-items:center; justify-content:center;">
-    <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; width:600px; max-width:90%; box-shadow:0 10px 30px rgba(0,0,0,0.5); display:flex; flex-direction:column;">
-      <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="margin:0; font-size:14px; color:var(--text-primary);"><i data-lucide="cpu" style="width:16px; height:16px; margin-right:8px; vertical-align:middle; color:var(--neon-purple);"></i>Agent Analysis Pipeline</h3>
-        <button id="closeAgentModal" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:16px; height:16px;"></i></button>
-      </div>
-      <div style="padding:20px; overflow-y:auto; max-height:70vh; font-family:var(--font-mono); font-size:11px; color:var(--text-secondary); line-height:1.6;">
-        <div style="margin-bottom:16px; padding:12px; background:rgba(255,255,255,0.03); border-radius:6px; border-left:3px solid var(--neon-amber);">
-          <strong style="color:var(--text-primary);">[Phase 1] Data Fetching</strong><br>
-          Loaded 15m/1h OHLCV for BTC/USDT.<br>
-          Funding Rate: 0.01% (Neutral).<br>
-          Orderbook Imbalance: 62% Ask (Bearish).
-        </div>
-        <div style="margin-bottom:16px; padding:12px; background:rgba(255,255,255,0.03); border-radius:6px; border-left:3px solid var(--neon-purple);">
-          <strong style="color:var(--text-primary);">[Phase 2] LLM Reasoning (Q-Wealth)</strong><br>
-          Detected lower highs on 15m chart. Moving average convergence suggests downward breakout.<br>
-          Volume profile shows lack of buying interest at $60k resistance.<br>
-          Conclusion: Clear bearish edge.
-        </div>
-        <div style="padding:12px; background:rgba(255,255,255,0.03); border-radius:6px; border-left:3px solid var(--neon-green);">
-          <strong style="color:var(--text-primary);">[Phase 3] Execution Generation</strong><br>
-          Decision: APPROVE (SHORT)<br>
-          Entry: 59270.30<br>
-          Stop Loss: 60547.31 (above local high)<br>
-          Take Profit: 56077.76<br>
-          Risk Multiplier: 1.00
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- ================================================== -->
   <!-- BODY-LEVEL MODALS (outside pointer-events:none wrappers) -->
   <!-- ================================================== -->
@@ -1546,7 +915,7 @@ html[data-font="inter"] {
             <h2 id="walletDashboardNickname" style="margin:0; color:var(--text-primary); font-size:20px;">Wallet Profile</h2>
             <div style="display:flex; gap:8px; align-items:center;">
               <div id="walletDashboardAddress" style="font-family:var(--font-mono); font-size:12px; color:var(--text-tertiary); background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:4px; width:fit-content;">0x...</div>
-              <a id="btnViewOnPoly" href="#" target="_blank" style="font-size:11px; font-weight:bold; color:var(--bg-surface); background:var(--neon-amber); padding:2px 8px; border-radius:4px; text-decoration:none; display:flex; align-items:center; gap:4px; transition:opacity 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">
+              <a id="btnViewOnPoly" href="#" target="_blank" class="terminal-market-link">
                 <i data-lucide="external-link" style="width:12px; height:12px;"></i> View on Poly
               </a>
             </div>
@@ -1593,13 +962,13 @@ html[data-font="inter"] {
     <div style="background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:12px; width:800px; max-width:95%; max-height:85vh; box-shadow:0 10px 40px rgba(0,0,0,0.6); display:flex; flex-direction:column;">
       <div style="padding:20px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.02); border-radius:12px 12px 0 0;">
         <h3 style="margin:0; font-size:16px; color:var(--text-primary); font-family:var(--font-secondary);"><i data-lucide="file-text" style="width:18px; height:18px; margin-right:8px; vertical-align:middle; color:var(--neon-cyan);"></i>Full Analysis Report</h3>
-        <button id="closeSummaryModal" onclick="document.getElementById('summaryModal').style.display='none'" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:20px; height:20px;"></i></button>
+        <button id="closeSummaryModal" data-close-modal="summaryModal" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:20px; height:20px;"></i></button>
       </div>
       <div id="summaryModalContent" style="padding:24px; overflow-y:auto; font-family:var(--font-secondary); font-size:13px; color:var(--text-secondary); line-height:1.6; display:flex; flex-direction:column; gap:16px;">
         <!-- Injected raw text -->
       </div>
       <div style="padding:16px 24px; border-top:1px solid var(--border); text-align:right; background:rgba(255,255,255,0.01); border-radius:0 0 12px 12px;">
-        <button onclick="document.getElementById('summaryModal').style.display='none'" style="background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:600; font-family:var(--font-secondary);">Tutup</button>
+        <button data-close-modal="summaryModal" style="background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-primary); padding:10px 20px; border-radius:6px; cursor:pointer; font-weight:600; font-family:var(--font-secondary);">Tutup</button>
       </div>
     </div>
   </div>
@@ -1612,7 +981,7 @@ html[data-font="inter"] {
           <i data-lucide="target" style="width:18px; height:18px; color:var(--neon-amber);"></i>
           Sniper Session Summary
         </h3>
-        <button onclick="document.getElementById('sniperSummaryModal').style.display='none'" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:20px; height:20px;"></i></button>
+        <button data-close-modal="sniperSummaryModal" style="background:none; border:none; color:var(--text-tertiary); cursor:pointer;"><i data-lucide="x" style="width:20px; height:20px;"></i></button>
       </div>
       <div style="padding:16px 24px; overflow-y:auto; font-family: var(--font-secondary); display:flex; flex-direction:column; gap:16px;">
         <div id="sniperSummaryMetrics" style="display:flex; gap:16px; margin-bottom:8px;">
@@ -1635,26 +1004,10 @@ html[data-font="inter"] {
       </div>
       <div style="padding:16px 24px; border-top:1px solid var(--border); text-align:right; background:rgba(255,255,255,0.01); border-radius:0 0 12px 12px; display:flex; justify-content:flex-end; gap:12px;">
         <button id="btnCopySniperSummary" class="btn-secondary" style="height:32px; font-size:11px; padding:0 16px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#fff; border-radius:4px; cursor:pointer;"><i data-lucide="copy" style="width:14px; height:14px; margin-right:6px;"></i>Copy Report</button>
-        <button onclick="document.getElementById('sniperSummaryModal').style.display='none'" class="btn-primary" style="height:32px; font-size:11px; padding:0 16px; background:var(--neon-purple); color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">Selesai</button>
+        <button data-close-modal="sniperSummaryModal" class="btn-primary" style="height:32px; font-size:11px; padding:0 16px; background:var(--neon-purple); color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">Selesai</button>
       </div>
     </div>
   </div>
-
-  <style>
-    .btn-premium-connect {
-      width: 100%; appearance: none; background: #fff; border: none; border-radius: 100px; padding: 6px 6px 6px 20px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: transform 0.4s cubic-bezier(0.32,0.72,0,1);
-    }
-    .btn-premium-connect:active {
-      transform: scale(0.97);
-    }
-    .btn-premium-connect:hover .btn-icon-circle {
-      transform: translateX(2px) scale(1.05);
-      background: rgba(0,0,0,0.1);
-    }
-    .btn-icon-circle {
-      width: 36px; height: 36px; border-radius: 50%; background: rgba(0,0,0,0.04); display: flex; align-items: center; justify-content: center; transition: all 0.4s cubic-bezier(0.32,0.72,0,1);
-    }
-  </style>
 
   <div id="marketPulseBackdrop" class="market-pulse-backdrop" aria-hidden="true"></div>
   <aside id="marketPulseDrawer" class="market-pulse-drawer" aria-hidden="true" aria-labelledby="marketPulseTitle">
@@ -1724,70 +1077,7 @@ html[data-font="inter"] {
     </div>
   </aside>
 
-  <!-- === POLYMARKET ACCOUNT CARD (Premium UI) === -->
-  <!-- Outer Shell (Double-Bezel Architecture) -->
-  <div id="pmRightPanel" style="position:fixed; top:72px; left:1280px; right:20px; max-height:354px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.06); border-radius:28px; padding:4px; z-index:90; box-shadow:0 24px 64px rgba(0,0,0,0.6), inset 0 1px 1px rgba(255,255,255,0.05); display:flex; flex-direction:column; overflow:hidden;">
-    
-    <!-- Inner Core -->
-    <div style="background:#09090b; border:1px solid rgba(255,255,255,0.04); border-radius:22px; flex:1; box-shadow:inset 0 1px 1px rgba(255,255,255,0.08); display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; scrollbar-width:none;">
-      
-      <!-- Header -->
-      <div style="padding:10px 16px; border-bottom:1px solid rgba(255,255,255,0.03); display:flex; align-items:center; justify-content:space-between;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div style="width:6px; height:6px; border-radius:50%; background:#06b6d4; box-shadow:0 0 12px rgba(6,182,212,0.8);"></div>
-          <span style="font-family:var(--font-secondary); font-size:9px; font-weight:700; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:0.2em;">Polymarket</span>
-        </div>
-        <span id="pmWalletAddress" style="font-family:var(--font-secondary); font-size:9px; color:rgba(255,255,255,0.3); padding:4px 10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:100px; font-weight:600; letter-spacing:0.1em;">NOT CONNECTED</span>
-      </div>
-
-      <!-- Data Section (Fully visible, no blur) -->
-      <div style="padding:12px 16px;">
-        
-        <!-- Portfolio -->
-        <div style="margin-bottom:12px;">
-          <div style="font-family:var(--font-secondary); font-size:9px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between;">
-            <span>Portfolio Value</span>
-            <button type="button" id="btnToggleWallet" style="background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.4); padding:0; display:flex;" title="Hide/Show Balances">
-              <i data-lucide="eye" id="walletEyeIcon" style="width:12px; height:12px;"></i>
-            </button>
-          </div>
-          <div id="walletPortfolioValue" style="font-family:var(--font-primary); font-size:36px; font-weight:800; color:#fff; line-height:1; letter-spacing:-0.03em;">$14,250.00</div>
-          <div id="walletPortfolioChange" style="font-family:var(--font-secondary); font-size:11px; color:#10b981; margin-top:6px; font-weight:600; letter-spacing:0.02em;">+ $450.00 (3.2%)</div>
-        </div>
-
-        <!-- Metrics Grid (Gapless Bento Architecture) -->
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.06); border-radius:16px; overflow:hidden; margin-bottom:12px;">
-          
-          <!-- Top Full: USDC Balance -->
-          <div style="grid-column: span 2; background:rgba(18,18,22,0.9); padding:10px 14px; display:flex; justify-content:space-between; align-items:center; transition:background 0.3s ease;" onmouseover="this.style.background='rgba(25,25,30,0.9)'" onmouseout="this.style.background='rgba(18,18,22,0.9)'">
-            <div style="display:flex; flex-direction:column; gap:4px;">
-              <div style="font-family:var(--font-secondary); font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">USDC Balance (Liquid)</div>
-              <div id="walletUsdcBalance" style="font-family:var(--font-primary); font-size:20px; font-weight:700; color:#fff; letter-spacing:-0.01em;">$2,100.00</div>
-            </div>
-            <i data-lucide="wallet" style="width:20px; height:20px; color:rgba(16,185,129,0.7);"></i>
-          </div>
-
-          <!-- Bottom Left: Active Positions -->
-          <div style="background:rgba(18,18,22,0.9); padding:10px 14px; display:flex; flex-direction:column; gap:4px; transition:background 0.3s ease;" onmouseover="this.style.background='rgba(25,25,30,0.9)'" onmouseout="this.style.background='rgba(18,18,22,0.9)'">
-            <div style="font-family:var(--font-secondary); font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">Positions</div>
-            <div id="walletPositions" style="font-family:var(--font-primary); font-size:16px; font-weight:700; color:#fff;">3 Active</div>
-          </div>
-
-          <!-- Bottom Right: Active Volume -->
-          <div style="background:rgba(18,18,22,0.9); padding:10px 14px; display:flex; flex-direction:column; gap:4px; transition:background 0.3s ease;" onmouseover="this.style.background='rgba(25,25,30,0.9)'" onmouseout="this.style.background='rgba(18,18,22,0.9)'">
-            <div style="font-family:var(--font-secondary); font-size:8px; color:rgba(255,255,255,0.4); text-transform:uppercase; letter-spacing:0.15em;">Active Volume</div>
-            <div id="walletActiveVolume" style="font-family:var(--font-primary); font-size:16px; font-weight:700; color:#fff;">$5,450.00</div>
-          </div>
-        </div>
-
-        <!-- Trade Panel Button -->
-        <button onclick="openTradePanel()" class="btn-primary" style="width:100%; padding:10px; background:var(--neon-purple); color:#fff; border:none; border-radius:12px; font-family:var(--font-primary); font-weight:700; font-size:13px; cursor:pointer; letter-spacing:0.02em; transition:all 0.2s ease;">
-          Open Trade Panel <i data-lucide="zap" style="width:14px; height:14px; margin-left:6px; display:inline-block; vertical-align:middle;"></i>
-        </button>
-
-      </div>
-    </div>
-  </div>
+  <span id="dashPlayWinRate" style="position:fixed; left:-9999px; top:-9999px; pointer-events:none; opacity:0;" aria-hidden="true">0%</span>
   </body>
 </html>
 

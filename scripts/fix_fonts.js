@@ -11,7 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const files = [
   path.resolve(__dirname, '../public/index.html'),
-  path.resolve(__dirname, '../public/styles-v2.css'),
+  path.resolve(__dirname, '../public/terminal-components.css'),
 ];
 
 for (const file of files) {

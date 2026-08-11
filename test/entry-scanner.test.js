@@ -243,7 +243,7 @@ test("revalidation errors fail a confirmed signal closed after its TTL", () => {
   const result = normalizeEntryScannerResult(expired);
   assert.equal(result.dataStatus, "UNAVAILABLE");
   assert.deepEqual(result.failedGates.map((failure) => failure.message), [
-    "Entry signal expired before execution.",
+    "Entry signal expired before use.",
   ]);
 });
 
@@ -706,7 +706,7 @@ test("missing remaining time does not bypass entry TTL expiry", () => {
   assert.equal(expired.outcome, "NO_CHASE");
   assert.match(expired.reason, /expired/i);
   assert.deepEqual(normalizeEntryScannerResult(expired).failedGates.map((failure) => failure.message), [
-    "Entry signal expired before execution.",
+    "Entry signal expired before use.",
   ]);
 });
 

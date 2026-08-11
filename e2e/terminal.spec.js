@@ -124,10 +124,8 @@ async function mockTerminalApi(page) {
     if (url.pathname === "/api/tracker-config") return json({ ok: true, config: { minUsd: 1000, trackedWallets: [] } });
     if (url.pathname.startsWith("/api/settings/")) return json({ ok: true, enabled: false });
     if (url.pathname === "/api/sniffer-whales") return json({ ok: true, whales: [] });
-    if (url.pathname === "/api/reflections") return json({ ok: true, reflections: [] });
     if (url.pathname === "/api/memory-checklist") return json({ ok: true, checklist: [] });
-    if (url.pathname === "/api/short-learning") return json({ ok: true, items: [] });
-    if (["/api/live-alerts", "/api/live-prices", "/api/wallet-stream"].includes(url.pathname)) {
+    if (url.pathname === "/api/live-prices") {
       return route.fulfill({
         status: 200,
         contentType: "text/event-stream",
@@ -170,12 +168,12 @@ test("terminal shell loads without page or console errors", async ({ page }) => 
   expect(consoleErrors).toEqual([]);
 });
 
-test("desktop exposes the focused execution workflow", async ({ page }, testInfo) => {
+test("desktop exposes the focused analysis workflow", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop", "desktop-only layout assertion");
 
   await expect(page.locator('[data-terminal-region="opportunities"]')).toBeVisible();
   await expect(page.locator('[data-terminal-region="analysis"]')).toBeVisible();
-  await expect(page.locator('[data-terminal-region="execution"]')).toBeVisible();
+  await expect(page.locator('[data-terminal-region="queue"]')).toBeVisible();
   await expect(page.locator("#shortMarketPanel")).toBeVisible();
   await expect(page.locator("#btnRefreshShortMarket")).toBeVisible();
   await expect(page.locator("#commandInput")).toHaveCount(0);
@@ -205,7 +203,7 @@ test("mobile uses focused bottom navigation without page overflow", async ({ pag
   await expect(nav.getByRole("button", { name: "Markets" })).toBeVisible();
   await expect(nav.getByRole("button", { name: "Analysis" })).toBeVisible();
   await expect(nav.getByRole("button", { name: "Queue" })).toBeVisible();
-  await expect(nav.getByRole("button", { name: "Account" })).toBeVisible();
+  await expect(nav.getByRole("button", { name: "Tracker" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth === document.documentElement.clientWidth)).toBe(true);
 
   await nav.getByRole("button", { name: "Markets" }).click();
@@ -218,7 +216,7 @@ test("mobile uses focused bottom navigation without page overflow", async ({ pag
   await nav.getByRole("button", { name: "Queue" }).click();
   await expect(page.locator("#btnRunQueue")).toBeVisible();
 
-  await nav.getByRole("button", { name: "Account" }).click();
+  await nav.getByRole("button", { name: "Tracker" }).click();
   await expect(page.locator("#secondaryToolsDrawer")).toBeVisible();
 });
 

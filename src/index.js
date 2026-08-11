@@ -25,14 +25,13 @@ import {
   SEARCH_ENGINE_VERSION,
   searchMarkets,
 } from "./polymarket.js";
-import { askQwen, askQwenEvent, askQwenHotNiche } from "./qwen.js";
-import { broadcastAlert } from "./web.js";
+import { askQwen, askQwenEvent } from "./qwen.js";
 import { buildResearchContext } from "./research.js";
 import { enterCommandGuard, releaseCommandGuard } from "./rate-limit.js";
 import { assertMarketAllowed } from "./market-policy.js";
 import { scoreMarket } from "./scoring.js";
 import { getRecentWhales, formatSnifferWhales, setSnifferState, getSnifferState, setNotificationCallback, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
-import { appendAnalysisLog, addAnalyzedEvent } from "./storage.js";
+import { appendAnalysisLog, addAnalyzedEvent, getRecentResolvedOutcomes } from "./storage.js";
 
 // Helper untuk UI
 export async function getWhalesData(minSize = 500) {
@@ -45,15 +44,15 @@ let adminChatId = null;
 
 // ── CloddsBot-ported modules ──────────────────────────────────────────────
 import {
-  getShadowTrades, calculateKelly, formatKellyResult
+  calculateKelly, formatKellyResult
 } from "./analytics.js";
-import { evaluateResolutions } from "./evaluate.js";
+import { resolvePendingEvents } from "./resolution.js";
 import { evaluateShortMarketCondition } from "./short_condition.js";
 
 const MENU_BUTTONS = {
   SEARCH: "Search Market",
   ANALYZE: "Analyze Link / ID",
-  EVALUATE: "Evaluate PnL",
+  RESOLVE: "Check Outcomes",
   BOOK: "Orderbook Check",
   SHORT_COND: "Short Market Vibe",
   VERSION: "Bot Version",
@@ -67,7 +66,7 @@ function menuKeyboard() {
       keyboard: [
         [{ text: MENU_BUTTONS.SEARCH }, { text: MENU_BUTTONS.ANALYZE }],
         [{ text: MENU_BUTTONS.SHORT_COND }, { text: MENU_BUTTONS.BOOK }],
-        [{ text: MENU_BUTTONS.EVALUATE }, { text: MENU_BUTTONS.HELP }],
+        [{ text: MENU_BUTTONS.RESOLVE }, { text: MENU_BUTTONS.HELP }],
       ],
       resize_keyboard: true,
       one_time_keyboard: false,
@@ -155,7 +154,7 @@ function normalizeButtonText(text) {
   if (trimmed === MENU_BUTTONS.ARB) return "/arb";
   if (trimmed === MENU_BUTTONS.WHALES) return "/whales";
   if (trimmed === MENU_BUTTONS.ANALYTICS) return "/analytics";
-  if (trimmed === MENU_BUTTONS.EVALUATE) return "/evaluate";
+  if (trimmed === MENU_BUTTONS.RESOLVE) return "/resolve";
   if (trimmed === MENU_BUTTONS.ALERTS) return "/alerts";
   if (trimmed === MENU_BUTTONS.BOOK) return "/book";
   if (trimmed === MENU_BUTTONS.VERSION) return "/version";
@@ -280,7 +279,7 @@ async function refreshShortExecutionSnapshot(marketId, score, signal = null) {
   };
 }
 
-export function tradePricingForPrediction(analysis, prediction) {
+export function entryPricingForPrediction(analysis, prediction) {
   if (!analysis || prediction === "=") return { fairProbability: null, maxEntryPrice: null };
   const fairProbability = Number(analysis.estimatedFairProbability);
   if (!Number.isFinite(fairProbability) || fairProbability <= 5 || fairProbability > 100) {
@@ -289,8 +288,8 @@ export function tradePricingForPrediction(analysis, prediction) {
   return {
     fairProbability,
     maxEntryPrice: Number(Math.min(
-      config.tradeMaxPrice,
-      (fairProbability - 5 - config.tradeFeeBufferCents) / 100
+      config.entryMaxPrice,
+      (fairProbability - 5 - config.entryFeeBufferCents) / 100
     ).toFixed(4)),
   };
 }
@@ -607,7 +606,7 @@ export function qwenResultFromShortEvaluation(shortRes) {
       deterministicSnapshot: evaluation.deterministic_snapshot,
       aiExplanationStatus,
       aiExplanationError: shortRes.aiExplanationError || evaluation.ai_explanation_error || null,
-      tradePricing: evaluation.trade_pricing,
+      entryPricing: evaluation.entry_pricing,
       finalReason: evaluation.reason,
       summary: evaluation.reason || "Deterministic terminal-price evaluation unavailable.",
       bullishCase: [`Terminal UP probability: ${evaluation.primary_outcome_probability ?? "n/a"}%`],
@@ -629,11 +628,12 @@ export function entrySnapshotFromShortResult(shortRes, market) {
     marketActive: snapshot.marketActive ?? market.active === true,
     marketClosed: snapshot.marketClosed ?? market.closed === true,
     acceptingOrders: snapshot.acceptingOrders ?? market.acceptingOrders === true,
-    feeBufferCents: snapshot.feeBufferCents ?? config.tradeFeeBufferCents,
+    feeBufferCents: snapshot.feeBufferCents ?? config.entryFeeBufferCents,
     forecastDirection: evaluation.forecast_direction || "NEUTRAL",
-    sides: evaluation.trade_pricing || {},
+    sides: evaluation.entry_pricing || {},
     actionable: evaluation.actionable === true,
     blockers: evaluation.guardrail_blockers || [],
+    timingPhase: evaluation.timing_phase ?? null,
   };
 }
 
@@ -665,7 +665,6 @@ export async function getFastShortEntrySnapshot(marketId, signal = null) {
     endDate: scored.market.endDate,
     resolutionSource: scored.market.resolutionSource,
     includeAiExplanation: false,
-    persistHistory: false,
   });
   return entrySnapshotFromShortResult(shortRes, scored.market);
 }
@@ -767,7 +766,7 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
   }
 
   const executionTime = ctx?.commandStartTime ? Math.round((Date.now() - ctx.commandStartTime) / 1000) : null;
-  const tradePricing = tradePricingForPrediction(qwenResult?.analysis, actionable ? finalPrediction : "=");
+  const entryPricing = entryPricingForPrediction(qwenResult?.analysis, actionable ? finalPrediction : "=");
   const fullAnalysisMarkdown = formatAnalysis({ market: scored.market, score: scored.score, qwenResult, finalPrediction, analysisTime: executionTime });
 
   if (!signal?.aborted) {
@@ -781,8 +780,8 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
       qwen_confidence: String(qwenResult?.analysis?.confidence ?? ""),
       data_confidence: String(scored.score?.confidenceScore ?? ""),
       execution_time: executionTime,
-      fair_probability: tradePricing.fairProbability,
-      max_entry_price: tradePricing.maxEntryPrice,
+      fair_probability: entryPricing.fairProbability,
+      max_entry_price: entryPricing.maxEntryPrice,
       signal_data_at: qwenResult?.analysis?.signalDataAt || null,
     });
     if (analyzedEventId == null) throw new Error("Hasil analisis gagal disimpan ke history.");
@@ -938,7 +937,7 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
   }
 
   const executionTime = ctx?.commandStartTime ? Math.round((Date.now() - ctx.commandStartTime) / 1000) : null;
-  const tradePricing = tradePricingForPrediction(bestQwen?.analysis, bestActionable ? bestFinalPrediction : "=");
+  const entryPricing = entryPricingForPrediction(bestQwen?.analysis, bestActionable ? bestFinalPrediction : "=");
   const fullAnalysisMarkdownBest = formatAnalysis({ market: best.market, score: best.score, qwenResult: bestQwen, finalPrediction: bestFinalPrediction, analysisTime: executionTime });
 
   if (!signal?.aborted) {
@@ -952,8 +951,8 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
       qwen_confidence: String(bestQwen?.analysis?.confidence ?? ""),
       data_confidence: String(best.score?.confidenceScore ?? ""),
       execution_time: executionTime,
-      fair_probability: tradePricing.fairProbability,
-      max_entry_price: tradePricing.maxEntryPrice,
+      fair_probability: entryPricing.fairProbability,
+      max_entry_price: entryPricing.maxEntryPrice,
       signal_data_at: bestQwen?.analysis?.signalDataAt || null,
     });
   }
@@ -1035,9 +1034,9 @@ export async function handleCommand(text, message, ctx) {
     return menuAnswer(`Bot version: ${SEARCH_ENGINE_VERSION}`);
   }
 
-  if (command === "/evaluate") {
-    const progressMessage = await ctx.sendMessage("Mengecek market yang baru selesai di Polymarket dan mengevaluasi jurnal...", menuKeyboard());
-    const resultText = await evaluateResolutions(ctx);
+  if (command === "/resolve") {
+    const progressMessage = await ctx.sendMessage("Mengecek hasil resmi market di Polymarket...", menuKeyboard());
+    const resultText = await resolvePendingEvents({ signal: ctx?.signal });
     await ctx.deleteMessage(progressMessage.message_id).catch(() => {});
     return menuAnswer(resultText);
   }
@@ -1275,24 +1274,31 @@ export async function handleCommand(text, message, ctx) {
     if (!arg) return menuAnswer("Format: /add <alamat_wallet> [nickname]\nContoh: /add 0x123... WhaleSatu");
     const parts = arg.trim().split(/\s+/);
     const address = parts[0];
-    const nickname = parts.slice(1).join(" ");
+    const nickname = parts.slice(1).join(" ").slice(0, 40);
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+      return menuAnswer("⚠️ Alamat wallet tidak valid. Format: 0x diikuti 40 karakter hex (0-9a-f).");
+    }
+    const normalized = address.toLowerCase();
     const cfg = getTrackerConfig();
     const wallets = cfg.wallets;
-    if (!wallets.find(w => w.address.toLowerCase() === address.toLowerCase())) {
-      wallets.push({ address, nickname });
+    if (!wallets.find(w => String(w.address || "").toLowerCase() === normalized)) {
+      wallets.push({ address: normalized, nickname });
       setTrackerConfig(cfg.minUsd, wallets);
-      return menuAnswer(`✅ Wallet ${address} (${nickname || "Tanpa Nama"}) berhasil ditambahkan ke Tracker.`);
+      return menuAnswer(`✅ Wallet ${normalized} (${nickname || "Tanpa Nama"}) berhasil ditambahkan ke Tracker.`);
     } else {
-      return menuAnswer(`⚠️ Wallet ${address} sudah ada di Tracker.`);
+      return menuAnswer(`⚠️ Wallet ${normalized} sudah ada di Tracker.`);
     }
   }
 
   if (command === "/del") {
     if (!arg) return menuAnswer("Format: /del <alamat_wallet>\nContoh: /del 0x123...");
     const address = arg.trim().toLowerCase();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+      return menuAnswer("⚠️ Alamat wallet tidak valid. Format: 0x diikuti 40 karakter hex (0-9a-f).");
+    }
     const cfg = getTrackerConfig();
     const originalLength = cfg.wallets.length;
-    const wallets = cfg.wallets.filter(w => w.address.toLowerCase() !== address);
+    const wallets = cfg.wallets.filter(w => String(w.address || "").toLowerCase() !== address);
     if (wallets.length < originalLength) {
       setTrackerConfig(cfg.minUsd, wallets);
       return menuAnswer(`✅ Wallet ${address} berhasil dihapus dari Tracker.`);
@@ -1372,7 +1378,7 @@ export async function handleCommand(text, message, ctx) {
       );
     }
 
-    const recentTrades = getShadowTrades({ days: 60 });
+    const recentTrades = getRecentResolvedOutcomes({ days: 60 });
     const result = calculateKelly({ edge, confidence, bankroll, recentTrades });
     return menuAnswer(formatKellyResult(result));
   }
@@ -1388,24 +1394,6 @@ setNotificationCallback(async (payload) => {
   if (typeof payload === "string") {
     console.log("\n[Whale Alert]\n" + payload.replace(/\*/g, ""));
   } else if (payload && payload.type === "HOT_NICHE") {
-    const { marketInfo, recentTradesCount, triggerWhale } = payload;
-    console.log(`\n[Hot Niche Alert] Market: ${marketInfo.question}`);
-    
-    try {
-      const volumeSpike = `${recentTradesCount} whale trades dalam 15 menit. Trigger: ${triggerWhale.side} $${triggerWhale.sizeUsdc.toFixed(0)}`;
-      
-      const qwenAnalysis = await askQwenHotNiche({ market: marketInfo, volumeSpike });
-      
-      // Broadcast ke SSE web UI
-      broadcastAlert({
-        type: "HOT_NICHE_UPDATE",
-        marketInfo,
-        volumeSpike,
-        sentiment: qwenAnalysis.sentiment,
-        summary: qwenAnalysis.summary
-      });
-    } catch (err) {
-       console.error("[Hot Niche Error]", err);
-    }
+    console.log(`\n[Hot Niche Alert] Market: ${payload.marketInfo.question}`);
   }
 });

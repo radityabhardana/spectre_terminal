@@ -306,7 +306,7 @@ export function advanceEntryScannerState(previous = {}, snapshot, overrides = {}
           "SIGNAL_TTL",
           observedAt,
           previous.signal.expiresAt,
-          "Entry signal expired before execution."
+          "Entry signal expired before use."
         )],
         reason: "Entry signal expired while quote revalidation was unavailable.",
       };
@@ -357,7 +357,7 @@ export function advanceEntryScannerState(previous = {}, snapshot, overrides = {}
         "SIGNAL_TTL",
         capturedAt,
         previous.signal.expiresAt,
-        "Entry signal expired before execution."
+        "Entry signal expired before use."
       ));
     }
 
@@ -478,6 +478,9 @@ export function normalizeEntryScannerResult(state = {}) {
     maxConfirmationCount: Number(state?.maxConfirmationCount || 0),
     requiredConfirmations: Number(state?.requiredConfirmations || DEFAULT_ENTRY_SCANNER_CONFIG.confirmations),
     reason: state?.reason || null,
+    timingPhase: state?.latestSnapshot?.timingPhase
+      || state?.bestObserved?.timingPhase
+      || null,
   };
 }
 

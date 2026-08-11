@@ -15,12 +15,6 @@ export function formatLimitedRichText(value) {
     .replace(/_(.*?)_/g, "<em>$1</em>");
 }
 
-export function formatStoredRichText(value) {
-  return escapeHtml(value)
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\\n|\r?\n/g, "<br>");
-}
-
 export function sanitizeHttpUrl(value) {
   const input = String(value ?? "").trim();
   if (!input || /["'<>`\u0000-\u001f]/.test(input)) return null;

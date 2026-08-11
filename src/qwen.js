@@ -3,7 +3,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { config } from "./config.js";
-import { getRecentReflections } from "./storage.js";
 
 let tokenUsageByModel = {};
 let providerConnectionCache = null;
@@ -56,7 +55,7 @@ export async function checkAiProviderConnection() {
     config.qwenBullModel,
     config.qwenBearModel,
     config.qwenRiskManagerModel,
-    config.qwenEvaluatorModel,
+    config.qwenFallbackModel,
     config.qwenShortModel,
     config.qwenScoutModel,
     config.qwenEventAnalystModel,
@@ -97,12 +96,6 @@ export async function checkAiProviderConnection() {
   }
 }
 
-// Short Market Memory toggle — controlled via /api/settings/short-memory
-// ponytail: in-memory flag, no file needed, resets to true on restart (safe default)
-let shortMemoryEnabled = true;
-export function getShortMemoryEnabled() { return shortMemoryEnabled; }
-export function setShortMemoryEnabled(val) { shortMemoryEnabled = !!val; }
-
 const BINANCE_BASE_URLS = [
   'https://api.binance.com',
   'https://api-gcp.binance.com',
@@ -125,7 +118,6 @@ async function fetchWithFallback(endpoints, path, options) {
   throw new Error("All Binance endpoints failed");
 }
 
-const dataDir = DATA_DIR;
 
 const VALID_VERDICTS = new Set([
   "SKIP",
@@ -868,25 +860,6 @@ ${techData.recentCandles.map(c => `   ${c.time} ${c.direction} $${c.close} vol:$
     }
   }
 
-  function extractCoreLesson(text) {
-    if (!text) return "Tidak ada catatan.";
-    const kw = "3. **Core Lesson Learned";
-    const idx = text.indexOf(kw);
-    if (idx !== -1) {
-      let after = text.substring(idx + kw.length);
-      const nl = after.indexOf('\\n');
-      if (nl !== -1) after = after.substring(nl + 1).trim();
-      return after.substring(0, 500); // Batasi max 500 chars per lesson
-    }
-    // Fallback: ambil 300 karakter terakhir
-    return text.length > 300 ? "..." + text.substring(text.length - 300) : text;
-  }
-
-  const recentReflections = config.enableAiReflectionMemory ? getRecentReflections(5) : [];
-  const lessonsBlock = recentReflections.length > 0 
-    ? `\nGLOBAL TRAPS CHECKLIST (EXTRACTED RAG MEMORY):\n${recentReflections.map((r, i) => `${i+1}. [Market: ${r.question} | Tebakan Salah: ${r.prediction}] -> ${extractCoreLesson(r.reflection_note)}`).join("\n\n")}`
-    : "";
-
   // Market type detection — adapts analyst prompts to the event category
   const researchType = researchContext?.type || "general";
   const isCryptoMkt = researchType === "crypto";
@@ -921,7 +894,6 @@ SCORING AWAL DARI BOT:
 ${JSON.stringify(score, null, 2)}
 
 ${researchBlock(researchContext)}
-${lessonsBlock}
 `.trim();
 
   if (isShortCryptoMkt) {
@@ -977,7 +949,7 @@ Format JSON:
       response_format: { type: "json_object" },
     };
 
-    const result = await callRoleQwenJson(shortPayload, config.qwenEvaluatorModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+    const result = await callRoleQwenJson(shortPayload, config.qwenFallbackModel, config.qwenBaseUrl, config.qwenApiKey, signal);
     const parsed = result.text ? parseJsonOr(result.text, null) : null;
     const normalizedAnalysis = normalizeAnalysis(
       parsed
@@ -1173,7 +1145,7 @@ Format JSON wajib:
     response_format: { type: "json_object" },
   };
 
-  const finalFallbackModel = usingCustomFinal ? "" : config.qwenEvaluatorModel;
+  const finalFallbackModel = usingCustomFinal ? "" : config.qwenFallbackModel;
   const finalJson = await callRoleQwenJson(rmPayload, finalFallbackModel, finalBaseUrl, finalApiKey, signal);
 
   let analysis;
@@ -1446,7 +1418,7 @@ Format JSON wajib:
     response_format: { type: "json_object" },
   };
 
-  const finalJson = await callRoleQwenJson(payload, config.qwenEvaluatorModel, finalBaseUrl, finalApiKey, signal);
+  const finalJson = await callRoleQwenJson(payload, config.qwenFallbackModel, finalBaseUrl, finalApiKey, signal);
 
   let analysis;
   try {
@@ -1477,15 +1449,6 @@ Format JSON wajib:
   };
 }
 
-export async function askQwenHotNiche({ market, volumeSpike, signal = null }) {
-  throwIfAborted(signal);
-  return {
-    reason_found: false,
-    sentiment: "UNCLEAR",
-    summary: `Lonjakan volume terdeteksi (${volumeSpike}) pada ${market.question}, tetapi penyebab dan arah tidak dapat diverifikasi dari data volume saja.`,
-  };
-}
-
 export async function askQwenShortCondition({ 
   tickerData, 
   longShort, 
@@ -1500,23 +1463,6 @@ export async function askQwenShortCondition({
   marketPrices = null,
 }) {
   throwIfAborted(signal);
-
-  let historyContext = "";
-  if (shortMemoryEnabled) {
-    try {
-      const histPath = path.join(dataDir, "short_condition_history.json");
-      if (fs.existsSync(histPath)) {
-        const histData = JSON.parse(fs.readFileSync(histPath, "utf-8"));
-        const actionableHistory = histData.filter((item) => item.actionable === 1).slice(-3);
-        if (actionableHistory.length > 0) {
-          const recentHist = actionableHistory.map((item, index) => `[Memory ${index + 1}] ${item.date} | Direction:${item.direction || "N/A"} | Outcome:${item.outcome || "unresolved"}`).join("\n");
-          historyContext = `\nACTIONABLE-ONLY HISTORY (explanation context only):\n${recentHist}`;
-        }
-      }
-    } catch (err) {
-      console.error("[Qwen] Gagal memuat memory short condition:", err.message);
-    }
-  }
 
   const context = {
     marketQuestion,
@@ -1541,11 +1487,10 @@ export async function askQwenShortCondition({
 Explain the deterministic short-market decision below. The backend has already fixed direction, probability, recommendation, prices, and EV.
 
 ${JSON.stringify(context, null, 2)}
-${historyContext}
 
 Rules:
 - You may explain the supplied values only. Do not recalculate, adjust, contradict, or propose another direction, probability, recommendation, entry price, or EV.
-- RSI, MACD, futures depth, liquidations, sentiment, and history are context only. They do not alter fair probability.
+- RSI, MACD, futures depth, liquidations, and sentiment are context only. They do not alter fair probability.
 - State missing data plainly and do not invent facts.
 - Return only JSON with explanation fields:
 {
@@ -1573,7 +1518,7 @@ Rules:
     response_format: { type: "json_object" }
   };
 
-  const json = await callRoleQwenJson(payload, config.qwenEvaluatorModel, finalBaseUrl, finalApiKey, signal);
+  const json = await callRoleQwenJson(payload, config.qwenFallbackModel, finalBaseUrl, finalApiKey, signal);
   const parsed = parseJsonOr(json.text, null);
   const result = normalizeShortAnalysis(parsed);
   return {

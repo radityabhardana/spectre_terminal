@@ -1,122 +1,14 @@
 import Database from "better-sqlite3";
 import { config } from "./config.js";
 import { databasePath } from "./database-path.js";
+import { migrateDatabase } from "./migrations.js";
 
 const db = new Database(databasePath);
 export { databasePath };
 export const ANALYSIS_STRATEGY_VERSION = "chainlink-terminal-value-v3";
 
-// Enable WAL mode for better concurrent performance
 db.pragma('journal_mode = WAL');
-
-// Initialize tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS cache (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    saved_at INTEGER NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS analysis_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT NOT NULL,
-    data TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS analyzed_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    market_id TEXT NOT NULL,
-    question TEXT NOT NULL,
-    url TEXT NOT NULL,
-    prediction TEXT,
-    status TEXT NOT NULL DEFAULT 'belum selesai',
-    result TEXT,
-    created_at TEXT NOT NULL,
-    resolved_at TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS prediction_reflections (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    market_id TEXT NOT NULL,
-    question TEXT NOT NULL,
-    prediction TEXT NOT NULL,
-    actual_outcome TEXT NOT NULL,
-    reflection_note TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS user_profile (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    username TEXT,
-    email TEXT,
-    password TEXT,
-    avatar_url TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS trade_requests (
-    idempotency_key TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS trade_executions (
-    analysis_id INTEGER PRIMARY KEY,
-    idempotency_key TEXT NOT NULL,
-    market_id TEXT NOT NULL,
-    size_usdc REAL,
-    status TEXT NOT NULL,
-    result_json TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-`);
-
-try {
-  db.prepare("ALTER TABLE analyzed_events ADD COLUMN analysis_conclusion TEXT").run();
-} catch (e) {
-  // column might already exist
-}
-
-try {
-  db.prepare("ALTER TABLE analyzed_events ADD COLUMN actual_outcome TEXT").run();
-} catch (e) {
-  // column might already exist
-}
-
-try {
-  db.prepare("ALTER TABLE analyzed_events ADD COLUMN qwen_confidence TEXT").run();
-} catch (e) {}
-
-try {
-  db.prepare("ALTER TABLE analyzed_events ADD COLUMN data_confidence TEXT").run();
-} catch (e) {}
-
-try {
-  db.prepare("ALTER TABLE analyzed_events ADD COLUMN execution_time INTEGER").run();
-} catch (e) {}
-
-try {
-  db.prepare("ALTER TABLE analyzed_events ADD COLUMN strategy_version TEXT").run();
-} catch (e) {}
-
-try {
-  db.prepare("ALTER TABLE analyzed_events ADD COLUMN fair_probability REAL").run();
-} catch (e) {}
-
-try {
-  db.prepare("ALTER TABLE analyzed_events ADD COLUMN max_entry_price REAL").run();
-} catch (e) {}
-
-try {
-  db.prepare("ALTER TABLE analyzed_events ADD COLUMN signal_data_at TEXT").run();
-} catch (e) {}
-
-try {
-  db.prepare("ALTER TABLE analyzed_events ADD COLUMN actionable INTEGER NOT NULL DEFAULT 0").run();
-} catch (e) {}
-
-try {
-  db.prepare("ALTER TABLE trade_executions ADD COLUMN size_usdc REAL").run();
-} catch (e) {}
+await migrateDatabase(db, { databasePath });
 
 export function getCache(key, ttlSeconds = config.cacheTtlSeconds) {
   try {
@@ -197,55 +89,9 @@ export function addAnalyzedEvent(event) {
   }
 }
 
-export function reserveTradeExecutions(idempotencyKey, trades) {
-  const reserve = db.transaction(() => {
-    const now = new Date().toISOString();
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const existingExposure = Number(db.prepare(`
-      SELECT COALESCE(SUM(size_usdc), 0) AS total
-      FROM trade_executions
-      WHERE created_at >= ?
-    `).get(since)?.total || 0);
-    const requestedExposure = trades.reduce((sum, trade) => sum + Number(trade.sizeUsdc || 0), 0);
-    if (existingExposure + requestedExposure > config.maxDailyTradeUsdc) {
-      const error = new Error(`24-hour trade cap of ${config.maxDailyTradeUsdc} USDC exceeded`);
-      error.code = "TRADE_DAILY_CAP";
-      throw error;
-    }
-    db.prepare("INSERT INTO trade_requests (idempotency_key, created_at) VALUES (?, ?)").run(idempotencyKey, now);
-    const insert = db.prepare(`
-      INSERT INTO trade_executions (analysis_id, idempotency_key, market_id, size_usdc, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'reserved', ?, ?)
-    `);
-    for (const trade of trades) insert.run(trade.analysisId, idempotencyKey, trade.marketId, trade.sizeUsdc, now, now);
-  });
-  try {
-    reserve();
-    return true;
-  } catch (error) {
-    if (String(error.code || "").startsWith("SQLITE_CONSTRAINT")) return false;
-    throw error;
-  }
-}
-
-export function completeTradeExecution(analysisId, status, result) {
-  const info = db.prepare(`
-    UPDATE trade_executions
-    SET status = ?, result_json = ?, updated_at = ?
-    WHERE analysis_id = ? AND status = 'reserved'
-  `).run(status, JSON.stringify(result ?? null), new Date().toISOString(), analysisId);
-  return info.changes > 0;
-}
-
 export function getAnalyzedEvents(limit = 100, startDate = null, endDate = null) {
   try {
-    let query = `
-      SELECT a.*, 
-        CASE WHEN EXISTS (
-          SELECT 1 FROM prediction_reflections p WHERE p.market_id = a.market_id
-        ) THEN 1 ELSE 0 END as has_reflection
-      FROM analyzed_events a
-    `;
+    let query = `SELECT a.* FROM analyzed_events a`;
     const params = [];
     const conditions = [];
 
@@ -305,6 +151,21 @@ function getResolvedPlayEvents() {
     WHERE actionable = 1 AND status = 'selesai' AND result IN ('menang', 'kalah')
     ORDER BY id ASC
   `).all();
+}
+
+export function getRecentResolvedOutcomes({ days = 30 } = {}) {
+  try {
+    const since = new Date(Date.now() - days * 86400_000).toISOString();
+    return db.prepare(`
+      SELECT market_id, question, url, prediction, status, result, created_at
+      FROM analyzed_events
+      WHERE created_at >= ? AND status = 'selesai' AND result IN ('menang', 'kalah')
+      ORDER BY created_at DESC
+    `).all(since);
+  } catch (error) {
+    console.error("[Storage] getRecentResolvedOutcomes error:", error.message);
+    return [];
+  }
 }
 
 export function getStats() {
@@ -440,40 +301,6 @@ export function updateAnalyzedEventStatus(id, status, result, actualOutcome) {
   }
 }
 
-export function saveReflection(reflection) {
-  try {
-    const createdAt = new Date().toISOString();
-    const info = db.prepare(`
-      INSERT INTO prediction_reflections (market_id, question, prediction, actual_outcome, reflection_note, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(reflection.market_id, reflection.question, reflection.prediction, reflection.actual_outcome, reflection.reflection_note, createdAt);
-    return info.lastInsertRowid;
-  } catch (error) {
-    console.error("[Storage] saveReflection error:", error.message);
-    return null;
-  }
-}
-
-export function getRecentReflections(limit = 5) {
-  try {
-    return db.prepare(`
-      SELECT p.*
-      FROM prediction_reflections p
-      WHERE EXISTS (
-        SELECT 1 FROM analyzed_events a
-        WHERE a.market_id = p.market_id
-          AND a.strategy_version = ?
-          AND a.actionable = 1
-          AND a.result = 'kalah'
-      )
-      ORDER BY p.id DESC LIMIT ?
-    `).all(ANALYSIS_STRATEGY_VERSION, limit);
-  } catch (error) {
-    console.error("[Storage] getRecentReflections error:", error.message);
-    return [];
-  }
-}
-
 export function getAnalyzedEventById(id) {
   try {
     return db.prepare('SELECT * FROM analyzed_events WHERE id = ?').get(id);
@@ -483,20 +310,10 @@ export function getAnalyzedEventById(id) {
   }
 }
 
-export function getReflectionByMarketId(marketId) {
+export function getStorageHealth() {
   try {
-    return db.prepare('SELECT * FROM prediction_reflections WHERE market_id = ? ORDER BY id DESC LIMIT 1').get(marketId);
-  } catch (error) {
-    console.error("[Storage] getReflectionByMarketId error:", error.message);
-    return null;
-  }
-}
-
-export function getAllReflections() {
-  try {
-    return db.prepare('SELECT * FROM prediction_reflections ORDER BY id DESC').all();
-  } catch (error) {
-    console.error("[Storage] getAllReflections error:", error.message);
-    return [];
+    return db.prepare("SELECT 1 AS ok").get()?.ok === 1;
+  } catch {
+    return false;
   }
 }

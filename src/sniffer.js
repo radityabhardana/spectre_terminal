@@ -13,7 +13,34 @@ const MAX_WHALES_STORED = 200;
 
 // Tracker for trending markets
 const marketTrades = new Map(); // market_id -> [timestamp1, timestamp2, ...]
-export let marketMap = {}; // Hoisted to module level
+const _marketMap = Object.create(null); // Internal store; exposed via getMarketMap()
+export function getMarketMap() { return _marketMap; }
+
+const MAX_MARKET_TRADES = 500;
+const MARKET_TRADE_WINDOW_MS = 15 * 60 * 1000;
+/**
+ * Evict market entries whose newest trade is older than the rolling window.
+ * If the map still exceeds the cap, drop the oldest entries first.
+ */
+function pruneMarketTrades(now = Date.now()) {
+  const cutoff = now - MARKET_TRADE_WINDOW_MS;
+  for (const [marketId, timestamps] of marketTrades) {
+    const recent = timestamps.filter((ts) => ts > cutoff);
+    if (recent.length > 0) {
+      marketTrades.set(marketId, recent);
+    } else {
+      marketTrades.delete(marketId);
+    }
+  }
+  if (marketTrades.size <= MAX_MARKET_TRADES) return;
+  // order of Map iteration is insertion order; delete the oldest keys first
+  const excess = marketTrades.size - MAX_MARKET_TRADES;
+  let i = 0;
+  for (const key of marketTrades.keys()) {
+    if (i++ >= excess) break;
+    marketTrades.delete(key);
+  }
+}
 const notifiedHotNiches = new Set();
 
 // State untuk ON/OFF Sniffer. Importing this module must not start the tracker.
@@ -47,10 +74,15 @@ try {
 
 function saveConfigToFile() {
   try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify({
+    const body = JSON.stringify({
       minUsd: snifferMinUsd,
-      wallets: Array.from(trackedWallets.entries()).map(([address, nickname]) => ({ address, nickname }))
-    }, null, 2));
+      wallets: Array.from(trackedWallets.entries()).map(([address, nickname]) => ({ address, nickname })),
+    }, null, 2);
+    // Atomic write: write to a temp file then rename, so a crash mid-write
+    // never corrupts tracker_config.json.
+    const tmpFile = `${CONFIG_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, body);
+    fs.renameSync(tmpFile, CONFIG_FILE);
   } catch (e) {
     console.error("[Sniffer] Error saving config:", e.message);
   }
@@ -64,12 +96,14 @@ export function getTrackerConfig() {
 }
 
 export function setTrackerConfig(minUsd, walletsArray) {
-  if (typeof minUsd === 'number') snifferMinUsd = minUsd;
+  if (typeof minUsd === 'number' && Number.isFinite(minUsd) && minUsd >= 10 && minUsd <= 1_000_000_000) {
+    snifferMinUsd = minUsd;
+  }
   if (Array.isArray(walletsArray)) {
     trackedWallets.clear();
     for (const w of walletsArray) {
-      if (w && w.address) {
-        trackedWallets.set(w.address.toLowerCase(), w.nickname || "");
+      if (w && typeof w.address === "string" && /^0x[0-9a-fA-F]{40}$/.test(w.address)) {
+        trackedWallets.set(w.address.toLowerCase(), typeof w.nickname === "string" ? w.nickname.slice(0, 40) : "");
       }
     }
   }
@@ -126,6 +160,15 @@ export function getAccumulatedWhaleVolume() {
   return globalAccumulatedWhaleVolume;
 }
 
+function resetAccumulatedWhaleVolume() {
+  for (const asset of Object.keys(globalAccumulatedWhaleVolume)) {
+    for (const duration of Object.keys(globalAccumulatedWhaleVolume[asset])) {
+      globalAccumulatedWhaleVolume[asset][duration].UP = 0;
+      globalAccumulatedWhaleVolume[asset][duration].DOWN = 0;
+    }
+  }
+}
+
 const CLOB_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market";
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MARKET_RETRY_MS = 15000;
@@ -158,6 +201,30 @@ const tradeAggregations = new Map();
 const lastLogAt = new Map();
 const snifferAuxTimers = new Set();
 
+const SNIFFER_ACCUMULATED_RESET_MS = 24 * 60 * 60 * 1000; // reset daily
+const SNIFFER_MEMORY_CLEANUP_MS = 5 * 60 * 1000; // every 5 min
+
+let snifferAccumulatedResetInterval = null;
+let snifferMemoryCleanupInterval = null;
+
+/**
+ * Cap the rate-limit bookkeeping map so it cannot grow unbounded over days.
+ */
+function pruneRateLimitMap(now = Date.now()) {
+  if (lastLogAt.size <= 200) return;
+  for (const [key, at] of lastLogAt) {
+    if (now - at > 2 * LOG_RATE_LIMIT_MS) lastLogAt.delete(key);
+  }
+  if (lastLogAt.size <= 200) return;
+  // Still too big: drop the oldest entries (Map iterates insertion order).
+  const excess = lastLogAt.size - 200;
+  let i = 0;
+  for (const key of lastLogAt.keys()) {
+    if (i++ >= excess) break;
+    lastLogAt.delete(key);
+  }
+}
+
 const EVENT_COUNTER_FIELDS = [
   "received",
   "filteredPrice",
@@ -185,9 +252,7 @@ function logRateLimited(key, level, message) {
   if (now - (lastLogAt.get(key) || 0) < LOG_RATE_LIMIT_MS) return;
   lastLogAt.set(key, now);
   console[level](message);
-}
-
-function recordSnifferError(error, { shard = null, category = "general" } = {}) {
+}function recordSnifferError(error, { shard = null, category = "general" } = {}) {
   const message = safeErrorMessage(error);
   snifferErrorCount += 1;
   snifferLastError = message;
@@ -420,10 +485,11 @@ async function fetchAndCacheMarkets(force = false, generation = snifferGeneratio
     cachedClobIds = [...new Set(
       filteredShorts.flatMap((market) => market.clobTokenIds || []).filter(Boolean).map(String),
     )];
-    marketMap = {};
+    // Replace keys in-place so the exported reference from getMarketMap() stays valid.
+    for (const key of Object.keys(_marketMap)) delete _marketMap[key];
     for (const market of filteredShorts) {
       if (!market.conditionId) continue;
-      marketMap[market.conditionId] = {
+      _marketMap[market.conditionId] = {
         id: market.id,
         question: market.question,
         slug: market.eventSlug || market.slug || "",
@@ -488,9 +554,13 @@ function clearLifecycleTimers() {
   if (snifferPingInterval) clearInterval(snifferPingInterval);
   if (snifferRefreshInterval) clearInterval(snifferRefreshInterval);
   if (snifferMarketRetryTimer) clearTimeout(snifferMarketRetryTimer);
+  if (snifferAccumulatedResetInterval) clearInterval(snifferAccumulatedResetInterval);
+  if (snifferMemoryCleanupInterval) clearInterval(snifferMemoryCleanupInterval);
   snifferPingInterval = null;
   snifferRefreshInterval = null;
   snifferMarketRetryTimer = null;
+  snifferAccumulatedResetInterval = null;
+  snifferMemoryCleanupInterval = null;
   for (const timer of snifferAuxTimers) clearTimeout(timer);
   snifferAuxTimers.clear();
   notifiedHotNiches.clear();
@@ -553,7 +623,7 @@ function notifySafely(payload, category) {
 
 function emitGeneralWhale(message) {
   const now = Date.now();
-  const marketInfo = marketMap[message.market] || {
+  const marketInfo = _marketMap[message.market] || {
     id: "Unknown",
     question: "Unknown Market",
     slug: "",
@@ -653,6 +723,7 @@ function emitGeneralWhale(message) {
 
   if (!marketTrades.has(message.market)) marketTrades.set(message.market, []);
   marketTrades.get(message.market).push(now);
+  pruneMarketTrades(now);
   const cutoff = now - 15 * 60 * 1000;
   const recentTradesForMarket = marketTrades.get(message.market).filter((timestamp) => timestamp > cutoff);
   marketTrades.set(message.market, recentTradesForMarket);
@@ -799,6 +870,16 @@ function startLifecycleIntervals(generation) {
       refreshMarkets(generation).catch((error) => recordSnifferError(error, { category: "market-refresh" }));
     }
   }, CACHE_TTL_MS);
+
+  // Housekeeping for long-lived processes: prevent unbounded growth.
+  snifferAccumulatedResetInterval = setInterval(() => {
+    if (isSnifferActive) resetAccumulatedWhaleVolume();
+  }, SNIFFER_ACCUMULATED_RESET_MS);
+  snifferMemoryCleanupInterval = setInterval(() => {
+    if (!isSnifferActive) return;
+    pruneMarketTrades(Date.now());
+    pruneRateLimitMap(Date.now());
+  }, SNIFFER_MEMORY_CLEANUP_MS);
 }
 
 async function connectSnifferWs() {
@@ -918,7 +999,7 @@ export function getTrendingMarkets(limit = 5, windowMinutes = 15) {
     const recent = timestamps.filter(ts => ts > cutoff);
     if (recent.length > 0) {
       marketTrades.set(marketId, recent);
-      const marketInfo = marketMap[marketId] || { question: "Unknown Market", slug: "" };
+      const marketInfo = _marketMap[marketId] || { question: "Unknown Market", slug: "" };
       trending.push({
         market_id: marketId,
         question: marketInfo.question,

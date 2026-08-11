@@ -1,63 +1,68 @@
 import fs from "node:fs/promises";
-import fsSync from "node:fs";
 import http from "node:http";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { getFastShortEntrySnapshot, handleCommand } from "./index.js";
 import { enterCommandGuard, getCooldownState, releaseCommandGuard } from "./rate-limit.js";
-import { SEARCH_ENGINE_VERSION, getMarketById, getShortTermMarkets, pickYesNoTokens } from "./polymarket.js";
-import { ANALYSIS_STRATEGY_VERSION, completeTradeExecution, getAnalyzedEvents, getAnalyzedEventById, updateAnalyzedEventStatus, getReflectionByMarketId, getAllReflections, getAnalysisLogs, reserveTradeExecutions } from "./storage.js";
-import { evaluateSingleEvent, evaluateAllResolutions } from "./evaluate.js";
+import { SEARCH_ENGINE_VERSION, getShortTermMarkets } from "./polymarket.js";
+import { ANALYSIS_STRATEGY_VERSION, getAnalyzedEvents, getAnalyzedEventById, getAnalysisLogs } from "./storage.js";
+import { resolveAnalyzedEvent } from "./resolution.js";
 import { getBinanceWsStatus } from "./binance_ws.js";
-import { getShortMemoryEnabled, runWithAiLanguage, setShortMemoryEnabled } from "./qwen.js";
+import { runWithAiLanguage } from "./qwen.js";
 import { getSnifferWsStatus, getSnifferEventCounters, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
 import { getBlockchainTrackerHealth } from "./blockchain-tracker.js";
-import { initWallet, getWalletBalances } from "./wallet.js";
-import { initTradeModule } from "./trade.js";
 import { getMarketPulseState, initializeMarketPulseMonitor, startMarketPulseMonitor, stopMarketPulseMonitor, subscribeMarketPulse } from "./market-pulse.js";
+import { assertSecureWebBinding, getSecurityHeaders, normalizeWalletAddress, resolvePublicPath, validateMutationRequest, validateRequestHost } from "./web-security.js";
 
-// Initialize wallet and trade module
-const walletReady = config.enableLiveTrading ? initWallet() : false;
-const tradeReadyPromise = config.enableLiveTrading && walletReady
-  ? initTradeModule()
-  : Promise.resolve(false);
-const tradeIdempotencyKeys = new Map();
 const shortSnapshotRequestTimes = new Map();
 let shortSnapshotInFlight = 0;
 const MAX_SHORT_SNAPSHOT_CONCURRENCY = 3;
 const MAX_SHORT_SNAPSHOT_REQUESTS_PER_10S = 30;
 
 const sseClients = new Set();
+const MAX_SSE_CLIENTS = 50;
+const SSE_HEARTBEAT_MS = 30000;
 
-export function broadcastAlert(data) {
-  const message = `data: ${JSON.stringify(data)}\n\n`;
-  for (const client of sseClients) {
-    client.write(message);
+/**
+ * Open an SSE stream with a heartbeat and a hard cap on concurrent clients.
+ * Returns null when the stream cannot be opened (too many clients).
+ */
+function openSseStream(req, res, { onClose } = {}) {
+  if (sseClients.size >= MAX_SSE_CLIENTS) {
+    res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Too many streaming clients");
+    return null;
   }
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  sseClients.add(res);
+  const heartbeat = setInterval(() => {
+    if (res.writableEnded || res.destroyed) {
+      clearInterval(heartbeat);
+      sseClients.delete(res);
+      return;
+    }
+    res.write(`: heartbeat\n\n`);
+  }, SSE_HEARTBEAT_MS);
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    sseClients.delete(res);
+    onClose?.();
+  });
+  return res;
 }
 
 const modulePath = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(modulePath);
 const publicDir = path.resolve(__dirname, "..", "public");
-const dataDir = path.resolve(__dirname, "..", "data");
 const port = Number(process.env.WEB_PORT || process.env.PORT || 8787);
 const host = process.env.WEB_HOST || "127.0.0.1";
-
-function patchShortMemoryOutcome(marketQuestion, outcome) {
-  try {
-    const histPath = path.join(dataDir, "short_condition_history.json");
-    if (!fsSync.existsSync(histPath)) return;
-    const hist = JSON.parse(fsSync.readFileSync(histPath, "utf-8"));
-    const normalizedQuestion = String(marketQuestion || "").trim().toLowerCase();
-    const index = hist.findLastIndex((item) =>
-      String(item.marketQuestion || "").trim().toLowerCase() === normalizedQuestion && !item.outcome
-    );
-    if (index === -1) return;
-    hist[index].outcome = outcome;
-    fsSync.writeFileSync(histPath, JSON.stringify(hist, null, 2));
-  } catch { /* silent — jangan ganggu flow resolve */ }
-}
 
 const modeCommands = {
   auto: "",
@@ -110,27 +115,7 @@ async function runGuardedAiCommand(command, arg, task) {
   }
 }
 
-function validateTradeRequest(req) {
-  if (!config.enableLiveTrading) throw Object.assign(new Error("Live trading is disabled"), { status: 403 });
-  if (!config.webPassword) throw Object.assign(new Error("WEB_PASSWORD is required for live trading"), { status: 503 });
-  if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) {
-    throw Object.assign(new Error("Content-Type must be application/json"), { status: 415 });
-  }
-  const origin = req.headers.origin;
-  if (origin) {
-    const expectedOrigin = `http://${req.headers.host}`;
-    if (origin !== expectedOrigin) throw Object.assign(new Error("Cross-origin trade request rejected"), { status: 403 });
-  }
-}
-
 function validateShortSnapshotRequest(req) {
-  if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) {
-    throw Object.assign(new Error("Content-Type must be application/json"), { status: 415 });
-  }
-  const origin = req.headers.origin;
-  if (origin && new URL(origin).host !== req.headers.host) {
-    throw Object.assign(new Error("Cross-origin snapshot request rejected"), { status: 403 });
-  }
   const key = req.socket.remoteAddress || "unknown";
   const now = Date.now();
   const recent = (shortSnapshotRequestTimes.get(key) || []).filter(timestamp => timestamp > now - 10_000);
@@ -248,11 +233,17 @@ async function readBody(req) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 1024 * 1024) throw new Error("Request terlalu besar.");
+    if (size > 1024 * 1024) {
+      throw Object.assign(new Error("Request terlalu besar."), { status: 413 });
+    }
     chunks.push(chunk);
   }
   const raw = Buffer.concat(chunks).toString("utf8");
-  return raw ? JSON.parse(raw) : {};
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    throw Object.assign(new Error("Invalid JSON body"), { status: 400 });
+  }
 }
 
 async function handleApiCommand(req, res) {
@@ -305,10 +296,9 @@ async function handleApiCommand(req, res) {
 
 async function serveStatic(req, res) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-  const relativePath = requestUrl.pathname === "/" ? "index.html" : requestUrl.pathname.slice(1);
-  const filePath = path.resolve(publicDir, decodeURIComponent(relativePath));
+  const filePath = resolvePublicPath(publicDir, requestUrl.pathname);
 
-  if (!filePath.startsWith(publicDir)) {
+  if (!filePath) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
@@ -327,28 +317,90 @@ async function serveStatic(req, res) {
   }
 }
 
+// Brute-force protection for Basic auth (shared across all requests in this process).
+const AUTH_FAIL_WINDOW_MS = 10 * 60 * 1000;
+const AUTH_MAX_FAILS = 20;
+const authFailures = new Map();
+
+function authRateLimited(key) {
+  const now = Date.now();
+  const state = authFailures.get(key);
+  if (!state || now - state.windowStart > AUTH_FAIL_WINDOW_MS) {
+    authFailures.delete(key);
+    return false;
+  }
+  return state.count >= AUTH_MAX_FAILS;
+}
+
+function recordAuthFailure(key) {
+  const now = Date.now();
+  const state = authFailures.get(key);
+  if (!state || now - state.windowStart > AUTH_FAIL_WINDOW_MS) {
+    authFailures.set(key, { windowStart: now, count: 1 });
+  } else {
+    state.count += 1;
+  }
+  if (authFailures.size > 1000) {
+    for (const [address, value] of authFailures) {
+      if (now - value.windowStart > AUTH_FAIL_WINDOW_MS) authFailures.delete(address);
+    }
+  }
+}
+
+function timingSafeEqualStrings(a, b) {
+  const aBuf = Buffer.from(String(a));
+  const bBuf = Buffer.from(String(b));
+  if (aBuf.length !== bBuf.length) {
+    // Burn comparable time before returning false (length leak is acceptable).
+    crypto.timingSafeEqual(aBuf, aBuf);
+    return false;
+  }
+  return crypto.timingSafeEqual(aBuf, bBuf);
+}
+
 function checkAuth(req, res) {
   if (!config.webPassword) return true;
-  
+  const remoteAddress = req.socket.remoteAddress || "unknown";
+
   const auth = req.headers.authorization;
   if (!auth) {
     res.writeHead(401, {
-      "WWW-Authenticate": 'Basic realm="MVPM Terminal"',
+      "WWW-Authenticate": 'Basic realm="Spectre Terminal"',
       "content-type": "text/plain; charset=utf-8"
     });
     res.end("Unauthorized");
     return false;
   }
-  
+
+  if (authRateLimited(remoteAddress)) {
+    res.writeHead(429, { "content-type": "text/plain; charset=utf-8" });
+    res.end("Too many failed attempts");
+    return false;
+  }
+
   const b64auth = (auth.split(' ')[1] || '');
-  const [login, password] = Buffer.from(b64auth, 'base64').toString().split(':');
-  
-  if (password === config.webPassword || login === config.webPassword) {
+  const decoded = Buffer.from(b64auth, 'base64').toString('utf8');
+  const separator = decoded.indexOf(':');
+  if (separator === -1) {
+    recordAuthFailure(remoteAddress);
+    res.writeHead(401, {
+      "WWW-Authenticate": 'Basic realm="Spectre Terminal"',
+      "content-type": "text/plain; charset=utf-8"
+    });
+    res.end("Unauthorized");
+    return false;
+  }
+  const password = decoded.slice(separator + 1);
+
+  const ok = timingSafeEqualStrings(password, config.webPassword);
+  if (ok) {
+    authFailures.delete(remoteAddress);
     return true;
   }
-  
+
+  recordAuthFailure(remoteAddress);
   res.writeHead(401, {
-    "WWW-Authenticate": 'Basic realm="MVPM Terminal"',
+    "WWW-Authenticate": 'Basic realm="Spectre Terminal"',
     "content-type": "text/plain; charset=utf-8"
   });
   res.end("Unauthorized");
@@ -358,11 +410,17 @@ function checkAuth(req, res) {
 export function startWebServer(options = {}) {
   const webPort = Number(options.port || port);
   const webHost = options.host || host;
+  assertSecureWebBinding(webHost, config.webPassword);
   initializeMarketPulseMonitor();
 
   const server = http.createServer(async (req, res) => {
     try {
+      for (const [name, value] of Object.entries(getSecurityHeaders())) {
+        res.setHeader(name, value);
+      }
+      validateRequestHost(req, webHost);
       if (!checkAuth(req, res)) return;
+      validateMutationRequest(req);
 
       if (req.method === "GET" && req.url === "/api/health") {
         const { checkAiProviderConnection, getTotalAITokensUsed } = await import('./qwen.js');
@@ -371,10 +429,6 @@ export function startWebServer(options = {}) {
           ok: true,
           qwen: qwenHealth(),
           providerConnection,
-          trading: {
-            enabled: config.enableLiveTrading,
-            authenticated: Boolean(config.webPassword),
-          },
           engine: SEARCH_ENGINE_VERSION,
           cooldown: getCooldownState(),
           totalAITokensUsed: getTotalAITokensUsed()
@@ -394,63 +448,32 @@ export function startWebServer(options = {}) {
         return;
       }
       
-      if (req.method === "GET" && req.url === "/api/live-alerts") {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
-        });
-        
-        // Send initial connection heartbeat
-        res.write(`data: {"type":"CONNECTED"}\n\n`);
-        
-        sseClients.add(res);
-        
-        req.on('close', () => {
-          sseClients.delete(res);
-        });
-        return;
-      }
-      
-      if (req.method === "GET" && req.url === "/api/wallet-stream") {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
-        });
-        
-        let isClosed = false;
-        req.on('close', () => { isClosed = true; });
-
-        const sendBalances = async () => {
-          if (isClosed) return;
-          const balances = await getWalletBalances();
-          if (!isClosed) res.write(`data: ${JSON.stringify(balances)}\n\n`);
-        };
-        
-        // Send initial balance
-        sendBalances();
-        
-        // Poll every 10 seconds (standard block time is ~2-12s, 10s is reasonable for polling RPC)
-        const intervalId = setInterval(sendBalances, 10000);
-        
-        req.on('close', () => {
-          clearInterval(intervalId);
-        });
-        return;
-      }
-      
       if (req.method === "GET" && req.url === "/api/live-prices") {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
-        });
+        const stream = openSseStream(req, res);
+        if (!stream) return;
         
-        res.write(`data: ${JSON.stringify(global.livePrices || {})}\n\n`);
+        let lastSent = {};
+        // Initial full snapshot so late-joining clients get the whole board.
+        stream.write(`data: ${JSON.stringify(global.livePrices || {})}\n\n`);
+        lastSent = { ...(global.livePrices || {}) };
         
         const intervalId = setInterval(() => {
-          res.write(`data: ${JSON.stringify(global.livePrices || {})}\n\n`);
+          if (stream.writableEnded || stream.destroyed) {
+            clearInterval(intervalId);
+            return;
+          }
+          const current = global.livePrices || {};
+          const delta = {};
+          for (const [assetId, price] of Object.entries(current)) {
+            if (lastSent[assetId] !== price) delta[assetId] = price;
+          }
+          for (const assetId of Object.keys(lastSent)) {
+            if (!(assetId in current)) delta[assetId] = null;
+          }
+          if (Object.keys(delta).length) {
+            stream.write(`data: ${JSON.stringify(delta)}\n\n`);
+            lastSent = { ...current };
+          }
         }, 1000);
         
         req.on('close', () => {
@@ -493,61 +516,6 @@ export function startWebServer(options = {}) {
         return;
       }
 
-
-      if (req.method === "GET" && req.url === "/api/reflections") {
-        try {
-          const reflections = getAllReflections();
-          sendJson(res, 200, { ok: true, reflections });
-        } catch (error) {
-          sendJson(res, 500, { ok: false, error: String(error.message) });
-        }
-        return;
-      }
-
-      // Toggle Short Market Memory (wires UI checkbox ke backend)
-      if (req.url === "/api/settings/short-memory") {
-        if (req.method === "GET") {
-          sendJson(res, 200, { ok: true, enabled: getShortMemoryEnabled() });
-        } else if (req.method === "POST") {
-          const body = await readBody(req);
-          setShortMemoryEnabled(body.enabled !== false);
-          sendJson(res, 200, { ok: true, enabled: getShortMemoryEnabled() });
-        } else {
-          sendJson(res, 405, { ok: false, error: "Method not allowed" });
-        }
-        return;
-      }
-
-      if (req.method === "GET" && req.url === "/api/memory-checklist") {
-        try {
-          const { getRecentReflections } = await import("./storage.js");
-          const recent = getRecentReflections(15);
-          
-          function extractCoreLesson(text) {
-            if (!text) return "Tidak ada catatan.";
-            const kw = "3. **Core Lesson Learned";
-            const idx = text.indexOf(kw);
-            if (idx !== -1) {
-              let after = text.substring(idx + kw.length);
-              const nl = after.indexOf('\\n');
-              if (nl !== -1) after = after.substring(nl + 1).trim();
-              return after.substring(0, 500);
-            }
-            return text.length > 300 ? "..." + text.substring(text.length - 300) : text;
-          }
-          
-          let text = "GLOBAL TRAPS CHECKLIST (EXTRACTED RAG MEMORY):\\n";
-          if (recent.length > 0) {
-            text += recent.map((r, i) => `${i+1}. [Market: ${r.question} | Tebakan Salah: ${r.prediction}] -> ${extractCoreLesson(r.reflection_note)}`).join("\\n\\n");
-          } else {
-            text += "Belum ada memori.";
-          }
-          sendJson(res, 200, { ok: true, text });
-        } catch (error) {
-          sendJson(res, 500, { ok: false, error: String(error.message) });
-        }
-        return;
-      }
 
       if (req.method === "POST" && req.url === "/api/command") {
         await handleApiCommand(req, res);
@@ -608,185 +576,20 @@ export function startWebServer(options = {}) {
             sendJson(res, 400, { ok: false, error: "Event history does not match market_id" });
             return;
           }
-          const prediction = storedEvent.prediction;
-          const market = await getMarketById(marketId, true);
-          
-          const prices = market.outcomePrices.map(Number);
-          const winners = prices
-            .map((price, index) => ({ price, index }))
-            .filter(({ price }) => price >= 0.99);
-          const winnerIndex = winners.length === 1 && prices.every((price, index) => index === winners[0].index || price <= 0.01)
-            ? winners[0].index
-            : -1;
-          
-          if (market.closed && winnerIndex !== -1) {
-            let status = 'selesai';
-            let result = 'menunggu hasil';
-            let actualOutcome = null;
-            
-            status = 'selesai';
-            const winningOutcome = market.outcomes[winnerIndex];
-            actualOutcome = winningOutcome;
-            const p = (prediction || "").trim().toUpperCase();
-            const w = (winningOutcome || "").trim().toUpperCase();
-            const directMatch = p && w && p === w;
-            const legacyAliasMatch = storedEvent.strategy_version !== ANALYSIS_STRATEGY_VERSION && (
-              (p === "UP" && w === "YES") || (p === "YES" && w === "UP")
-              || (p === "DOWN" && w === "NO") || (p === "NO" && w === "DOWN")
-            );
-
-            if (directMatch || legacyAliasMatch) {
-              result = 'menang';
-            } else if (p === "=" || p === "SKIP" || p === "NETRAL" || p === "WATCHLIST") {
-              result = 'netral';
-            } else {
-              result = 'kalah';
-            }
-            
-            updateAnalyzedEventStatus(eventId, status, result, actualOutcome);
-            if (storedEvent.actionable === 1 && (result === 'menang' || result === 'kalah')) {
-              patchShortMemoryOutcome(market.question, result);
-            }
-            sendJson(res, 200, { ok: true, status, result, actualOutcome });
-          } else {
-            sendJson(res, 200, { ok: true, status: 'belum selesai', result: null, message: "Market is still active" });
-          }
+          const result = await resolveAnalyzedEvent(storedEvent);
+          sendJson(res, result.status === 404 ? 404 : 200, result);
         } catch (error) {
           sendJson(res, 500, { ok: false, error: "Failed to check market status: " + error.message });
         }
         return;
       }
 
-      if (req.method === "POST" && req.url === "/api/evaluate/single") {
-        const payload = await readBody(req);
-        if (!payload.eventId) {
-          sendJson(res, 400, { ok: false, error: "Missing eventId" });
-          return;
-        }
-        try {
-          const result = await runGuardedAiCommand("/evaluate", String(payload.eventId), () => evaluateSingleEvent(payload.eventId));
-          if (result.error) {
-            sendJson(res, result.status || 400, { ok: false, error: result.error });
-          } else {
-            sendJson(res, 200, { ok: true, reflection: result.reflection });
-          }
-        } catch (error) {
-          sendJson(res, error.status || 500, { ok: false, error: error.message });
-        }
-        return;
-      }
-
-      if (req.method === "POST" && req.url === "/api/evaluate/all") {
-        try {
-          const result = await runGuardedAiCommand("/evaluate", "all", () => evaluateAllResolutions());
-          sendJson(res, result.status === "Gagal" ? 502 : 200, { ok: result.status !== "Gagal", result });
-        } catch (error) {
-          sendJson(res, error.status || 500, { ok: false, error: error.message });
-        }
-        return;
-      }
-
-      if (req.method === "GET" && req.url.startsWith("/api/evaluate/reflection/")) {
-        const urlObj = new URL(req.url, `http://${req.headers.host}`);
-        const parts = urlObj.pathname.split("/");
-        const marketId = parts[parts.length - 1];
-        if (!marketId) {
-          sendJson(res, 400, { ok: false, error: "Missing marketId" });
-          return;
-        }
-        try {
-          const reflection = getReflectionByMarketId(marketId);
-          sendJson(res, 200, { ok: true, reflection: reflection ? reflection.reflection_note : null });
-        } catch (error) {
-          sendJson(res, 500, { ok: false, error: error.message });
-        }
-        return;
-      }
-
-      if (req.method === "POST" && req.url === "/api/execute-trade") {
-        try {
-          validateTradeRequest(req);
-          if (!await tradeReadyPromise) throw Object.assign(new Error("Trade module is not ready"), { status: 503 });
-          const data = await readBody(req);
-          if (!Array.isArray(data.trades) || data.trades.length === 0) throw new Error("Invalid trades array");
-          if (data.trades.length > config.maxTradesPerRequest) throw new Error(`Maximum ${config.maxTradesPerRequest} trades per request`);
-
-          const idempotencyKey = String(data.idempotencyKey || "").trim();
-          if (!idempotencyKey || idempotencyKey.length > 100) throw new Error("A valid idempotencyKey is required");
-          const idempotencyCutoff = Date.now() - 10 * 60 * 1000;
-          for (const [key, timestamp] of tradeIdempotencyKeys) {
-            if (timestamp < idempotencyCutoff) tradeIdempotencyKeys.delete(key);
-          }
-          if (tradeIdempotencyKeys.has(idempotencyKey)) throw Object.assign(new Error("Duplicate trade request rejected"), { status: 409 });
-          tradeIdempotencyKeys.set(idempotencyKey, Date.now());
-
-          const marketIds = data.trades.map((trade) => String(trade.marketId || "").trim());
-          if (marketIds.some((id) => !id) || new Set(marketIds).size !== marketIds.length) throw new Error("Duplicate or missing marketId");
-          const sizes = data.trades.map((trade) => Number(trade.sizeUsdc));
-          if (sizes.some((size) => !Number.isFinite(size) || size <= 0 || size > config.maxTradeUsdc)) {
-            throw new Error(`Each trade must be between 0 and ${config.maxTradeUsdc} USDC`);
-          }
-          const totalSize = sizes.reduce((sum, size) => sum + size, 0);
-          if (totalSize > config.maxTradeBatchUsdc) throw new Error(`Batch exceeds ${config.maxTradeBatchUsdc} USDC`);
-
-          const history = getAnalyzedEvents(2000);
-          const prepared = await Promise.all(data.trades.map(async (trade, index) => {
-            const marketId = marketIds[index];
-            const market = await getMarketById(marketId, true);
-            if (!market || market.closed || !market.active || !market.acceptingOrders) throw new Error(`${marketId}: market is not open for trading`);
-            if (market.durationType === "5m") throw new Error(`${marketId}: dynamic 5-minute signals are manual-entry only`);
-            const closesAt = new Date(market.endDate).getTime();
-            if (!Number.isFinite(closesAt) || closesAt - Date.now() < config.tradeMinSecondsToClose * 1000) {
-              throw new Error(`${marketId}: market is too close to expiry`);
-            }
-
-            const stored = history.find((item) => String(item.market_id) === marketId);
-            const signalAgeMs = Date.now() - new Date(stored?.signal_data_at).getTime();
-            if (!stored || stored.strategy_version !== ANALYSIS_STRATEGY_VERSION || !stored.signal_data_at || !Number.isFinite(signalAgeMs) || signalAgeMs < 0 || signalAgeMs > config.tradeSignalTtlSeconds * 1000) {
-              throw new Error(`${marketId}: stored signal is missing, stale, or from another strategy version`);
-            }
-            const storedPrediction = String(stored.prediction || "").trim().toUpperCase();
-            const requestedPrediction = String(trade.prediction || "").trim().toUpperCase();
-            if (stored.actionable !== 1 || !["YES", "UP", "NO", "DOWN"].includes(storedPrediction) || requestedPrediction !== storedPrediction) {
-              throw new Error(`${marketId}: prediction is not actionable or does not match`);
-            }
-            const { yesTokenId, noTokenId } = pickYesNoTokens(market);
-            const tokenId = ["YES", "UP"].includes(storedPrediction) ? yesTokenId : noTokenId;
-            if (!tokenId) throw new Error(`${marketId}: token ID could not be determined`);
-            const maxEntryPrice = Math.min(config.tradeMaxPrice, Number(stored.max_entry_price));
-            if (!Number.isFinite(maxEntryPrice) || maxEntryPrice <= 0) throw new Error(`${marketId}: signal has no valid edge-preserving entry price`);
-            return { analysisId: stored.id, marketId, tokenId, sizeUsdc: sizes[index], maxEntryPrice };
-          }));
-
-          if (!reserveTradeExecutions(idempotencyKey, prepared)) {
-            throw Object.assign(new Error("Trade request or analyzed signal was already consumed"), { status: 409 });
-          }
-          const { executeMarketOrder } = await import('./trade.js');
-          const results = [];
-          for (const trade of prepared) {
-            try {
-              const result = await executeMarketOrder(trade.tokenId, "BUY", trade.sizeUsdc, trade.maxEntryPrice);
-              completeTradeExecution(trade.analysisId, "succeeded", result);
-              results.push({ marketId: trade.marketId, success: true, result });
-            } catch (error) {
-              completeTradeExecution(trade.analysisId, "failed", { error: error.message });
-              results.push({ marketId: trade.marketId, success: false, error: error.message });
-            }
-          }
-          sendJson(res, 200, { ok: results.every((result) => result.success), results });
-        } catch (error) {
-          sendJson(res, error.status || 400, { ok: false, error: error.message });
-        }
-        return;
-      }
-
       if (req.url === "/api/market-pulse/stream" && req.method === "GET") {
-        res.writeHead(200, {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
-        });
-        const sendState = (pulseState) => res.write(`data: ${JSON.stringify(pulseState)}\n\n`);
+        const stream = openSseStream(req, res);
+        if (!stream) return;
+        const sendState = (pulseState) => {
+          if (!stream.writableEnded && !stream.destroyed) stream.write(`data: ${JSON.stringify(pulseState)}\n\n`);
+        };
         sendState(getMarketPulseState());
         const unsubscribe = subscribeMarketPulse(sendState);
         req.on("close", unsubscribe);
@@ -868,8 +671,8 @@ export function startWebServer(options = {}) {
       }
 
       if (req.method === "GET" && req.url.startsWith("/api/wallet-profile/")) {
-        const address = req.url.replace("/api/wallet-profile/", "").split('?')[0];
-        if (!address) return sendJson(res, 400, { error: "No address provided" });
+        const address = normalizeWalletAddress(req.url.replace("/api/wallet-profile/", "").split('?')[0]);
+        if (!address) return sendJson(res, 400, { error: "Invalid wallet address" });
         try {
           const fetchWithRetry = async (url, retries = 3) => {
             for (let i = 0; i < retries; i++) {
@@ -885,9 +688,9 @@ export function startWebServer(options = {}) {
           };
 
           const [posData, tradesData, lbData] = await Promise.all([
-            fetchWithRetry(`https://data-api.polymarket.com/positions?user=${address}&limit=1000`).catch(() => []),
-            fetchWithRetry(`https://data-api.polymarket.com/trades?user=${address}&limit=50`).catch(() => []),
-            fetchWithRetry(`https://lb-api.polymarket.com/profit?address=${address}&window=all`).catch(() => [])
+            fetchWithRetry(`https://data-api.polymarket.com/positions?user=${encodeURIComponent(address)}&limit=1000`).catch(() => []),
+            fetchWithRetry(`https://data-api.polymarket.com/trades?user=${encodeURIComponent(address)}&limit=50`).catch(() => []),
+            fetchWithRetry(`https://lb-api.polymarket.com/profit?address=${encodeURIComponent(address)}&window=all`).catch(() => [])
           ]);
           
           let positions = [];
@@ -914,24 +717,9 @@ export function startWebServer(options = {}) {
             totalValue,
             allTimePnl
           });
-        } catch (e) {
-          return sendJson(res, 500, { error: e.message });
-        }
-      }
-
-      if (req.method === "GET" && req.url === "/api/short-learning") {
-        try {
-          const histPath = path.join(dataDir, "short_condition_history.json");
-          let history = [];
-          try {
-            const rawData = await fs.readFile(histPath, "utf-8");
-            history = JSON.parse(rawData);
-          } catch (e) {
-            // ignore if not exists
-          }
-          return sendJson(res, 200, { ok: true, history: history.reverse() });
-        } catch(err) {
-          return sendJson(res, 500, { error: err.message });
+        } catch (error) {
+          console.error("Wallet profile request failed:", error);
+          return sendJson(res, 502, { error: "Wallet profile provider unavailable" });
         }
       }
 
@@ -944,7 +732,9 @@ export function startWebServer(options = {}) {
       res.writeHead(405, { "content-type": "text/plain; charset=utf-8" });
       res.end("Method not allowed");
     } catch (error) {
-      sendJson(res, 500, { ok: false, error: error.message || String(error) });
+      const status = Number(error.status) || 500;
+      if (status >= 500) console.error("Web request failed:", error);
+      sendJson(res, status, { ok: false, error: status >= 500 ? "Internal server error" : error.message });
     }
   });
 

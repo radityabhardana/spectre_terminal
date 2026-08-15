@@ -30,7 +30,7 @@ import { buildResearchContext } from "./research.js";
 import { enterCommandGuard, releaseCommandGuard } from "./rate-limit.js";
 import { assertMarketAllowed } from "./market-policy.js";
 import { scoreMarket } from "./scoring.js";
-import { getRecentWhales, formatSnifferWhales, setSnifferState, getSnifferState, setNotificationCallback, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
+import { getRecentWhales, formatSnifferWhales, setSnifferState, getSnifferState, getSnifferWsStatus, setNotificationCallback, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
 import { appendAnalysisLog, addAnalyzedEvent, getRecentResolvedOutcomes } from "./storage.js";
 
 // Helper untuk UI
@@ -294,8 +294,8 @@ export function entryPricingForPrediction(analysis, prediction) {
   };
 }
 
-async function resolveMarketInput(arg) {
-  if (isShortMarketId(arg)) return getMarketById(arg);
+async function resolveMarketInput(arg, signal = null) {
+  if (isShortMarketId(arg)) return getMarketById(arg, false, signal);
 
   if (looksLikeUrl(arg)) {
     const parsed = parsePolymarketLink(arg);
@@ -303,7 +303,7 @@ async function resolveMarketInput(arg) {
       throw new Error("Link harus dari polymarket.com/event/... atau polymarket.com/market/...");
     }
 
-    const market = await getMarketFromPolymarketLink(arg);
+    const market = await getMarketFromPolymarketLink(arg, signal);
     if (!market) {
       throw new Error("Link Polymarket ditemukan, tapi tidak ada market aktif yang bisa dianalisis.");
     }
@@ -311,12 +311,12 @@ async function resolveMarketInput(arg) {
     return market;
   }
 
-  return (await searchMarkets(arg, 1))[0];
+  return (await searchMarkets(arg, 1, signal))[0];
 }
 
-async function resolveAnalyzeInput(arg) {
+async function resolveAnalyzeInput(arg, signal = null) {
   if (isShortMarketId(arg)) {
-    return { kind: "market", market: await getMarketById(arg), event: null };
+    return { kind: "market", market: await getMarketById(arg, false, signal), event: null };
   }
 
   if (looksLikeUrl(arg)) {
@@ -325,7 +325,7 @@ async function resolveAnalyzeInput(arg) {
       throw new Error("Link harus dari polymarket.com/event/... atau polymarket.com/market/...");
     }
 
-    const result = await getMarketsFromPolymarketLink(arg);
+    const result = await getMarketsFromPolymarketLink(arg, signal);
     if (!result || !result.markets?.length) {
       throw new Error("Link Polymarket ditemukan, tapi tidak ada market aktif yang bisa dianalisis.");
     }
@@ -337,7 +337,7 @@ async function resolveAnalyzeInput(arg) {
     return { kind: "market", market: result.markets[0], event: result.event };
   }
 
-  const market = (await searchMarkets(arg, 1))[0];
+  const market = (await searchMarkets(arg, 1, signal))[0];
   return { kind: "market", market, event: null };
 }
 
@@ -420,8 +420,9 @@ async function scoreEventMarkets(markets, setStep, signal = null) {
     const rows = await Promise.all(
       batch.map(async (market) => {
         try {
-          return await scoreOneMarket(market);
+          return await scoreOneMarket(market, signal);
         } catch (error) {
+          if (signal?.aborted) throw error;
           return { market, yesBook: null, score: null, error: error.message };
         }
       })
@@ -473,7 +474,7 @@ function pickBestEventCandidate(analyzedMarkets, qwenResult) {
   return sorted.find((row) => hardBlockersWithoutEdge(row.score).length === 0) || sorted[0] || null;
 }
 
-async function resolveAnalyzeAllEventInput(arg) {
+async function resolveAnalyzeAllEventInput(arg, signal = null) {
   const input = String(arg || "").trim();
   const raw =
     looksLikeUrl(input) || input.includes("/")
@@ -486,7 +487,7 @@ async function resolveAnalyzeAllEventInput(arg) {
   const parsed = parsePolymarketLink(raw);
   if (!parsed) return null;
 
-  return getMarketsFromPolymarketLink(raw);
+  return getMarketsFromPolymarketLink(raw, signal);
 }
 
 function progressText({ query, step, elapsedSeconds, estimateSeconds, mode = "deep" }) {
@@ -669,21 +670,24 @@ export async function getFastShortEntrySnapshot(marketId, signal = null) {
   return entrySnapshotFromShortResult(shortRes, scored.market);
 }
 
-async function resolveEventInput(arg) {
+async function resolveEventInput(arg, signal = null) {
   const session = getEventSession(arg);
   if (session) {
     const refreshed = await Promise.all(
-      session.markets.map((market) => getMarketById(market.id, true).catch(() => null))
+      session.markets.map((market) => getMarketById(market.id, true, signal).catch((error) => {
+        if (signal?.aborted) throw error;
+        return null;
+      }))
     );
     return eventResultFromSession({ ...session, markets: refreshed.filter(Boolean) });
   }
-  return resolveAnalyzeAllEventInput(arg);
+  return resolveAnalyzeAllEventInput(arg, signal);
 }
 
 async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null }) {
   throwIfAborted(signal);
   setStep("Fetching CLOB orderbook");
-  const scored = await scoreOneMarket(market);
+  const scored = await scoreOneMarket(market, signal);
 
   throwIfAborted(signal);
   const shortMarket = isShortCryptoMarket(scored.market);
@@ -701,7 +705,7 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
       downTokenAsk: scored.score.shortBookPrices?.down.bestAsk,
       upTokenMidpoint: scored.score.shortBookPrices?.up.midpoint,
       downTokenMidpoint: scored.score.shortBookPrices?.down.midpoint,
-      refreshMarketPrices: () => refreshShortExecutionSnapshot(scored.market.id, scored.score),
+      refreshMarketPrices: () => refreshShortExecutionSnapshot(scored.market.id, scored.score, signal),
       marketActive: scored.market.active,
       marketClosed: scored.market.closed,
       acceptingOrders: scored.market.acceptingOrders,
@@ -713,7 +717,7 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
     qwenResult = qwenResultFromShortEvaluation(shortRes);
   } else {
     setStep("Fetching external research context");
-    researchContext = await buildResearchContext({ market: scored.market });
+    researchContext = await buildResearchContext({ market: scored.market, signal });
     throwIfAborted(signal);
     
     setStep("Running Qwen market pipeline (Hedge Fund Mode)");
@@ -833,6 +837,7 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
   const eventResearchContext = await buildResearchContext({
     event: result.event,
     markets: result.markets,
+    signal,
   });
 
   throwIfAborted(signal);
@@ -849,7 +854,7 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
 
   throwIfAborted(signal);
   setStep("Fetching external research context for best market");
-  const bestResearchContext = await buildResearchContext({ market: best.market });
+  const bestResearchContext = await buildResearchContext({ market: best.market, signal });
 
   throwIfAborted(signal);
   
@@ -867,7 +872,7 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
       downTokenAsk: best.score.shortBookPrices?.down.bestAsk,
       upTokenMidpoint: best.score.shortBookPrices?.up.midpoint,
       downTokenMidpoint: best.score.shortBookPrices?.down.midpoint,
-      refreshMarketPrices: () => refreshShortExecutionSnapshot(best.market.id, best.score),
+      refreshMarketPrices: () => refreshShortExecutionSnapshot(best.market.id, best.score, signal),
       marketActive: best.market.active,
       marketClosed: best.market.closed,
       acceptingOrders: best.market.acceptingOrders,
@@ -1069,24 +1074,24 @@ export async function handleCommand(text, message, ctx) {
       query = parsed.slug.replace(/-/g, " ");
     }
     
-    const markets = await searchMarkets(query, 5);
+    const markets = await searchMarkets(query, 5, ctx?.signal);
     return menuAnswer(formatSearchResults(markets));
   }
 
   if (command === "/top") {
     const mode = ["volume", "liquidity", "new", "ending"].includes(arg) ? arg : "volume";
-    return menuAnswer(formatTopMarkets(await listTopMarkets({ mode, limit: 10 })));
+    return menuAnswer(formatTopMarkets(await listTopMarkets({ mode, limit: 10, signal: ctx?.signal })));
   }
 
   if (command === "/book") {
     const usage = "Pakai format: /book <marketId atau link Polymarket>\n\nContoh: /book 2169995";
     if (!arg || (!isShortMarketId(arg) && !looksLikeUrl(arg))) return menuAnswer(usage);
-    const market = await resolveMarketInput(arg);
+    const market = await resolveMarketInput(arg, ctx?.signal);
     const tokens = pickYesNoTokens(market);
     if (!tokens.yesTokenId) {
       return menuAnswer("Market ditemukan, tapi token utama tidak tersedia.");
     }
-    const book = await getOrderBook(tokens.yesTokenId);
+    const book = await getOrderBook(tokens.yesTokenId, ctx?.signal);
     return menuAnswer(formatBook(book));
   }
 
@@ -1110,7 +1115,7 @@ export async function handleCommand(text, message, ctx) {
           for (let attempt = 1; attempt <= 2; attempt++) {
             setStep(`[Queue ${i + 1}/${urls.length}] Resolving market${attempt > 1 ? " (retry)" : ""}...`);
             try {
-              const target = await resolveAnalyzeInput(url);
+              const target = await resolveAnalyzeInput(url, signal);
               if (target.kind === "market" && !target.market) throw new Error("Market tidak ditemukan.");
 
               setStep(`[Queue ${i + 1}/${urls.length}] Analyzing: ${target.market.question}`);
@@ -1145,7 +1150,7 @@ export async function handleCommand(text, message, ctx) {
     if (!arg) return menuAnswer(`Pakai format: ${command} <link, slug, atau session event>`);
     const output = await runWithProgress(ctx, arg, async (setStep) => {
       setStep("Resolving event input");
-      const result = await resolveEventInput(arg);
+      const result = await resolveEventInput(arg, ctx?.signal);
       if (!result?.markets?.length) return "Event tidak ditemukan atau tidak punya market aktif.";
       const limit = command === "/top3" || command === "/eventtop" ? 3 : 8;
       return quickScanEvent({ result, query: arg, setStep, ctx, limit, signal: ctx?.signal });
@@ -1157,7 +1162,7 @@ export async function handleCommand(text, message, ctx) {
     if (!arg) return menuAnswer(`Pakai format: ${command} <link, slug, atau session event>`);
     const output = await runWithProgress(ctx, arg, async (setStep) => {
       setStep("Resolving event input");
-      const result = await resolveEventInput(arg);
+      const result = await resolveEventInput(arg, ctx?.signal);
       if (!result?.markets?.length) return "Event tidak ditemukan atau tidak punya market aktif.";
       return analyzeAllEvent({ result, query: arg, setStep, ctx, signal: ctx?.signal });
     });
@@ -1169,7 +1174,7 @@ export async function handleCommand(text, message, ctx) {
     const session = getEventSession(sessionId);
     const sessionMarket = session?.markets?.find((item) => String(item.id) === String(marketId));
     if (!sessionMarket) return menuAnswer("Session atau market event tidak ditemukan/kedaluwarsa.");
-    const market = await getMarketById(marketId, true);
+    const market = await getMarketById(marketId, true, ctx?.signal);
     if (!market) return menuAnswer("Market event tidak dapat dimuat ulang.");
     const output = await runWithProgress(ctx, market.question, (setStep) =>
       deepAnalyzeMarket({ market, query: `${sessionId} ${marketId}`, setStep, ctx, signal: ctx?.signal })
@@ -1184,7 +1189,7 @@ export async function handleCommand(text, message, ctx) {
 
     const output = await runWithProgress(ctx, arg, async (setStep) => {
       setStep("Resolving short-market input");
-      const target = await resolveAnalyzeInput(arg);
+      const target = await resolveAnalyzeInput(arg, ctx?.signal);
       const market = requireShortAnalysisMarket(target);
       return deepAnalyzeMarket({ market, query: arg, setStep, ctx, signal: ctx?.signal });
     });
@@ -1205,7 +1210,7 @@ export async function handleCommand(text, message, ctx) {
         return menuAnswer("Link harus dari polymarket.com/event/... atau polymarket.com/market/...");
       }
 
-      const result = await getMarketsFromPolymarketLink(arg);
+      const result = await getMarketsFromPolymarketLink(arg, ctx?.signal);
       if (!result || !result.markets?.length) {
         return menuAnswer("Link Polymarket ditemukan, tapi tidak ada market aktif yang bisa dianalisis.");
       }
@@ -1234,7 +1239,7 @@ export async function handleCommand(text, message, ctx) {
 
     const output = await runWithProgress(ctx, arg, async (setStep) => {
       setStep("Resolving market input");
-      const target = preResolvedTarget || (await resolveAnalyzeInput(arg));
+      const target = preResolvedTarget || (await resolveAnalyzeInput(arg, ctx?.signal));
       if (target.kind === "market" && !target.market) return "Market tidak ditemukan.";
 
       if (target.kind === "event") {
@@ -1256,7 +1261,7 @@ export async function handleCommand(text, message, ctx) {
 
     const output = await runWithProgress(ctx, arg, async (setStep) => {
       setStep("Resolving event input");
-      const result = await resolveEventInput(arg);
+      const result = await resolveEventInput(arg, ctx?.signal);
       if (!result || !result.markets?.length) {
         return "Event tidak ditemukan atau tidak punya market aktif yang bisa dianalisis.";
       }
@@ -1309,11 +1314,24 @@ export async function handleCommand(text, message, ctx) {
 
   if (command === "/sniffer") {
     if (arg === "on") {
-      setSnifferState(true);
-      return "✅ *LIVE WHALE SNIFFER DIAKTIFKAN*\nBot sekarang memantau Polymarket 24/7 dan akan mengirim notifikasi jika ada transaksi ≥ $500.";
+      try {
+        const active = await setSnifferState(true);
+        if (!active) return "⚠️ Sniffer tidak berhasil diaktifkan.";
+        const health = getSnifferWsStatus();
+        if (health.state === "CONNECTED") {
+          return "✅ *LIVE WHALE SNIFFER DIAKTIFKAN*\nBot sekarang memantau Polymarket 24/7.";
+        }
+        return `⚠️ Sniffer aktif tetapi koneksi masih ${health.state}. Data dapat terdegradasi sampai koneksi pulih.`;
+      } catch {
+        return "❌ Sniffer gagal diaktifkan. Proses tetap berjalan; periksa status koneksi lalu coba lagi.";
+      }
     } else if (arg === "off") {
-      setSnifferState(false);
-      return "⏸️ *LIVE WHALE SNIFFER DIMATIKAN*\nPemantauan dihentikan.";
+      try {
+        await setSnifferState(false);
+        return "⏸️ *LIVE WHALE SNIFFER DIMATIKAN*\nPemantauan dihentikan.";
+      } catch {
+        return "⚠️ Sniffer gagal dimatikan sepenuhnya. Periksa status koneksi.";
+      }
     } else {
       const state = getSnifferState() ? "ON ✅" : "OFF ⏸️";
       return `📡 *Status Sniffer saat ini: ${state}*\nGunakan \`/sniffer on\` atau \`/sniffer off\` untuk mengatur.`;
@@ -1324,20 +1342,21 @@ export async function handleCommand(text, message, ctx) {
     if (!isShortMarketId(arg)) {
       return menuAnswer("Pakai format: /shortcondition <marketId>. Metadata durasi, waktu selesai, outcome, dan resolution source wajib tersedia agar analisis tidak menebak.");
     }
-    return runWithProgress(ctx, "Checking short market condition...", async (setStep) => {
+    return runWithProgress(ctx, "Checking short market condition...", async (setStep, signal) => {
+      const requestSignal = signal || ctx?.signal;
       setStep("Fetching verified short-market metadata");
-      const market = await getMarketById(arg, true);
+      const market = await getMarketById(arg, true, requestSignal);
       if (!isShortCryptoMarket(market)) throw new Error("Market ID bukan fixed-window crypto Up or Down market.");
-      const scored = await scoreOneMarket(market);
+      const scored = await scoreOneMarket(market, requestSignal);
       const result = await evaluateShortMarketCondition({
-        signal: ctx?.signal,
+        signal: requestSignal,
         asset: shortCryptoAsset(market.question),
         marketQuestion: market.question,
         upTokenAsk: scored.score.shortBookPrices?.up.bestAsk,
         downTokenAsk: scored.score.shortBookPrices?.down.bestAsk,
         upTokenMidpoint: scored.score.shortBookPrices?.up.midpoint,
         downTokenMidpoint: scored.score.shortBookPrices?.down.midpoint,
-        refreshMarketPrices: () => refreshShortExecutionSnapshot(market.id, scored.score),
+        refreshMarketPrices: () => refreshShortExecutionSnapshot(market.id, scored.score, requestSignal),
         marketActive: market.active,
         marketClosed: market.closed,
         acceptingOrders: market.acceptingOrders,

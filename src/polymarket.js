@@ -6,6 +6,17 @@ import { getCache, setCache } from "./storage.js";
 // Multi-network resilience: Dynamic DoH resolver for Polymarket endpoints
 // Works across School Wi-Fi, Smartfren Hotspot, Home Wi-Fi & Cloudflare 1.1.1.1 WARP
 const DOH_CACHE = {};
+function errorForAbort() {
+  const error = new Error("Polymarket request aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (!signal?.aborted) return;
+  throw errorForAbort();
+}
+
 async function resolveDoHIP(hostname) {
   if (DOH_CACHE[hostname]) return DOH_CACHE[hostname];
   try {
@@ -21,7 +32,9 @@ async function resolveDoHIP(hostname) {
         return ips[0];
       }
     }
-  } catch {}
+  } catch {
+    // DoH is an optional fallback; the caller continues with the system resolver.
+  }
   return null;
 }
 
@@ -62,12 +75,14 @@ dns.lookup = function(hostname, options, callback) {
 };
 
 async function fetchJson(url, forceRefresh = false, retries = 3, signal = null) {
+  throwIfAborted(signal);
   if (!forceRefresh) {
     const cached = getCache(url);
     if (cached) return cached;
   }
 
   for (let i = 0; i < retries; i++) {
+    throwIfAborted(signal);
     try {
       const requestSignal = signal
         ? AbortSignal.any([signal, AbortSignal.timeout(config.polymarketRequestTimeoutMs)])
@@ -91,7 +106,20 @@ async function fetchJson(url, forceRefresh = false, retries = 3, signal = null) 
     } catch (error) {
       if (signal?.aborted) throw error;
       if (i === retries - 1) throw error;
-      await new Promise(r => setTimeout(r, 1000 * (i + 1))); // Exponential backoff
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, 1000 * (i + 1));
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(errorForAbort());
+        };
+        if (signal) {
+          signal.addEventListener("abort", onAbort, { once: true });
+          if (signal.aborted) onAbort();
+        }
+      }); // Exponential backoff
     }
   }
 }
@@ -253,29 +281,29 @@ function sortByTopMetric(markets, config) {
   });
 }
 
-async function fetchTopEvents(modeConfig, limit) {
+async function fetchTopEvents(modeConfig, limit, signal = null) {
   const url = new URL("/events", config.gammaUrl);
   url.searchParams.set("active", "true");
   url.searchParams.set("closed", "false");
   url.searchParams.set("order", modeConfig.apiOrder);
   url.searchParams.set("ascending", String(modeConfig.ascending));
   url.searchParams.set("limit", String(Math.max(limit * 4, 40)));
-  return fetchJson(url.toString());
+  return fetchJson(url.toString(), false, 3, signal);
 }
 
-async function fetchTopMarketRows(modeConfig, limit) {
+async function fetchTopMarketRows(modeConfig, limit, signal = null) {
   const url = new URL("/markets", config.gammaUrl);
   url.searchParams.set("active", "true");
   url.searchParams.set("closed", "false");
   url.searchParams.set("order", modeConfig.apiOrder);
   url.searchParams.set("ascending", String(modeConfig.ascending));
   url.searchParams.set("limit", String(Math.max(limit * 2, 20)));
-  return fetchJson(url.toString());
+  return fetchJson(url.toString(), false, 3, signal);
 }
 
-export async function listTopMarkets({ mode = "volume", limit = 10 } = {}) {
+export async function listTopMarkets({ mode = "volume", limit = 10, signal = null } = {}) {
   const modeConfig = topMarketMode(mode);
-  const eventsData = await fetchTopEvents(modeConfig, limit);
+  const eventsData = await fetchTopEvents(modeConfig, limit, signal);
   const eventRows = listRows(eventsData, "events");
   const eventMarkets = eventRows.flatMap((event, eventIndex) =>
     Array.isArray(event.markets)
@@ -289,7 +317,7 @@ export async function listTopMarkets({ mode = "volume", limit = 10 } = {}) {
     .filter(openTradableMarket);
 
   if (!markets.length) {
-    const marketsData = await fetchTopMarketRows(modeConfig, limit);
+    const marketsData = await fetchTopMarketRows(modeConfig, limit, signal);
     markets = listRows(marketsData, "markets")
       .map((market) => normalizeMarket(market))
       .filter((market) => !isBlockedUfcMarket(market))
@@ -404,14 +432,14 @@ function sortMarkets(markets, keyword) {
   });
 }
 
-export async function searchMarkets(keyword, limit = 5) {
+export async function searchMarkets(keyword, limit = 5, signal = null) {
   const url = new URL("/public-search", config.gammaUrl);
   url.searchParams.set("q", keyword);
   url.searchParams.set("limit_per_type", String(Math.max(limit, 10)));
   url.searchParams.set("events_status", "active");
   url.searchParams.set("search_profiles", "false");
 
-  const data = await fetchJson(url.toString());
+  const data = await fetchJson(url.toString(), false, 3, signal);
 
   const directMarkets = Array.isArray(data.markets) ? data.markets : [];
   const eventMarkets = Array.isArray(data.events)
@@ -546,15 +574,15 @@ export async function getMarketById(marketId, forceRefresh = false, signal = nul
   return assertMarketAllowed(normalizeMarket(data));
 }
 
-export async function getMarketBySlug(slug) {
+export async function getMarketBySlug(slug, signal = null) {
   const url = new URL(`/markets/slug/${slug}`, config.gammaUrl);
-  const data = await fetchJson(url.toString());
+  const data = await fetchJson(url.toString(), false, 3, signal);
   return assertMarketAllowed(normalizeMarket(data));
 }
 
-export async function getEventBySlug(slug) {
+export async function getEventBySlug(slug, signal = null) {
   const url = new URL(`/events/slug/${slug}`, config.gammaUrl);
-  const data = await fetchJson(url.toString());
+  const data = await fetchJson(url.toString(), false, 3, signal);
   assertMarketAllowed(eventClassification(data));
   return data;
 }
@@ -617,26 +645,26 @@ function isPolymarketSlug(value) {
   return /^[a-z0-9][a-z0-9-]{2,}$/i.test(slug);
 }
 
-function rethrowUnsupportedUfc(error) {
-  if (error?.code === "UNSUPPORTED_UFC") throw error;
+function rethrowUnsupportedUfc(error, signal = null) {
+  if (signal?.aborted || error?.name === "AbortError" || error?.code === "UNSUPPORTED_UFC") throw error;
 }
 
-export async function getMarketFromPolymarketLink(value) {
+export async function getMarketFromPolymarketLink(value, signal = null) {
   const parsed = parsePolymarketLink(value);
   if (!parsed) return null;
 
   const tryMarketSlug = async () => {
     try {
-      return await getMarketBySlug(parsed.slug);
+      return await getMarketBySlug(parsed.slug, signal);
     } catch (error) {
-      rethrowUnsupportedUfc(error);
+      rethrowUnsupportedUfc(error, signal);
       return null;
     }
   };
 
   const tryEventSlug = async () => {
     try {
-      const event = await getEventBySlug(parsed.slug);
+      const event = await getEventBySlug(parsed.slug, signal);
       const markets = Array.isArray(event.markets)
         ? event.markets.map((market) => normalizeMarket(market, event))
         : [];
@@ -655,7 +683,7 @@ export async function getMarketFromPolymarketLink(value) {
 
       return withSelectionNote(selected, note, openMarkets.length);
     } catch (error) {
-      rethrowUnsupportedUfc(error);
+      rethrowUnsupportedUfc(error, signal);
       return null;
     }
   };
@@ -663,10 +691,10 @@ export async function getMarketFromPolymarketLink(value) {
   const trySearchSlug = async () => {
     try {
       const query = parsed.slug.replace(/-/g, " ");
-      const markets = await searchMarkets(query, 1);
+      const markets = await searchMarkets(query, 1, signal);
       return markets[0] || null;
     } catch (error) {
-      rethrowUnsupportedUfc(error);
+      rethrowUnsupportedUfc(error, signal);
       return null;
     }
   };
@@ -682,27 +710,27 @@ export async function getMarketFromPolymarketLink(value) {
   return (await tryMarketSlug()) || (await tryEventSlug()) || (await trySearchSlug());
 }
 
-export async function getMarketsFromPolymarketLink(value) {
+export async function getMarketsFromPolymarketLink(value, signal = null) {
   const parsed = parsePolymarketLink(value);
   if (!parsed) return null;
 
   const tryMarketSlug = async () => {
     try {
-      const market = await getMarketBySlug(parsed.slug);
+      const market = await getMarketBySlug(parsed.slug, signal);
       return {
         kind: "market",
         event: null,
         markets: market ? [market] : [],
       };
     } catch (error) {
-      rethrowUnsupportedUfc(error);
+      rethrowUnsupportedUfc(error, signal);
       return null;
     }
   };
 
   const tryEventSlug = async () => {
     try {
-      const eventRaw = await getEventBySlug(parsed.slug);
+      const eventRaw = await getEventBySlug(parsed.slug, signal);
       const event = normalizeEvent(eventRaw);
       const markets = Array.isArray(eventRaw.markets)
         ? eventRaw.markets.map((market) => normalizeMarket(market, eventRaw))
@@ -719,7 +747,7 @@ export async function getMarketsFromPolymarketLink(value) {
         markets: openMarkets,
       };
     } catch (error) {
-      rethrowUnsupportedUfc(error);
+      rethrowUnsupportedUfc(error, signal);
       return null;
     }
   };
@@ -730,7 +758,7 @@ export async function getMarketsFromPolymarketLink(value) {
         return null;
       }
       const query = parsed.slug.replace(/-/g, " ");
-      const markets = await searchMarkets(query, 10);
+      const markets = await searchMarkets(query, 10, signal);
       if (!markets.length) return null;
 
       return {
@@ -747,7 +775,7 @@ export async function getMarketsFromPolymarketLink(value) {
         markets,
       };
     } catch (error) {
-      rethrowUnsupportedUfc(error);
+      rethrowUnsupportedUfc(error, signal);
       return null;
     }
   };

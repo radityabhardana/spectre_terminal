@@ -30,9 +30,9 @@ export function classifyOutcome(event, winningOutcome) {
   return "kalah";
 }
 
-export async function resolveAnalyzedEvent(event, { market = null } = {}) {
+export async function resolveAnalyzedEvent(event, { market = null, signal = null } = {}) {
   if (!event) return { ok: false, status: 404, error: "Event tidak ditemukan." };
-  const resolvedMarket = market || await getMarketById(event.market_id, true);
+  const resolvedMarket = market || await getMarketById(event.market_id, true, signal);
   if (!resolvedMarket) return { ok: false, status: 404, error: "Data market Polymarket tidak ditemukan." };
   const actualOutcome = winningOutcomeForMarket(resolvedMarket);
   if (!actualOutcome) {
@@ -43,8 +43,8 @@ export async function resolveAnalyzedEvent(event, { market = null } = {}) {
   return { ok: true, status: "selesai", result, actualOutcome, market: resolvedMarket };
 }
 
-export async function resolveAnalyzedEventById(eventId) {
-  return resolveAnalyzedEvent(getAnalyzedEventById(eventId));
+export async function resolveAnalyzedEventById(eventId, { signal = null } = {}) {
+  return resolveAnalyzedEvent(getAnalyzedEventById(eventId), { signal });
 }
 
 export async function resolvePendingEvents({ signal = null } = {}) {
@@ -56,12 +56,13 @@ export async function resolvePendingEvents({ signal = null } = {}) {
   for (const event of unresolved) {
     if (signal?.aborted) break;
     try {
-      const result = await resolveAnalyzedEvent(event);
+      const result = await resolveAnalyzedEvent(event, { signal });
       if (result.status !== "selesai") continue;
       resolvedCount += 1;
       lines.push(`Market: ${result.market.question}`);
       lines.push(`Prediksi: ${event.prediction} | Hasil: ${result.actualOutcome} | Status: ${result.result.toUpperCase()}`, "");
     } catch (error) {
+      if (signal?.aborted || error?.name === "AbortError") throw error;
       console.error(`[Resolution] Failed market ${event.market_id}:`, error.message);
     }
   }

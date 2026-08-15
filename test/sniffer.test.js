@@ -8,11 +8,24 @@ import {
   extractLivePriceUpdates,
   getSnifferState,
   getSnifferWsStatus,
+  getTimeframeFilter,
+  setTimeframeFilter,
 } from "../src/sniffer.js";
 
 test("importing the sniffer does not report it active", () => {
   assert.equal(getSnifferState(), false);
   assert.equal(getSnifferWsStatus().state, "OFFLINE");
+});
+
+test("timeframe filter accepts supported values and falls back to all", () => {
+  setTimeframeFilter("15m");
+  assert.equal(getTimeframeFilter(), "15m");
+  setTimeframeFilter("1H");
+  assert.equal(getTimeframeFilter(), "1h");
+  setTimeframeFilter("30m");
+  assert.equal(getTimeframeFilter(), "all");
+  setTimeframeFilter(null);
+  assert.equal(getTimeframeFilter(), "all");
 });
 
 test("general trade filter rejects extreme prices and markets near expiry", () => {

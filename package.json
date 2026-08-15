@@ -1,7 +1,7 @@
 {
-  "name": "polymarket-telegram-analyzer",
+  "name": "spectre-terminal",
   "version": "0.1.0",
-  "description": "Manual Telegram bot for Polymarket market analysis with Qwen reasoning.",
+  "description": "Local read-only Polymarket intelligence terminal with deterministic Dynamic EV guardrails.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {

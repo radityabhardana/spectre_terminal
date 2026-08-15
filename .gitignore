@@ -3,6 +3,12 @@
 data/*.json
 data/*.jsonl
 data/*.csv
+data/tracker_config.json
+data/tracker_config.json.tmp
+data/tracker_config.json.bak
+data/tracker_config.json.backup
+data/tracker_config.json~
+data/tracker_config.json.*
 *.db
 *.db-wal
 *.db-shm
@@ -12,11 +18,7 @@ npm-debug.log*
 playwright-report/
 test-results/
 
-# Documentation Flows
-docs/
-
 # Gemini Config
-.geminirules
 .gemini/clob_creds.json
 scratch/
 version-29juni/

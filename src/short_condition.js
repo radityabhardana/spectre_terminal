@@ -387,7 +387,7 @@ async function fetchWithFallback(endpoints, path, options = {}) {
       const res = await fetch(base + path, { ...fetchOptions, signal: attemptSignal });
       if (res.ok) return res;
     } catch (e) {
-      // Continue to next
+      if (signal?.aborted) throw e;
     }
   }
   throw new Error("All endpoints failed");
@@ -518,6 +518,11 @@ async function fetchChainlinkCandlePage(asset, interval, endTime, signal) {
 }
 
 export async function fetchChainlinkTechData(asset, durationType, signal = null) {
+  if (signal?.aborted) {
+    const error = new Error("Chainlink request aborted");
+    error.name = "AbortError";
+    throw error;
+  }
   const cacheKey = `${asset}:${durationType}`;
   const cached = technicalDataCache.get(cacheKey);
   if (cached && Date.now() - cached.savedAt < 30_000) return cached.value;
@@ -549,6 +554,7 @@ export async function fetchChainlinkTechData(asset, durationType, signal = null)
     technicalDataCache.set(cacheKey, { savedAt: Date.now(), value: result });
     return result;
   } catch (error) {
+    if (signal?.aborted) throw error;
     return null;
   }
 }
@@ -592,8 +598,7 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5, sig
       ...indicators,
     };
   } catch (err) {
-    // Silent catch due to frequent ISP blocking
-    // console.error("[Short Condition] fetchBinanceTechData error:", err.message);
+    if (signal?.aborted) throw err;
     return null;
   }
 }
@@ -628,8 +633,7 @@ async function fetchLongShortRatio(symbol = "BTCUSDT", signal = null) {
 
     return result;
   } catch (err) {
-    // Silent catch due to frequent ISP blocking in Indonesia, fallback handles this gracefully
-    // console.error("[Short Condition] fetchLongShortRatio error:", err.message);
+    if (signal?.aborted) throw err;
     return null;
   }
 }
@@ -649,6 +653,7 @@ async function fetchFearGreed(signal = null) {
     if (!item) return null;
     return { value: parseInt(item.value), label: item.value_classification };
   } catch (err) {
+    if (signal?.aborted) throw err;
     console.error("[Short Condition] fetchFearGreed error:", err.message);
     return null;
   }
@@ -854,8 +859,8 @@ export async function evaluateShortMarketCondition({
           : fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal),
         fetchChainlinkLivePrice(normalizedAsset, signal),
         typeof refreshMarketPrices === "function"
-          ? Promise.resolve(refreshMarketPrices()).catch((error) => {
-              if (error?.code === "UNSUPPORTED_UFC") throw error;
+            ? Promise.resolve(refreshMarketPrices()).catch((error) => {
+              if (signal?.aborted || error?.name === "AbortError" || error?.code === "UNSUPPORTED_UFC") throw error;
               return null;
             })
           : Promise.resolve(null),

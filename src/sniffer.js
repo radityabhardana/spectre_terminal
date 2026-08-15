@@ -1,11 +1,10 @@
 import WebSocket from 'ws';
 import { getShortTermMarkets } from "./polymarket.js";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CONFIG_FILE = path.join(__dirname, "..", "tracker_config.json");
+import {
+  loadTrackerConfig,
+  normalizeTrackerConfig,
+  persistTrackerConfig,
+} from "./tracker-config.js";
 
 // Simpan data paus di memori (RAM)
 let recentWhales = [];
@@ -48,45 +47,11 @@ let isSnifferActive = false;
 let notifyCallback = null;
 let snifferStartTime = 0; // Kapan sniffer dinyalakan (timestamp)
 
-export let snifferMinUsd = 1000; // Default minimum whale size
-export let trackedWallets = new Map([
-  ["0x55be7aa03ecfbe37aa5460db791205f7ac9ddca3".toLowerCase(), "Coinman2"]
-]);
-
-// Load config dari file (jika ada)
-try {
-  if (fs.existsSync(CONFIG_FILE)) {
-    const data = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
-    if (typeof data.minUsd === "number") snifferMinUsd = data.minUsd;
-    if (Array.isArray(data.wallets)) {
-      trackedWallets.clear();
-      for (const w of data.wallets) {
-        if (w && w.address) trackedWallets.set(w.address.toLowerCase(), w.nickname || "");
-      }
-    }
-    console.log(`[Sniffer] Loaded config from file: minUsd=$${snifferMinUsd}, trackedWallets=${trackedWallets.size}`);
-  } else {
-    console.log(`[Sniffer] No tracker_config.json found. Using defaults.`);
-  }
-} catch (e) {
-  console.error("[Sniffer] Error loading config:", e.message);
-}
-
-function saveConfigToFile() {
-  try {
-    const body = JSON.stringify({
-      minUsd: snifferMinUsd,
-      wallets: Array.from(trackedWallets.entries()).map(([address, nickname]) => ({ address, nickname })),
-    }, null, 2);
-    // Atomic write: write to a temp file then rename, so a crash mid-write
-    // never corrupts tracker_config.json.
-    const tmpFile = `${CONFIG_FILE}.tmp`;
-    fs.writeFileSync(tmpFile, body);
-    fs.renameSync(tmpFile, CONFIG_FILE);
-  } catch (e) {
-    console.error("[Sniffer] Error saving config:", e.message);
-  }
-}
+const initialTrackerConfig = loadTrackerConfig();
+export let snifferMinUsd = initialTrackerConfig.minUsd;
+export let trackedWallets = new Map(
+  initialTrackerConfig.wallets.map(({ address, nickname }) => [address, nickname]),
+);
 
 export function getTrackerConfig() {
   return {
@@ -96,18 +61,14 @@ export function getTrackerConfig() {
 }
 
 export function setTrackerConfig(minUsd, walletsArray) {
-  if (typeof minUsd === 'number' && Number.isFinite(minUsd) && minUsd >= 10 && minUsd <= 1_000_000_000) {
-    snifferMinUsd = minUsd;
-  }
-  if (Array.isArray(walletsArray)) {
-    trackedWallets.clear();
-    for (const w of walletsArray) {
-      if (w && typeof w.address === "string" && /^0x[0-9a-fA-F]{40}$/.test(w.address)) {
-        trackedWallets.set(w.address.toLowerCase(), typeof w.nickname === "string" ? w.nickname.slice(0, 40) : "");
-      }
-    }
-  }
-  saveConfigToFile();
+  const nextConfig = normalizeTrackerConfig({
+    minUsd: minUsd === undefined ? snifferMinUsd : minUsd,
+    wallets: walletsArray === undefined ? getTrackerConfig().wallets : walletsArray,
+  });
+  persistTrackerConfig(nextConfig);
+  snifferMinUsd = nextConfig.minUsd;
+  trackedWallets.clear();
+  for (const { address, nickname } of nextConfig.wallets) trackedWallets.set(address, nickname);
 }
 
 export function setSnifferState(state) {
@@ -147,8 +108,10 @@ let globalAccumulatedWhaleVolume = {
 };
 
 export function setTimeframeFilter(tf) {
-  // Hardcoded to "all", filter happens in frontend
-  currentTimeframeFilter = "all";
+  const normalized = String(tf || "").trim().toLowerCase();
+  currentTimeframeFilter = ["5m", "15m", "1h", "4h", "1d"].includes(normalized)
+    ? normalized
+    : "all";
   cacheTimestamp = 0; // Force refresh
 }
 

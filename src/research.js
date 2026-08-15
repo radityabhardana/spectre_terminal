@@ -120,15 +120,14 @@ export function detectCryptoAssets(input) {
   return detected.slice(0, 6);
 }
 
-async function fetchJson(url, ttlSeconds = config.cryptoCacheTtlSeconds) {
+async function fetchJson(url, ttlSeconds = config.cryptoCacheTtlSeconds, externalSignal = null) {
   const key = `research:${url}`;
   const cached = getCache(key, ttlSeconds);
   if (cached) return cached;
 
-  const signal =
-    typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-      ? AbortSignal.timeout(config.researchFetchTimeoutMs)
-      : undefined;
+  const signal = externalSignal
+    ? AbortSignal.any([externalSignal, AbortSignal.timeout(config.researchFetchTimeoutMs)])
+    : AbortSignal.timeout(config.researchFetchTimeoutMs);
 
   const response = await fetch(url, {
     signal,
@@ -295,7 +294,17 @@ function trendFromKlines(klines) {
 function errorMessage(error) {
   if (!error) return "Unknown error";
   if (error.name === "TimeoutError") return "Request timeout";
-  return error.message || String(error);
+  return String(error.message || error)
+    .replace(/\b(?:https?|wss?):\/\/[^\s]+/gi, "[redacted endpoint]")
+    .replace(/\b(?:authorization|api[-_ ]?key|secret|password)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
+    .slice(0, 300);
+}
+
+function throwIfAborted(signal) {
+  if (!signal?.aborted) return;
+  const error = new Error("Research request aborted");
+  error.name = "AbortError";
+  throw error;
 }
 
 function providerError(provider, error) {
@@ -306,7 +315,8 @@ function unwrapResult(result, fallback) {
   return result.status === "fulfilled" ? result.value : fallback;
 }
 
-async function fetchBinanceFutures(asset) {
+async function fetchBinanceFutures(asset, signal = null) {
+  throwIfAborted(signal);
   if (asset.proxyNote) {
     return {
       futures_status: "skipped",
@@ -325,11 +335,12 @@ async function fetchBinanceFutures(asset) {
   klinesUrl.searchParams.set("limit", "6");
 
   const [premiumResult, openInterestResult, longShortResult, klinesResult] = await Promise.allSettled([
-    fetchJson(premiumUrl.toString()),
-    fetchJson(openInterestUrl.toString()),
-    fetchJson(longShortUrl.toString()),
-    fetchJson(klinesUrl.toString()),
+    fetchJson(premiumUrl.toString(), undefined, signal),
+    fetchJson(openInterestUrl.toString(), undefined, signal),
+    fetchJson(longShortUrl.toString(), undefined, signal),
+    fetchJson(klinesUrl.toString(), undefined, signal),
   ]);
+  throwIfAborted(signal);
 
   if (premiumResult.status === "rejected" && openInterestResult.status === "rejected") {
     return {
@@ -378,12 +389,13 @@ async function fetchBinanceFutures(asset) {
   };
 }
 
-async function fetchFearGreed() {
+async function fetchFearGreed(signal = null) {
+  throwIfAborted(signal);
   const url = new URL(config.fearGreedUrl);
   url.searchParams.set("limit", "7");
   url.searchParams.set("format", "json");
 
-  const json = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds);
+  const json = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds, signal);
   const rows = Array.isArray(json?.data) ? json.data : [];
   const latest = rows[0] || null;
   const values = rows.map((row) => num(row.value)).filter((value) => value != null);
@@ -416,13 +428,14 @@ function fearGreedSummary(sentiment) {
   return `Fear & Greed ${current}, 7d avg ${avg}`;
 }
 
-async function fetchDefiLlamaChains(uniqueAssets) {
+async function fetchDefiLlamaChains(uniqueAssets, signal = null) {
+  throwIfAborted(signal);
   const chainNames = uniqueAssets.map((asset) => asset.defillamaChain).filter(Boolean);
   if (!chainNames.length) return [];
 
   const wanted = new Set(chainNames.map((name) => normalizeText(name)));
   const url = new URL("/v2/chains", config.defillamaBaseUrl);
-  const chains = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds);
+  const chains = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds, signal);
   const rows = Array.isArray(chains) ? chains : [];
 
   return rows
@@ -438,14 +451,15 @@ async function fetchDefiLlamaChains(uniqueAssets) {
     }));
 }
 
-async function fetchDefiLlamaProtocols(uniqueAssets) {
+async function fetchDefiLlamaProtocols(uniqueAssets, signal = null) {
+  throwIfAborted(signal);
   const assets = uniqueAssets.filter((asset) => asset.defillamaSlug).slice(0, 3);
   if (!assets.length) return [];
 
   const results = await Promise.allSettled(
     assets.map(async (asset) => {
       const url = new URL(`/protocol/${asset.defillamaSlug}`, config.defillamaBaseUrl);
-      const json = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds);
+      const json = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds, signal);
       return {
         symbol: asset.symbol,
         name: json.name || asset.name,
@@ -464,12 +478,14 @@ async function fetchDefiLlamaProtocols(uniqueAssets) {
     })
   );
 
+  throwIfAborted(signal);
   return results
     .filter((result) => result.status === "fulfilled")
     .map((result) => result.value);
 }
 
-async function fetchDefiLlamaStablecoins(uniqueAssets) {
+async function fetchDefiLlamaStablecoins(uniqueAssets, signal = null) {
+  throwIfAborted(signal);
   const stableSymbols = new Set(
     uniqueAssets
       .filter((asset) => asset.symbol === "USDT" || asset.symbol === "USDC")
@@ -479,7 +495,7 @@ async function fetchDefiLlamaStablecoins(uniqueAssets) {
 
   const url = new URL("/stablecoins", config.defillamaStablecoinsUrl);
   url.searchParams.set("includePrices", "true");
-  const json = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds);
+  const json = await fetchJson(url.toString(), config.fundamentalCacheTtlSeconds, signal);
   const rows = Array.isArray(json?.peggedAssets) ? json.peggedAssets : [];
 
   return rows
@@ -504,12 +520,13 @@ async function fetchDefiLlamaStablecoins(uniqueAssets) {
     }));
 }
 
-async function buildDefiLlamaContext(uniqueAssets) {
+async function buildDefiLlamaContext(uniqueAssets, signal = null) {
   const [chainsResult, protocolsResult, stablecoinsResult] = await Promise.allSettled([
-    fetchDefiLlamaChains(uniqueAssets),
-    fetchDefiLlamaProtocols(uniqueAssets),
-    fetchDefiLlamaStablecoins(uniqueAssets),
+    fetchDefiLlamaChains(uniqueAssets, signal),
+    fetchDefiLlamaProtocols(uniqueAssets, signal),
+    fetchDefiLlamaStablecoins(uniqueAssets, signal),
   ]);
+  throwIfAborted(signal);
 
   return {
     provider: "DefiLlama",
@@ -621,7 +638,8 @@ function newsQueryFor(uniqueAssets, text) {
   return [...new Set(terms)].slice(0, 8).join(" ");
 }
 
-async function fetchGdeltNews({ uniqueAssets, text }) {
+async function fetchGdeltNews({ uniqueAssets, text, signal = null }) {
+  throwIfAborted(signal);
   const query = newsQueryFor(uniqueAssets, text);
   if (!query) {
     return {
@@ -642,8 +660,9 @@ async function fetchGdeltNews({ uniqueAssets, text }) {
   let json = null;
   let errorMsg = null;
   try {
-    json = await fetchJson(url.toString(), config.newsCacheTtlSeconds);
+    json = await fetchJson(url.toString(), config.newsCacheTtlSeconds, signal);
   } catch (error) {
+    if (signal?.aborted) throw error;
     errorMsg = error.message;
   }
 
@@ -673,7 +692,8 @@ function newsSummary(news) {
     .join("; ");
 }
 
-async function fetchBinancePair(asset) {
+async function fetchBinancePair(asset, signal = null) {
+  throwIfAborted(signal);
   if (!asset.pair) {
     return {
       symbol: asset.symbol,
@@ -688,11 +708,12 @@ async function fetchBinancePair(asset) {
   const bookUrl = binanceUrl("/api/v3/ticker/bookTicker", asset.pair);
   const klinesUrl = binanceKlinesUrl(asset.pair);
   const [tickerResult, bookResult, klinesResult, futuresResult] = await Promise.allSettled([
-    fetchJson(tickerUrl.toString()),
-    fetchJson(bookUrl.toString()),
-    fetchJson(klinesUrl.toString()),
-    fetchBinanceFutures(asset),
+    fetchJson(tickerUrl.toString(), undefined, signal),
+    fetchJson(bookUrl.toString(), undefined, signal),
+    fetchJson(klinesUrl.toString(), undefined, signal),
+    fetchBinanceFutures(asset, signal),
   ]);
+  throwIfAborted(signal);
 
   if (tickerResult.status === "rejected") {
     return {
@@ -773,7 +794,8 @@ function researchSummary(pairs) {
     .join("; ");
 }
 
-async function fetchPremiumNews(queryStr) {
+async function fetchPremiumNews(queryStr, signal = null) {
+  throwIfAborted(signal);
   if (!queryStr) return [];
   try {
     const query = `(site:nytimes.com OR site:pubity.com OR site:wsj.com OR site:bloomberg.com OR site:cryptoslate.com OR site:coinbureau.com OR site:coindesk.com OR site:cointelegraph.com) ${queryStr}`;
@@ -783,7 +805,11 @@ async function fetchPremiumNews(queryStr) {
     const cached = getCache(key, 900);
     if (cached) return cached;
     
+    const requestSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+      : AbortSignal.timeout(8000);
     const res = await fetch(url, {
+      signal: requestSignal,
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
       }
@@ -804,22 +830,24 @@ async function fetchPremiumNews(queryStr) {
     setCache(key, results);
     return results;
   } catch (error) {
-    // Silent catch due to frequent blocks
-    // console.error(`Error scraping premium news for ${queryStr}:`, error.message);
+    if (signal?.aborted) throw error;
     return [];
   }
 }
 
-async function fetchForexFactory() {
+async function fetchForexFactory(signal = null) {
+  throwIfAborted(signal);
   try {
     const key = `forex_factory_this_week`;
     const cached = getCache(key, 3600); // cache for 1 hour
     if (cached) return cached;
     
     const url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
-    const signal = typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(5000) : undefined;
+    const requestSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(5000)])
+      : AbortSignal.timeout(5000);
     const res = await fetch(url, {
-      signal,
+      signal: requestSignal,
       headers: { "User-Agent": "polymarket-telegram-analyzer/0.1" }
     });
     
@@ -836,23 +864,24 @@ async function fetchForexFactory() {
     setCache(key, highImpact);
     return highImpact;
   } catch (error) {
-    console.error("[Research] Error fetching Forex Factory:", error.message);
+    if (signal?.aborted) throw error;
     return [];
   }
 }
 
-export async function buildResearchContext({ market, event, markets } = {}) {
+export async function buildResearchContext({ market, event, markets, signal = null } = {}) {
+  throwIfAborted(signal);
   const text = marketText({ market, event, markets });
   const primaryText = primaryAssetText({ market, event, markets });
-  const forexFactoryNews = await fetchForexFactory();
+  const forexFactoryNews = await fetchForexFactory(signal);
 
   const detectedFromTitle = detectCryptoAssets(primaryText);
   const detectedAssets = detectedFromTitle.length ? detectedFromTitle : detectCryptoAssets(text);
 
   // If no crypto assets, we do a "general" news-only research context
   if (!detectedAssets.length) {
-    const newsResult = await fetchGdeltNews({ uniqueAssets: [], text });
-    const premiumSnippets = await fetchPremiumNews(newsQueryFor([], text));
+    const newsResult = await fetchGdeltNews({ uniqueAssets: [], text, signal });
+    const premiumSnippets = await fetchPremiumNews(newsQueryFor([], text), signal);
     const premiumNewsText = premiumSnippets.length ? premiumSnippets.join("; ") : "";
     const finalNewsSummary = [newsSummary(newsResult), premiumNewsText ? `PREMIUM NEWS: ${premiumNewsText}` : ""].filter(Boolean).join(" | ");
     
@@ -893,8 +922,9 @@ export async function buildResearchContext({ market, event, markets } = {}) {
   const pairs = await Promise.all(
     uniqueAssets.map(async (asset) => {
       try {
-        return await fetchBinancePair(asset);
+        return await fetchBinancePair(asset, signal);
       } catch (error) {
+        if (signal?.aborted) throw error;
         return {
           symbol: asset.symbol,
           name: asset.name,
@@ -905,13 +935,15 @@ export async function buildResearchContext({ market, event, markets } = {}) {
       }
     })
   );
+  throwIfAborted(signal);
   const okCount = pairs.filter((pair) => pair.status === "ok").length;
   const [sentimentResult, defiResult, newsResult, premiumSnippetsResult] = await Promise.allSettled([
-    fetchFearGreed(),
-    buildDefiLlamaContext(uniqueAssets),
-    fetchGdeltNews({ uniqueAssets, text }),
-    fetchPremiumNews(newsQueryFor(uniqueAssets, text)),
+    fetchFearGreed(signal),
+    buildDefiLlamaContext(uniqueAssets, signal),
+    fetchGdeltNews({ uniqueAssets, text, signal }),
+    fetchPremiumNews(newsQueryFor(uniqueAssets, text), signal),
   ]);
+  throwIfAborted(signal);
 
   const sentiment = unwrapResult(
     sentimentResult,

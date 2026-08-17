@@ -57,6 +57,7 @@ export async function checkAiProviderConnection() {
     config.qwenRiskManagerModel,
     config.qwenFallbackModel,
     config.qwenShortModel,
+    config.qwenEvaluatorModel,
     config.qwenScoutModel,
     config.qwenEventAnalystModel,
     config.qwenEventFinalModel,
@@ -72,17 +73,24 @@ export async function checkAiProviderConnection() {
     }
     const payload = await response.json();
     const available = new Set((Array.isArray(payload?.data) ? payload.data : []).map((model) => String(model?.id || model)));
-    const missingModels = configuredModels.filter((model) => {
-      if (available.has(model)) return false;
-      if (config.aiProviderName === "9router" && available.size > 0) return false;
-      return true;
-    });
+    const verifiedModels = configuredModels.filter((model) => available.has(model));
+    // 9Router may route one model ID across upstreams, so its /models list is never
+    // authoritative: absent models are unverified, never missing.
+    const unverifiedModels = config.aiProviderName === "9router"
+      ? configuredModels.filter((model) => !available.has(model))
+      : [];
+    const missingModels = config.aiProviderName === "9router"
+      ? []
+      : configuredModels.filter((model) => !available.has(model));
     providerConnectionCache = {
       configured: true,
       reachable: true,
       provider: config.aiProviderName,
+      // Unverified models are not counted as missing.
       modelsAvailable: configuredModels.length > 0 && missingModels.length === 0,
       configuredModels,
+      verifiedModels,
+      unverifiedModels,
       missingModels,
     };
     providerConnectionCheckedAt = Date.now();
@@ -98,6 +106,12 @@ export async function checkAiProviderConnection() {
     providerConnectionCheckedAt = Date.now();
     return providerConnectionCache;
   }
+}
+
+// Test-only: clears the 30s provider-connection cache so scenarios run deterministically.
+export function resetProviderConnectionCache() {
+  providerConnectionCache = null;
+  providerConnectionCheckedAt = 0;
 }
 
 const BINANCE_BASE_URLS = [
@@ -561,7 +575,7 @@ async function callRoleQwenJson(payload, fallbackModel = "", baseUrl, apiKey, si
   } catch (error) {
     if (error.name === "AbortError") throw error;
     if ([401, 403, 408, 429].includes(error.status) || error.status >= 500 || error.name === "TimeoutError") throw error;
-    if (!fallbackModel || payload.model === fallbackModel) throw error;
+    if (!fallbackModel || String(fallbackModel).trim() === String(payload.model).trim()) throw error;
     const modelSpecificFailure = [400, 404, 422].includes(error.status)
       || /JSON|missing choices|response_format/i.test(String(error.message));
     if (!modelSpecificFailure) throw error;
@@ -1518,7 +1532,8 @@ Rules:
       { role: "user", content: prompt }
     ],
     temperature: 0,
-    max_tokens: config.qwenShortMaxTokens || 2000,
+    // normalizeShortAnalysis caps the whole JSON at ~1.9KB, so 1500 output tokens is generous headroom.
+    max_tokens: Math.min(config.qwenShortMaxTokens, 1500),
     response_format: { type: "json_object" }
   };
 

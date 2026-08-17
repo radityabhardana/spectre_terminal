@@ -28,6 +28,8 @@ QWEN_RISK_MANAGER_MODEL=alims-intl/deepseek-v4-pro-0813
 QWEN_FALLBACK_MODEL=alims-intl/deepseek-v4-flash-0731
 ```
 
+9Router may route the same model ID across multiple upstream providers, so a model ID absent from its `/models` list is treated as unverified rather than missing. `QWEN_FALLBACK_MODEL` is an application-level model fallback used only when the primary model ID fails. It is skipped automatically when it is identical to the primary model, since 9Router already handles upstream routing for the same model ID.
+
 Public market-data providers do not require CLOB credentials:
 
 ```text

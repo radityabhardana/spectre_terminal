@@ -112,6 +112,8 @@ export const config = {
 
   qwenFallbackModel: process.env.QWEN_FALLBACK_MODEL || process.env.QWEN_FINAL_MODEL || process.env.QWEN_MODEL || defaultModels.fallback,
   qwenShortModel: process.env.QWEN_SHORT_MODEL || process.env.QWEN_BULL_MODEL || process.env.QWEN_FAST_MODEL || defaultModels.fast,
+  // Reserved for post-mortem/evaluation use; no evaluator runtime exists yet.
+  qwenEvaluatorModel: process.env.QWEN_EVALUATOR_MODEL || process.env.QWEN_FINAL_MODEL || process.env.QWEN_MODEL || defaultModels.final,
 
   // Model Roles for Multi-Market Event Analysis
   qwenScoutModel: process.env.QWEN_SCOUT_MODEL || process.env.QWEN_FAST_MODEL || defaultModels.fast,
@@ -171,7 +173,7 @@ export function assertQwenConfig() {
   if (!config.qwenApiKey) {
     throw new Error("Missing AI provider key. Configure NINEROUTER_API_KEY, OPENROUTER_API_KEY, or QWEN_API_KEY.");
   }
-  const models = [config.qwenBullModel, config.qwenBearModel, config.qwenRiskManagerModel, config.qwenFallbackModel, config.qwenShortModel, config.qwenScoutModel, config.qwenEventAnalystModel, config.qwenEventFinalModel];
+  const models = [config.qwenBullModel, config.qwenBearModel, config.qwenRiskManagerModel, config.qwenFallbackModel, config.qwenShortModel, config.qwenEvaluatorModel, config.qwenScoutModel, config.qwenEventAnalystModel, config.qwenEventFinalModel];
   if (models.some((model) => !String(model || "").trim())) {
     throw new Error("All AI role model IDs must be configured for the selected provider.");
   }

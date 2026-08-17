@@ -90,10 +90,10 @@ const aiProvider = nineRouterApiKey
       };
 const defaultModels = aiProvider.name === "9router"
   ? {
-      fast: "alims-intl/deepseek-v4-flash",
-      analyst: "alims-intl/deepseek-v4-flash",
-      final: "alims-intl/deepseek-v4-pro",
-      fallback: "alims-intl/deepseek-v3.2",
+      fast: "alims-intl/deepseek-v4-flash-0731",
+      analyst: "alims-intl/deepseek-v4-flash-0731",
+      final: "alims-intl/deepseek-v4-pro-0813",
+      fallback: "alims-intl/deepseek-v4-flash-0731",
     }
   : aiProvider.name === "dashscope"
     ? { fast: "qwen-turbo", analyst: "qwen-plus", final: "qwen-max", fallback: "qwen-max" }

@@ -22,10 +22,10 @@ Configure at least one AI provider in `.env`. The default setup uses 9Router:
 ```text
 NINEROUTER_API_KEY=
 NINEROUTER_BASE_URL=http://127.0.0.1:20128/v1
-QWEN_BULL_MODEL=alims-intl/deepseek-v4-flash
-QWEN_BEAR_MODEL=alims-intl/deepseek-v4-flash
-QWEN_RISK_MANAGER_MODEL=alims-intl/deepseek-v4-pro
-QWEN_FALLBACK_MODEL=alims-intl/deepseek-v3.2
+QWEN_BULL_MODEL=alims-intl/deepseek-v4-flash-0731
+QWEN_BEAR_MODEL=alims-intl/deepseek-v4-flash-0731
+QWEN_RISK_MANAGER_MODEL=alims-intl/deepseek-v4-pro-0813
+QWEN_FALLBACK_MODEL=alims-intl/deepseek-v4-flash-0731
 ```
 
 Public market-data providers do not require CLOB credentials:

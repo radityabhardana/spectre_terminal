@@ -72,7 +72,11 @@ export async function checkAiProviderConnection() {
     }
     const payload = await response.json();
     const available = new Set((Array.isArray(payload?.data) ? payload.data : []).map((model) => String(model?.id || model)));
-    const missingModels = configuredModels.filter((model) => !available.has(model));
+    const missingModels = configuredModels.filter((model) => {
+      if (available.has(model)) return false;
+      if (config.aiProviderName === "9router" && available.size > 0) return false;
+      return true;
+    });
     providerConnectionCache = {
       configured: true,
       reachable: true,
@@ -1514,7 +1518,7 @@ Rules:
       { role: "user", content: prompt }
     ],
     temperature: 0,
-    max_tokens: Math.min(config.qwenShortMaxTokens, 600),
+    max_tokens: config.qwenShortMaxTokens || 2000,
     response_format: { type: "json_object" }
   };
 

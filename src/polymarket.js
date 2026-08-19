@@ -181,7 +181,9 @@ function normalizeMarket(raw, event = null, eventSearchRank = 999) {
     active: raw.active ?? true,
     closed: raw.closed ?? false,
     acceptingOrders: raw.acceptingOrders ?? false,
+    enableOrderBook: raw.enableOrderBook ?? event?.enableOrderBook ?? false,
     volume: Number(raw.volumeNum ?? raw.volume ?? raw.volume24hr ?? 0),
+
     volume24hr: Number(raw.volume24hr ?? raw.volume24hrNum ?? raw.volume24h ?? raw.volumeNum ?? raw.volume ?? 0),
     liquidity: Number(raw.liquidityNum ?? raw.liquidity ?? 0),
     outcomes,
@@ -471,30 +473,40 @@ export async function getShortTermMarkets(asset = "btc") {
   url5m.searchParams.set("series_slug", `${assetLower}-up-or-down-5m`);
   url5m.searchParams.set("active", "true");
   url5m.searchParams.set("closed", "false");
+  url5m.searchParams.set("order", "endDate");
+  url5m.searchParams.set("ascending", "false");
   url5m.searchParams.set("limit", "100");
 
   const url15m = new URL("/events", config.gammaUrl);
   url15m.searchParams.set("series_slug", `${assetLower}-up-or-down-15m`);
   url15m.searchParams.set("active", "true");
   url15m.searchParams.set("closed", "false");
+  url15m.searchParams.set("order", "endDate");
+  url15m.searchParams.set("ascending", "false");
   url15m.searchParams.set("limit", "100");
-  
+
   const url1h = new URL("/events", config.gammaUrl);
   url1h.searchParams.set("series_slug", `${assetLower}-up-or-down-hourly`);
   url1h.searchParams.set("active", "true");
   url1h.searchParams.set("closed", "false");
+  url1h.searchParams.set("order", "endDate");
+  url1h.searchParams.set("ascending", "false");
   url1h.searchParams.set("limit", "100");
 
   const url4h = new URL("/events", config.gammaUrl);
   url4h.searchParams.set("series_slug", `${assetLower}-up-or-down-4h`);
   url4h.searchParams.set("active", "true");
   url4h.searchParams.set("closed", "false");
+  url4h.searchParams.set("order", "endDate");
+  url4h.searchParams.set("ascending", "false");
   url4h.searchParams.set("limit", "100");
 
   const url1d = new URL("/events", config.gammaUrl);
   url1d.searchParams.set("series_slug", `${assetLower}-up-or-down-daily`);
   url1d.searchParams.set("active", "true");
   url1d.searchParams.set("closed", "false");
+  url1d.searchParams.set("order", "endDate");
+  url1d.searchParams.set("ascending", "false");
   url1d.searchParams.set("limit", "100");
 
   const [events5m, events15m, events1h, events4h, events1d] = await Promise.all([
@@ -533,7 +545,8 @@ export async function getShortTermMarkets(asset = "btc") {
       });
 
       // Hanya simpan event future atau yang max 1 jam lalu (3600000 ms)
-      if (m.active && !m.closed && timeToClose > -3600000) {
+      if (m.active && !m.closed && m.enableOrderBook === true && m.clobTokenIds.length >= 2 && timeToClose > -3600000) {
+
         let maxFutureMs = 24 * 60 * 60 * 1000; // Default 1 hari
         if (durationType === "5m") maxFutureMs = 60 * 60 * 1000; // 1 jam ke depan
         else if (durationType === "15m") maxFutureMs = 3 * 60 * 60 * 1000; // 3 jam ke depan

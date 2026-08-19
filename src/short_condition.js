@@ -260,16 +260,32 @@ function parseTimestamp(value) {
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-function isOfficialChainlinkSource(value, expectedStream) {
+export function chainlinkSourceSpec(value, asset) {
   try {
     const url = new URL(String(value || "").trim());
-    return url.protocol === "https:"
-      && url.hostname.toLowerCase() === "data.chain.link"
-      && url.pathname.replace(/\/+$/, "").toLowerCase() === `/streams/${expectedStream}`;
+    if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "data.chain.link") return null;
+    const expectedAsset = String(asset || "").trim().toLowerCase();
+    const path = url.pathname.replace(/\/+$/, "").toLowerCase();
+    const base = `/streams/${expectedAsset}-usd`;
+    if (path === base) {
+      return { kind: "spot", windowSeconds: null, topic: "crypto_prices_chainlink", streamPath: path };
+    }
+    const twapMatch = path.match(new RegExp(`^/streams/${expectedAsset}-usd-twap-(30|60)s-streams$`));
+    if (twapMatch) {
+      const windowSeconds = Number(twapMatch[1]);
+      return {
+        kind: "twap",
+        windowSeconds,
+        topic: windowSeconds === 30 ? "crypto_prices_twap_thirty" : "crypto_prices_twap_sixty",
+        streamPath: path,
+      };
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
+
 
 export function chainlinkVariant(durationType) {
   if (durationType === "5m") return "fiveminute";
@@ -327,7 +343,7 @@ async function fetchChainlinkOpeningPrice(asset, startTimeMs, endTimeMs, duratio
   return null;
 }
 
-function fetchChainlinkLivePrice(asset, signal) {
+function fetchChainlinkLivePrice(asset, signal, sourceSpec = null) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket("wss://ws-live-data.polymarket.com");
     let settled = false;
@@ -351,7 +367,7 @@ function fetchChainlinkLivePrice(asset, signal) {
       ws.send(JSON.stringify({
         action: "subscribe",
         subscriptions: [{
-          topic: "crypto_prices_chainlink",
+          topic: sourceSpec?.topic || "crypto_prices_chainlink",
           type: "update",
           filters: JSON.stringify({ symbol: `${asset.toLowerCase()}/usd` }),
         }],
@@ -725,8 +741,8 @@ export async function evaluateShortMarketCondition({
   const endTimeMs = parseTimestamp(endDate);
   const explicitStartMs = parseTimestamp(startDate);
   const derivedStartMs = endTimeMs != null && durationMs ? endTimeMs - durationMs : explicitStartMs;
-  const expectedOraclePath = `${normalizedAsset.toLowerCase()}-usd`;
-  const oracleSourceVerified = isOfficialChainlinkSource(resolutionSource, expectedOraclePath);
+  const oracleSource = chainlinkSourceSpec(resolutionSource, normalizedAsset);
+  const oracleSourceVerified = Boolean(oracleSource);
 
   let initialOpeningPrice = null;
   let initialLivePrice = null;
@@ -737,7 +753,7 @@ export async function evaluateShortMarketCondition({
         if (signal?.aborted) throw error;
         return null;
       }),
-      fetchChainlinkLivePrice(normalizedAsset, signal).catch((error) => {
+      fetchChainlinkLivePrice(normalizedAsset, signal, oracleSource).catch((error) => {
         if (signal?.aborted) throw error;
         return null;
       }),
@@ -857,7 +873,7 @@ export async function evaluateShortMarketCondition({
         initialOpeningPrice
           ? Promise.resolve(initialOpeningPrice)
           : fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal),
-        fetchChainlinkLivePrice(normalizedAsset, signal),
+        fetchChainlinkLivePrice(normalizedAsset, signal, oracleSource),
         typeof refreshMarketPrices === "function"
             ? Promise.resolve(refreshMarketPrices()).catch((error) => {
               if (signal?.aborted || error?.name === "AbortError" || error?.code === "UNSUPPORTED_UFC") throw error;
@@ -891,6 +907,8 @@ export async function evaluateShortMarketCondition({
     currentPrice: finalLivePrice?.price ?? null,
     priceToBeat: finalOpeningPrice,
     oraclePublishTime: finalLivePrice?.publishTime ?? null,
+    oracleSourceKind: oracleSource?.kind || null,
+    oracleWindowSeconds: oracleSource?.windowSeconds || null,
     capturedAt: new Date(finalCapturedAt).toISOString(),
     startDate: derivedStartMs == null ? null : new Date(derivedStartMs).toISOString(),
     endDate: endTimeMs == null ? null : new Date(endTimeMs).toISOString(),

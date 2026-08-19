@@ -48,6 +48,7 @@ function gammaMarket(overrides = {}) {
     active: true,
     closed: false,
     acceptingOrders: true,
+    enableOrderBook: true,
     volume: 500,
     liquidity: 250,
     endDate: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
@@ -247,6 +248,30 @@ test("short-term collection omits UFC markets", async (t) => {
   const markets = await getShortTermMarkets(asset);
 
   assert.deepEqual(markets, []);
+});
+
+test("short-term discovery orders newest first and keeps only CLOB-enabled markets", async (t) => {
+  const asset = `shortdiscovery${process.pid}`;
+  const seenUrls = [];
+  t.mock.method(globalThis, "fetch", async (input) => {
+    const url = trackedCacheUrl(input);
+    seenUrls.push(url);
+    const events = url.searchParams.get("series_slug")?.endsWith("-5m")
+      ? [
+          { markets: [gammaMarket({ id: "stale", endDate: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() })] },
+          { markets: [gammaMarket({ id: "current", endDate: new Date(Date.now() + 20 * 60 * 1000).toISOString() })] },
+          { markets: [gammaMarket({ id: "no-book", enableOrderBook: false, endDate: new Date(Date.now() + 30 * 60 * 1000).toISOString() })] },
+        ]
+      : [];
+    return jsonResponse(events);
+  });
+
+  const markets = await getShortTermMarkets(asset);
+
+  assert.ok(seenUrls.filter((url) => url.pathname === "/events").every((url) => (
+    url.searchParams.get("order") === "endDate" && url.searchParams.get("ascending") === "false"
+  )));
+  assert.deepEqual(markets.map((market) => market.id), ["current"]);
 });
 
 test("short-term collection does not cache a blocked market", async (t) => {

@@ -1,8 +1,10 @@
 import { startWebServer } from "./web.js";
+import { assertConfig } from "./config.js";
 import { startSniffer, stopSniffer } from "./sniffer.js";
 import { initBlockchainTracker, stopBlockchainTracker } from "./blockchain-tracker.js";
 import { startBinanceLiquidationStream, stopBinanceLiquidationStream, startBinanceDepthStream, stopBinanceDepthStream } from "./binance_ws.js";
 
+assertConfig();
 const webServer = startWebServer();
 let shuttingDown = false;
 

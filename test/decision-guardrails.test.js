@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { calculateKelly } from "../src/analytics.js";
+import { config } from "../src/config.js";
 import { entryPricingForPrediction, entrySnapshotFromShortResult, qwenResultFromShortEvaluation } from "../src/index.js";
 import { formatAnalysis } from "../src/format.js";
 import { normalizeShortAnalysis, parseOpenAiResponse, requestAiText } from "../src/qwen.js";
 import {
   calculateTechnicalIndicators,
+  chainlinkSourceSpec,
   chainlinkVariant,
   estimateTerminalUpProbability,
   evaluateDeterministicShortSnapshot,
@@ -14,6 +16,16 @@ import {
   snapshotChanged,
 } from "../src/short_condition.js";
 import { ANALYSIS_STRATEGY_VERSION, summarizePlayStats } from "../src/storage.js";
+
+async function withMockAiConfig(task) {
+  const previous = { qwenApiKey: config.qwenApiKey, qwenBaseUrl: config.qwenBaseUrl };
+  Object.assign(config, { qwenApiKey: "test-key", qwenBaseUrl: "http://mock.local/v1" });
+  try {
+    return await task();
+  } finally {
+    Object.assign(config, previous);
+  }
+}
 
 test("terminal UP probability is symmetric and monotonic around Price to Beat", () => {
   const probability = (currentPrice) => estimateTerminalUpProbability({
@@ -103,6 +115,28 @@ test("Chainlink variants cover every listed short-market duration", () => {
   assert.equal(chainlinkVariant("1h"), "hourly");
   assert.equal(chainlinkVariant("4h"), "fourhour");
   assert.equal(chainlinkVariant("1d"), "daily");
+});
+
+test("Chainlink resolution sources map to the matching RTDS topic", () => {
+  assert.deepEqual(chainlinkSourceSpec("https://data.chain.link/streams/btc-usd", "BTC"), {
+    kind: "spot",
+    windowSeconds: null,
+    topic: "crypto_prices_chainlink",
+    streamPath: "/streams/btc-usd",
+  });
+  assert.deepEqual(chainlinkSourceSpec("https://data.chain.link/streams/btc-usd-twap-30s-streams", "BTC"), {
+    kind: "twap",
+    windowSeconds: 30,
+    topic: "crypto_prices_twap_thirty",
+    streamPath: "/streams/btc-usd-twap-30s-streams",
+  });
+  assert.deepEqual(chainlinkSourceSpec("https://data.chain.link/streams/btc-usd-twap-60s-streams", "BTC"), {
+    kind: "twap",
+    windowSeconds: 60,
+    topic: "crypto_prices_twap_sixty",
+    streamPath: "/streams/btc-usd-twap-60s-streams",
+  });
+  assert.equal(chainlinkSourceSpec("https://data.chain.link/streams/eth-usd-twap-60s-streams", "BTC"), null);
 });
 
 test("fast entry snapshot exposes deterministic executable pricing without AI metadata", () => {
@@ -303,12 +337,14 @@ test("plain-text AI requests do not require JSON output", async (t) => {
     choices: [{ message: { content: "Post-mortem text" } }],
   }), { status: 200, headers: { "content-type": "application/json" } }));
 
-  const result = await requestAiText({
-    model: "plain-model",
-    messages: [{ role: "user", content: "Evaluate" }],
-  });
+  await withMockAiConfig(async () => {
+    const result = await requestAiText({
+      model: "plain-model",
+      messages: [{ role: "user", content: "Evaluate" }],
+    });
 
-  assert.equal(result.text, "Post-mortem text");
+    assert.equal(result.text, "Post-mortem text");
+  });
 });
 
 test("malformed JSON output falls back to the evaluator model", async (t) => {
@@ -324,15 +360,17 @@ test("malformed JSON output falls back to the evaluator model", async (t) => {
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
 
-  const result = await requestAiText({
-    model: "short-model",
-    messages: [{ role: "user", content: "Analyze" }],
-    response_format: { type: "json_object" },
-  }, { fallbackModel: "evaluator-model" });
+  await withMockAiConfig(async () => {
+    const result = await requestAiText({
+      model: "short-model",
+      messages: [{ role: "user", content: "Analyze" }],
+      response_format: { type: "json_object" },
+    }, { fallbackModel: "evaluator-model" });
 
-  assert.equal(result.text, '{"condition":"CHOPPY"}');
-  assert.equal(result.fallbackFrom, "short-model");
-  assert.equal(responses.length, 0);
+    assert.equal(result.text, '{"condition":"CHOPPY"}');
+    assert.equal(result.fallbackFrom, "short-model");
+    assert.equal(responses.length, 0);
+  });
 });
 
 test("technical indicators work without fabricating unavailable volume", () => {

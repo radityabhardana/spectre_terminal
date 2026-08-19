@@ -1,9 +1,10 @@
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+const pub = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
 
-const pub = join(import.meta.dirname, "..", "public");
 const html = readFileSync(join(pub, "index.html"), "utf8");
 const appJs = readFileSync(join(pub, "app.js"), "utf8");
 

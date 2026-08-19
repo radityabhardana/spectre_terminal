@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
@@ -12,7 +13,7 @@ import {
   validateRequestHost,
 } from "../src/web-security.js";
 
-const root = path.resolve(import.meta.dirname, "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("web responses use a script-safe CSP and baseline security headers", () => {
   const headers = getSecurityHeaders();

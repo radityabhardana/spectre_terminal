@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-const root = path.resolve(import.meta.dirname, "..");
 const read = (relativePath) => readFileSync(path.join(root, relativePath), "utf8");
 
 test("order execution and private-wallet modules are absent", () => {

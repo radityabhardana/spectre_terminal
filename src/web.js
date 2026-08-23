@@ -13,7 +13,6 @@ import { getBinanceWsStatus } from "./binance_ws.js";
 import { runWithAiLanguage } from "./qwen.js";
 import { getSnifferWsStatus, getSnifferEventCounters, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
 import { getBlockchainTrackerHealth } from "./blockchain-tracker.js";
-import { getMarketPulseState, initializeMarketPulseMonitor, startMarketPulseMonitor, stopMarketPulseMonitor, subscribeMarketPulse } from "./market-pulse.js";
 import { assertSecureWebBinding, getSecurityHeaders, normalizeWalletAddress, resolvePublicPath, validateMutationRequest, validateRequestHost } from "./web-security.js";
 
 const shortSnapshotRequestTimes = new Map();
@@ -411,7 +410,6 @@ export function startWebServer(options = {}) {
   const webPort = Number(options.port || port);
   const webHost = options.host || host;
   assertSecureWebBinding(webHost, config.webPassword);
-  initializeMarketPulseMonitor();
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -582,37 +580,6 @@ export function startWebServer(options = {}) {
           sendJson(res, 500, { ok: false, error: "Failed to check market status: " + error.message });
         }
         return;
-      }
-
-      if (req.url === "/api/market-pulse/stream" && req.method === "GET") {
-        const stream = openSseStream(req, res);
-        if (!stream) return;
-        const sendState = (pulseState) => {
-          if (!stream.writableEnded && !stream.destroyed) stream.write(`data: ${JSON.stringify(pulseState)}\n\n`);
-        };
-        sendState(getMarketPulseState());
-        const unsubscribe = subscribeMarketPulse(sendState);
-        req.on("close", unsubscribe);
-        return;
-      }
-
-      if (req.url === "/api/market-pulse" && req.method === "GET") {
-        return sendJson(res, 200, { ok: true, data: getMarketPulseState() });
-      }
-
-      if (req.url === "/api/market-pulse" && req.method === "POST") {
-        try {
-          const body = await readBody(req);
-          const pulseState = await startMarketPulseMonitor(body);
-          return sendJson(res, 200, { ok: true, data: pulseState });
-        } catch (error) {
-          console.error("Market pulse error:", error);
-          return sendJson(res, 500, { ok: false, error: error.message });
-        }
-      }
-
-      if (req.url === "/api/market-pulse" && req.method === "DELETE") {
-        return sendJson(res, 200, { ok: true, data: stopMarketPulseMonitor() });
       }
 
       if (req.url === "/api/sniffer-status" && req.method === "GET") {

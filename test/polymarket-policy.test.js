@@ -250,7 +250,7 @@ test("short-term collection omits UFC markets", async (t) => {
   assert.deepEqual(markets, []);
 });
 
-test("short-term discovery orders newest first and keeps only CLOB-enabled markets", async (t) => {
+test("short-term discovery windows by end date and keeps only CLOB-enabled markets", async (t) => {
   const asset = `shortdiscovery${process.pid}`;
   const seenUrls = [];
   t.mock.method(globalThis, "fetch", async (input) => {
@@ -269,7 +269,10 @@ test("short-term discovery orders newest first and keeps only CLOB-enabled marke
   const markets = await getShortTermMarkets(asset);
 
   assert.ok(seenUrls.filter((url) => url.pathname === "/events").every((url) => (
-    url.searchParams.get("order") === "endDate" && url.searchParams.get("ascending") === "false"
+    url.searchParams.get("order") === "endDate"
+    && url.searchParams.get("ascending") === "true"
+    && url.searchParams.get("end_date_min")
+    && url.searchParams.get("end_date_max")
   )));
   assert.deepEqual(markets.map((market) => market.id), ["current"]);
 });

@@ -1,6 +1,12 @@
-# Spectre Polymarket Analyzer
+# Spectre: Market Intelligence, Without The Noise
 
-Local, read-only intelligence terminal for Polymarket. It combines public Gamma/CLOB data, crypto market context, deterministic Dynamic EV guardrails, multi-role AI analysis, outcome resolution, and read-only Polygon wallet tracking.
+Spectre is a local, read-only terminal for turning Polymarket data into a clearer research workflow.
+
+It brings market discovery, order-book context, crypto signals, deterministic Dynamic EV guardrails, multi-role AI analysis, outcome resolution, and Polygon wallet tracking into one focused interface.
+
+## Project Status
+
+Spectre is designed for research and monitoring, not execution. It can inspect markets, compare evidence, track selected wallets, and store resolved analysis history, but it cannot sign wallets or submit orders.
 
 The application cannot sign wallets or submit orders. Private-wallet execution, live trading, Shadow Bot, and AI reflection memory have been removed.
 
@@ -72,7 +78,7 @@ The command engine supports:
 - `/add <0x wallet address> [nickname]`
 - `/del <0x wallet address>`
 
-The current terminal UI focuses on short-market discovery, Dynamic EV scanning, analysis evidence, history, Market Pulse, and wallet intelligence. It intentionally exposes no order-entry or wallet-signing controls.
+The current terminal UI focuses on short-market discovery, Dynamic EV scanning, analysis evidence, history, and wallet intelligence. It intentionally exposes no order-entry or wallet-signing controls.
 
 ## Outcomes And Statistics
 

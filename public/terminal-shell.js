@@ -29,8 +29,10 @@ function initTerminalShell() {
   const centerDashboard = document.querySelector("#centerDashboard");
   const topbarActions = document.querySelector(".topbar-actions");
   const statusBar = document.querySelector("#statusBar");
+  const settingsModal = document.querySelector("#settingsModal");
 
   if (!workspace || !leftSidebar || !resultPanel || !queuePanel || !topbarActions || !statusBar) return;
+  if (settingsModal && settingsModal.parentElement !== document.body) document.body.append(settingsModal);
 
   const skipLink = element("a", {
     className: "terminal-skip-link",
@@ -150,40 +152,12 @@ function initTerminalShell() {
   toolDrawer.append(drawerHead, drawerContent);
   document.body.append(toolBackdrop, toolDrawer);
 
-  const paletteBackdrop = element("div", {
-    id: "terminalCommandPalette",
-    className: "terminal-command-palette",
-    role: "dialog",
-    "aria-modal": "true",
-    "aria-labelledby": "terminalCommandPaletteTitle",
-    "aria-hidden": "true",
-  }, `
-    <div class="terminal-command-card">
-      <div class="terminal-command-head">
-        <div>
-          <span class="terminal-eyebrow">COMMAND PALETTE</span>
-          <h2 id="terminalCommandPaletteTitle">Open a secondary tool</h2>
-        </div>
-        <kbd>ESC</kbd>
-      </div>
-      <div class="terminal-command-list">
-        <button type="button" data-tool-target="pulse"><i data-lucide="activity"></i><span>Market Pulse<small>Regime and live conditions</small></span></button>
-        <button type="button" data-tool-target="history"><i data-lucide="history"></i><span>Analysis history<small>Performance and resolved calls</small></span></button>
-        <button type="button" data-tool-target="account"><i data-lucide="radar"></i><span>Wallet intelligence<small>Read-only tracker and whale activity</small></span></button>
-        <button type="button" data-tool-target="settings"><i data-lucide="settings"></i><span>Settings<small>Scanner, alerts and language</small></span></button>
-      </div>
-    </div>
-  `);
-  document.body.append(paletteBackdrop);
-
-  const paletteTrigger = element("button", {
-    id: "terminalCommandTrigger",
+  const settingsTrigger = element("button", {
+    id: "terminalSettingsTrigger",
     className: "terminal-top-action",
     type: "button",
-    "aria-haspopup": "dialog",
-    "aria-controls": "terminalCommandPalette",
-    "aria-expanded": "false",
-  }, '<i data-lucide="command" aria-hidden="true"></i><span>Tools</span><kbd>Ctrl K</kbd>');
+    "aria-label": "Open settings",
+  }, '<i data-lucide="settings" aria-hidden="true"></i><span>Settings</span>');
   const drawerTrigger = element("button", {
     id: "secondaryToolsTrigger",
     className: "terminal-top-action",
@@ -191,7 +165,7 @@ function initTerminalShell() {
     "aria-controls": "secondaryToolsDrawer",
     "aria-expanded": "false",
   }, '<i data-lucide="panel-right" aria-hidden="true"></i><span>Workspace</span>');
-  topbarActions.prepend(paletteTrigger, drawerTrigger);
+  topbarActions.prepend(settingsTrigger, drawerTrigger);
 
   const mobileNav = element("nav", {
     id: "mobileTerminalNav",
@@ -234,23 +208,8 @@ function initTerminalShell() {
     }
   }
 
-  function setPalette(open) {
-    paletteBackdrop.classList.toggle("is-open", open);
-    paletteBackdrop.setAttribute("aria-hidden", String(!open));
-    paletteTrigger.setAttribute("aria-expanded", String(open));
-    if (open) {
-      previousFocus = document.activeElement === document.body ? paletteTrigger : document.activeElement;
-      paletteBackdrop.querySelector("button")?.focus();
-    } else if (previousFocus instanceof HTMLElement) {
-      previousFocus.focus();
-    }
-  }
-
   function openTool(target) {
-    setPalette(false);
-    if (target === "pulse") document.querySelector("#marketPulseTrigger")?.click();
-    else if (target === "history") document.querySelector("#btnHistory")?.click();
-    else if (target === "settings") document.querySelector("#btnSettings")?.click();
+    if (target === "history") document.querySelector("#btnHistory")?.click();
     else setDrawer(true);
   }
 
@@ -260,36 +219,37 @@ function initTerminalShell() {
     setDrawer(false);
     setMobileView(button.dataset.mobileView);
   });
-  paletteTrigger.addEventListener("click", () => setPalette(true));
+  settingsTrigger.addEventListener("click", () => {
+    const settingsModal = document.querySelector("#settingsModal");
+    const panel = settingsModal?.querySelector(".settings-dropdown-panel");
+    if (settingsModal && panel) {
+      const buttonRect = settingsTrigger.getBoundingClientRect();
+      const panelWidth = Math.min(420, window.innerWidth - 20);
+      const left = Math.min(
+        Math.max(10, buttonRect.right - panelWidth),
+        window.innerWidth - panelWidth - 10,
+      );
+      settingsModal.style.setProperty("--settings-dropdown-top", `${buttonRect.bottom + 8}px`);
+      settingsModal.style.setProperty("--settings-dropdown-left", `${left}px`);
+    }
+    document.querySelector("#btnSettings")?.click();
+  });
   drawerTrigger.addEventListener("click", () => {
     const isOpen = toolDrawer.classList.contains("is-open");
     setDrawer(!isOpen);
   });
   toolBackdrop.addEventListener("click", () => setDrawer(false));
-  paletteBackdrop.addEventListener("click", (event) => {
-    const target = event.target.closest("[data-tool-target]");
-    if (target) openTool(target.dataset.toolTarget);
-    else if (event.target === paletteBackdrop) setPalette(false);
-  });
   summary.addEventListener("click", (event) => {
     const target = event.target.closest("[data-summary-target]")?.dataset.summaryTarget;
     if (target === "history") openTool("history");
   });
 
   document.addEventListener("keydown", (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      setPalette(true);
-      return;
-    }
     if (event.key === "Escape") {
-      setPalette(false);
       setDrawer(false);
       return;
     }
-    const activeDialog = paletteBackdrop.classList.contains("is-open")
-      ? paletteBackdrop
-      : toolDrawer.classList.contains("is-open") ? toolDrawer : null;
+    const activeDialog = toolDrawer.classList.contains("is-open") ? toolDrawer : null;
     if (event.key !== "Tab" || !activeDialog) return;
     const items = focusable(activeDialog);
     if (!items.length) return;

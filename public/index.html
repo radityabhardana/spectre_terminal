@@ -156,11 +156,6 @@
         </div>
 
         <div class="topbar-actions">
-          <button id="marketPulseTrigger" class="market-pulse-trigger" type="button" aria-controls="marketPulseDrawer" aria-expanded="false" title="Market regime monitor">
-            <i data-lucide="activity" class="market-pulse-trigger-icon" aria-hidden="true"></i>
-            <span class="market-pulse-trigger-dot" aria-hidden="true"></span>
-            <span class="market-pulse-trigger-label">Pulse</span>
-          </button>
           <div id="wsStatusContainer" style="display:flex; gap:8px; margin-right:10px;">
             <div title="Polymarket Sniffer" style="display:flex; align-items:center; gap:4px; font-size:9px; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; color:var(--text-secondary);">
               <div id="wsStatusSniffer" style="width:6px; height:6px; border-radius:50%; background:var(--neon-red);"></div> S
@@ -643,8 +638,8 @@
         </div>
       </div>
       <!-- Settings Modal -->
-      <div id="settingsModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(6px); z-index:10002; justify-content:center; align-items:center;">
-        <div style="background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:16px; width:min(92vw,860px); height:min(85vh,640px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,0.7);">
+      <div id="settingsModal" class="settings-dropdown-backdrop" style="display:none; position:fixed; inset:0; width:100%; height:100%; background:transparent; backdrop-filter:none; z-index:10002; justify-content:flex-start; align-items:flex-start;">
+        <div class="settings-dropdown-panel" style="background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:16px; width:min(520px,calc(100vw - 20px)); height:min(76vh,675px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 54px rgba(0,0,0,0.62);">
 
           <!-- Header -->
           <div style="padding:0 20px; height:52px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--bg-surface); flex-shrink:0;">
@@ -658,9 +653,8 @@
           <div style="display:flex; flex:1; min-height:0;">
 
             <!-- Left Sidebar -->
-            <div style="width:190px; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:12px 10px; gap:2px; background:var(--bg-surface); flex-shrink:0;">
-              <button class="settings-tab active" data-target="pane-language" style="text-align:left; padding:9px 14px; background:rgba(255,255,255,0.06); border:none; border-radius:var(--radius-md); color:var(--text-primary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Language</button>
-              <button class="settings-tab" data-target="pane-alerts" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Alerts &amp; Audio</button>
+            <div style="width:132px; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:10px 8px; gap:2px; background:var(--bg-surface); flex-shrink:0;">
+              <button class="settings-tab active" data-target="pane-alerts" style="text-align:left; padding:9px 14px; background:rgba(255,255,255,0.06); border:none; border-radius:var(--radius-md); color:var(--text-primary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Alerts &amp; Audio</button>
               <button class="settings-tab" data-target="pane-sniper" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Sniper Trigger</button>
               <button class="settings-tab" data-target="pane-analytics" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Analytics</button>
 
@@ -672,33 +666,12 @@
             </div>
 
             <!-- Right Content -->
-            <div style="flex:1; overflow-y:auto; padding:28px 32px; background:var(--bg-base); scrollbar-width:thin; scrollbar-color:var(--border-strong) transparent;">
+            <div style="flex:1; overflow-y:auto; padding:18px 16px; background:var(--bg-base); scrollbar-width:thin; scrollbar-color:var(--border-strong) transparent;">
 
               <!-- Appearance Pane Removed -> Moved to new Padre Theme Panel -->
 
-              <!-- Language Pane -->
-              <div id="pane-language" class="settings-pane" style="display:block;">
-                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Language</h2>
-                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Pilih bahasa yang akan digunakan Qwen untuk merespons hasil analisis.</p>
-
-                <div style="display:flex; flex-direction:column; gap:12px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:16px 18px; border-radius:10px; border:1px solid var(--border);">
-                    <div style="display:flex; flex-direction:column; gap:4px;">
-                      <span style="font-weight:600; color:var(--text-primary); font-size:14px;">Bot Language</span>
-                      <span style="font-size:12px; color:var(--text-tertiary);">Bahasa respons bot</span>
-                    </div>
-                    <select id="botLanguageSelect" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); padding:6px 12px; font-size:13px; outline:none; cursor:pointer;">
-                      <option value="Indonesia">Indonesia</option>
-                      <option value="English">English</option>
-                      <option value="Spanish">Spanish</option>
-                      <option value="Russian">Russian</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
               <!-- Alerts Pane -->
-              <div id="pane-alerts" class="settings-pane" style="display:none;">
+              <div id="pane-alerts" class="settings-pane" style="display:block;">
                 <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Alerts &amp; Audio</h2>
                 <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Configure system notifications and sound alerts.</p>
 
@@ -1008,74 +981,6 @@
       </div>
     </div>
   </div>
-
-  <div id="marketPulseBackdrop" class="market-pulse-backdrop" aria-hidden="true"></div>
-  <aside id="marketPulseDrawer" class="market-pulse-drawer" aria-hidden="true" aria-labelledby="marketPulseTitle">
-    <header class="market-pulse-head">
-      <div class="market-pulse-head-copy">
-        <span class="market-pulse-kicker"><span class="market-pulse-live-dot"></span>Live market intelligence</span>
-        <h2 id="marketPulseTitle">Market Pulse</h2>
-        <p>Deteksi kondisi market berdasarkan candle timeframe.</p>
-      </div>
-      <button id="marketPulseClose" class="market-pulse-close" type="button" aria-label="Tutup Market Pulse">
-        <i data-lucide="x" aria-hidden="true"></i>
-      </button>
-    </header>
-
-    <div class="market-pulse-controls">
-      <div class="market-pulse-control-row">
-        <span class="market-pulse-control-label">Asset</span>
-        <div class="market-pulse-assets" role="group" aria-label="Pilih asset">
-          <button class="market-pulse-asset is-active" type="button" data-pulse-asset="BTC">BTC</button>
-          <button class="market-pulse-asset" type="button" data-pulse-asset="ETH">ETH</button>
-          <button class="market-pulse-asset" type="button" data-pulse-asset="DOGE">DOGE</button>
-        </div>
-      </div>
-
-      <div class="market-pulse-market-field">
-        <span>Candle timeframe</span>
-        <div class="market-pulse-timeframes" role="group" aria-label="Pilih candle timeframe">
-          <button class="market-pulse-timeframe" type="button" data-pulse-timeframe="1m">1m</button>
-          <button class="market-pulse-timeframe is-active" type="button" data-pulse-timeframe="5m">5m</button>
-          <button class="market-pulse-timeframe" type="button" data-pulse-timeframe="15m">15m</button>
-          <button class="market-pulse-timeframe" type="button" data-pulse-timeframe="1h">1h</button>
-          <button class="market-pulse-timeframe" type="button" data-pulse-timeframe="4h">4h</button>
-        </div>
-      </div>
-
-      <label class="market-pulse-refresh-field" for="marketPulseRefreshSelect">
-        <span>Refresh condition</span>
-        <select id="marketPulseRefreshSelect">
-          <option value="15">15 detik</option>
-          <option value="30" selected>30 detik</option>
-          <option value="60">1 menit</option>
-          <option value="300">5 menit</option>
-        </select>
-      </label>
-
-      <div class="market-pulse-actions">
-        <button id="marketPulseRun" class="market-pulse-run" type="button">
-          <span class="market-pulse-run-icon"><i data-lucide="scan-line" aria-hidden="true"></i></span>
-          <span class="market-pulse-run-copy">
-            <strong>Start monitor</strong>
-            <small>Server-side regime detection</small>
-          </span>
-          <i data-lucide="arrow-right" class="market-pulse-run-arrow" aria-hidden="true"></i>
-        </button>
-        <button id="marketPulseStop" class="market-pulse-stop" type="button" hidden aria-label="Stop Market Pulse monitor">
-          <i data-lucide="square" aria-hidden="true"></i>
-        </button>
-      </div>
-    </div>
-
-    <div id="marketPulseContent" class="market-pulse-content" aria-live="polite">
-      <div class="market-pulse-empty">
-        <span class="market-pulse-empty-mark"><i data-lucide="activity" aria-hidden="true"></i></span>
-        <strong>Monitor belum berjalan</strong>
-        <p>Pilih asset dan timeframe untuk mendeteksi trend, choppy, squeeze, breakout, atau volatility expansion.</p>
-      </div>
-    </div>
-  </aside>
 
   <span id="dashPlayWinRate" style="position:fixed; left:-9999px; top:-9999px; pointer-events:none; opacity:0;" aria-hidden="true">0%</span>
   </body>

@@ -1369,11 +1369,10 @@ async function executeCommand(commandText, isBackground = false) {
 
   let data = null;
   try {
-    const botLanguage = localStorage.getItem("botLanguage") || "Indonesia";
     const response = await fetch("/api/command", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text, mode: "auto", language: botLanguage }),
+      body: JSON.stringify({ text, mode: "auto", language: "Indonesia" }),
       signal: activeRequest.signal,
     });
     data = await response.json();
@@ -1873,8 +1872,8 @@ function populateBulkStartOptions() {
     const title = (card.getAttribute("data-question") || card.querySelector("span")?.textContent || `Market ${idx + 1}`).trim();
     const timeText = card.querySelector(".short-market-timer")?.textContent || "";
     return `<div class="bulk-start-item" data-index="${idx}" data-title="${escapeHtml(title)}" style="padding:6px 8px; font-size:10px; cursor:pointer; color:var(--text-primary); border-bottom:1px solid rgba(255,255,255,0.03); display:flex; justify-content:space-between; align-items:center;">
-      <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px;">${idx + 1}. ${escapePulseHtml(title)}</span>
-      <span style="font-size:9px; color:var(--neon-green); font-weight:bold;">${escapePulseHtml(timeText)}</span>
+      <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px;">${idx + 1}. ${escapeHtml(title)}</span>
+      <span style="font-size:9px; color:var(--neon-green); font-weight:bold;">${escapeHtml(timeText)}</span>
     </div>`;
   }).join("");
 }
@@ -2543,15 +2542,15 @@ function buildDynamicScannerResultHtml(item) {
   const result = normalizeEntryScannerResult(item?.entryScanner);
   const observed = result.bestObserved;
   const gates = scannerGateMessages(result);
-  const question = escapePulseHtml(item?.groupItemTitle || item?.question || item?.id || "Unknown market");
-  const outcome = escapePulseHtml(result.outcome || "INCOMPLETE");
-  const lean = escapePulseHtml(scannerDirectionLabel(result.diagnosticLean));
-  const observedDirection = escapePulseHtml(observed?.direction || "-");
-  const dataStatus = escapePulseHtml(result.dataStatus);
-  const timingPhase = escapePulseHtml(result?.timingPhase || "SWEET_SPOT");
+  const question = escapeHtml(item?.groupItemTitle || item?.question || item?.id || "Unknown market");
+  const outcome = escapeHtml(result.outcome || "INCOMPLETE");
+  const lean = escapeHtml(scannerDirectionLabel(result.diagnosticLean));
+  const observedDirection = escapeHtml(observed?.direction || "-");
+  const dataStatus = escapeHtml(result.dataStatus);
+  const timingPhase = escapeHtml(result?.timingPhase || "SWEET_SPOT");
   const asymmetricEdge = formatScannerCents(observed?.grossEvCents);
   const gateHtml = gates.length
-    ? gates.map(message => `<li>${escapePulseHtml(message)}</li>`).join("")
+    ? gates.map(message => `<li>${escapeHtml(message)}</li>`).join("")
     : "<li>None</li>";
 
   return `
@@ -2663,15 +2662,15 @@ function renderEVPanel() {
 
   const gates = scannerGateMessages(result);
   grid.innerHTML = `
-    <div><span>Direction</span><strong>${escapePulseHtml(observed?.direction || result.diagnosticLean || "-")}</strong></div>
+    <div><span>Direction</span><strong>${escapeHtml(observed?.direction || result.diagnosticLean || "-")}</strong></div>
     <div><span>Fair</span><strong>${formatScannerPercent(observed?.fairProbability)}</strong></div>
     <div><span>Ask</span><strong>${formatScannerPrice(observed?.ask)}</strong></div>
     <div><span>Edge</span><strong>${formatScannerCents(observed?.grossEvCents)}</strong></div>
     <div><span>Net EV</span><strong>${formatScannerCents(observed?.netEvCents)}</strong></div>
-    <div><span>Phase</span><strong style="color:var(--neon-cyan)">${escapePulseHtml(phase)}</strong></div>
-    <div><span>Data</span><strong>${escapePulseHtml(result.dataStatus)}</strong></div>
+    <div><span>Phase</span><strong style="color:var(--neon-cyan)">${escapeHtml(phase)}</strong></div>
+    <div><span>Data</span><strong>${escapeHtml(result.dataStatus)}</strong></div>
     <div><span>Conf</span><strong>${result.maxConfirmationCount}/${result.requiredConfirmations}</strong></div>
-    ${gates.length ? `<div style="grid-column:1/-1"><span>Failed Gates</span><strong style="color:var(--neon-red);font-size:9px;font-weight:600">${escapePulseHtml(gates.join(" · "))}</strong></div>` : ""}`;
+    ${gates.length ? `<div style="grid-column:1/-1"><span>Failed Gates</span><strong style="color:var(--neon-red);font-size:9px;font-weight:600">${escapeHtml(gates.join(" · "))}</strong></div>` : ""}`;
 }
 
 function getMarketEndDate(m) {
@@ -2766,7 +2765,7 @@ function renderQueue() {
       const lYes = m.outcomes && m.outcomes[0] ? m.outcomes[0] : "UP";
       const lNo = m.outcomes && m.outcomes[1] ? m.outcomes[1] : "DOWN";
 
-      timeHtml = `<span class="btc5m-timer" data-end-date="${escapePulseHtml(m.endDate || new Date(endMs).toISOString())}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${escapePulseHtml(lYes)}" data-l-no="${escapePulseHtml(lNo)}" style="color:${timeColor}; font-weight:bold; font-size:9px; margin-left:8px; flex-shrink:0;">${timeText}</span>`;
+      timeHtml = `<span class="btc5m-timer" data-end-date="${escapeHtml(m.endDate || new Date(endMs).toISOString())}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${escapeHtml(lYes)}" data-l-no="${escapeHtml(lNo)}" style="color:${timeColor}; font-weight:bold; font-size:9px; margin-left:8px; flex-shrink:0;">${timeText}</span>`;
     }
 
     let sniperStatus = "";
@@ -2784,21 +2783,21 @@ function renderQueue() {
         skipped: ["NO ENTRY", "var(--text-tertiary)"],
       };
       const [label, color] = statusStyles[state.status] || statusStyles.waiting;
-      sniperStatus = `<span title="${escapePulseHtml(result.reason || label)}" style="color:${color}; font-size:9px; border:1px solid ${color}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; font-weight:700;">${escapePulseHtml(label)}</span>`;
-      evMetrics = `<span class="dynamic-queue-lean">DIAGNOSTIC ${escapePulseHtml(scannerDirectionLabel(result.diagnosticLean))}</span>`;
+      sniperStatus = `<span title="${escapeHtml(result.reason || label)}" style="color:${color}; font-size:9px; border:1px solid ${color}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; font-weight:700;">${escapeHtml(label)}</span>`;
+      evMetrics = `<span class="dynamic-queue-lean">DIAGNOSTIC ${escapeHtml(scannerDirectionLabel(result.diagnosticLean))}</span>`;
       const observed = result.bestObserved;
       const gateMessages = scannerGateMessages(result);
       dynamicDetails = `
         <div class="dynamic-queue-details">
-          <span>BEST ${escapePulseHtml(observed?.direction || "-")}</span>
+          <span>BEST ${escapeHtml(observed?.direction || "-")}</span>
           <span>FAIR ${formatScannerPercent(observed?.fairProbability)}</span>
           <span>ASK ${formatScannerPrice(observed?.ask)}</span>
           <span>GROSS ${formatScannerCents(observed?.grossEvCents)}</span>
           <span>NET ${formatScannerCents(observed?.netEvCents)}</span>
           <span>CONF ${result.maxConfirmationCount}/${result.requiredConfirmations}</span>
-          <span>DATA ${escapePulseHtml(result.dataStatus)}</span>
+          <span>DATA ${escapeHtml(result.dataStatus)}</span>
         </div>
-        ${gateMessages.length ? `<div class="dynamic-queue-gates"><b>FAILED GATES</b>${gateMessages.map(message => `<span>${escapePulseHtml(message)}</span>`).join("")}</div>` : ""}`;
+        ${gateMessages.length ? `<div class="dynamic-queue-gates"><b>FAILED GATES</b>${gateMessages.map(message => `<span>${escapeHtml(message)}</span>`).join("")}</div>` : ""}`;
     } else if (m.isFailed) {
       sniperStatus = `<span title="Analisis Gagal" style="color:var(--neon-red); font-size:9px; border:1px solid var(--neon-red); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="alert-triangle" style="width:8px; height:8px; margin-right:4px;"></i> Failed</span>`;
     } else if (m.isTooLate) {
@@ -2816,7 +2815,7 @@ function renderQueue() {
       } else if (timeToCloseSec > 0 && timeToCloseSec <= targetSec) {
         targetText += ` (Ready)`;
       }
-      sniperStatus = `<span title="Sniper akan menganalisis saat hitung mundur ${targetLabel}" style="color:${targetColor}; font-size:9px; border:1px solid ${targetColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">${escapePulseHtml(targetText)}</span>`;
+      sniperStatus = `<span title="Sniper akan menganalisis saat hitung mundur ${targetLabel}" style="color:${targetColor}; font-size:9px; border:1px solid ${targetColor}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0;">${escapeHtml(targetText)}</span>`;
     } else {
       if (m.isLateFired) {
         sniperStatus = `<span title="Target ${targetLabel}; menunggu giliran setelah terlambat" style="color:var(--neon-cyan); font-size:9px; border:1px solid var(--neon-cyan); border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; display:inline-flex; align-items:center;"><i data-lucide="clock-4" style="width:8px; height:8px; margin-right:4px;"></i> Queued${firedLabel ? ` @ ${firedLabel}` : ''}</span>`;
@@ -2844,7 +2843,7 @@ function renderQueue() {
       }
     }
 
-    const safeQuestion = escapePulseHtml(m.question || m.id || "Unknown market");
+    const safeQuestion = escapeHtml(m.question || m.id || "Unknown market");
     html += `
       <div style="display:flex; flex-direction:column; padding:6px 8px; background:rgba(0,0,0,0.2); border:1px solid rgba(16,185,129,0.2); border-radius:4px;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2856,7 +2855,7 @@ function renderQueue() {
           ${resultBadge}
           ${timeHtml}
         </div>
-        <button type="button" data-queue-action="remove" data-queue-id="${escapePulseHtml(m.id)}" style="background:none; border:none; color:var(--neon-red); cursor:pointer; padding:2px; margin-left:8px;"><i data-lucide="x" style="width:10px; height:10px;"></i></button>
+        <button type="button" data-queue-action="remove" data-queue-id="${escapeHtml(m.id)}" style="background:none; border:none; color:var(--neon-red); cursor:pointer; padding:2px; margin-left:8px;"><i data-lucide="x" style="width:10px; height:10px;"></i></button>
         </div>
         ${dynamicDetails}
       </div>
@@ -3285,8 +3284,8 @@ function showSniperSummaryModal() {
 
   analysisQueue.forEach(m => {
     const rawTitle = m.groupItemTitle || String(m.question || "").replace(new RegExp(`(Bitcoin|Ethereum|Dogecoin) Up or Down -? ?`, "i"), "").trim() || m.id;
-    const title = escapePulseHtml(rawTitle);
-    const marketId = escapePulseHtml(m.id);
+    const title = escapeHtml(rawTitle);
+    const marketId = escapeHtml(m.id);
 
     if (isDynamicEntryItem(m)) {
       const result = normalizeEntryScannerResult(m.entryScanner);
@@ -3302,13 +3301,13 @@ function showSniperSummaryModal() {
             <div style="font-size:10px; color:var(--text-tertiary); margin-top:2px;">${marketId}</div>
           </td>
           <td style="padding:10px 16px; text-align:center;">
-            <span style="color:${outcomeColor}; font-weight:800;">${escapePulseHtml(outcome)}</span>
+            <span style="color:${outcomeColor}; font-weight:800;">${escapeHtml(outcome)}</span>
           </td>
-          <td style="padding:10px 16px; text-align:center; color:${leanColor}; font-weight:800;">${escapePulseHtml(scannerDirectionLabel(result.diagnosticLean))}</td>
+          <td style="padding:10px 16px; text-align:center; color:${leanColor}; font-weight:800;">${escapeHtml(scannerDirectionLabel(result.diagnosticLean))}</td>
           <td style="padding:10px 16px; font-family:'JetBrains Mono',monospace; font-size:10px; line-height:1.5;">
-            <strong>${escapePulseHtml(observed?.direction || "-")}</strong> · Fair ${formatScannerPercent(observed?.fairProbability)} · Ask ${formatScannerPrice(observed?.ask)} · Gross ${formatScannerCents(observed?.grossEvCents)} · Net ${formatScannerCents(observed?.netEvCents)}
-            <div style="color:var(--text-tertiary);">Confirmations ${result.maxConfirmationCount}/${result.requiredConfirmations} · Data ${escapePulseHtml(result.dataStatus)}</div>
-            <div style="color:${gates.length ? 'var(--neon-amber)' : 'var(--text-tertiary)'};">Gates: ${gates.length ? gates.map(escapePulseHtml).join(" · ") : "None"}</div>
+            <strong>${escapeHtml(observed?.direction || "-")}</strong> · Fair ${formatScannerPercent(observed?.fairProbability)} · Ask ${formatScannerPrice(observed?.ask)} · Gross ${formatScannerCents(observed?.grossEvCents)} · Net ${formatScannerCents(observed?.netEvCents)}
+            <div style="color:var(--text-tertiary);">Confirmations ${result.maxConfirmationCount}/${result.requiredConfirmations} · Data ${escapeHtml(result.dataStatus)}</div>
+            <div style="color:${gates.length ? 'var(--neon-amber)' : 'var(--text-tertiary)'};">Gates: ${gates.length ? gates.map(escapeHtml).join(" · ") : "None"}</div>
           </td>
         </tr>
       `;
@@ -3327,7 +3326,7 @@ function showSniperSummaryModal() {
             <div style="font-size:10px; color:var(--text-tertiary); margin-top:2px;">${marketId}</div>
           </td>
           <td style="padding:10px 16px; text-align:center;">${legacyOutcome}</td>
-          <td style="padding:10px 16px; text-align:center; font-weight:800;">${escapePulseHtml(prediction)}</td>
+          <td style="padding:10px 16px; text-align:center; font-weight:800;">${escapeHtml(prediction)}</td>
           <td style="padding:10px 16px; text-align:center; font-family:monospace; color:var(--neon-amber);">${hasScannerNumber(confidence) ? `${Number(confidence).toFixed(1)}%` : "-"}</td>
         </tr>
       `;
@@ -4020,12 +4019,6 @@ const btnSaveSettings = document.querySelector("#btnSaveSettings");
 const toggleAudioBtn = document.querySelector("#toggleAudioBtn");
 const settingsTabs = document.querySelectorAll(".settings-tab");
 const settingsPanes = document.querySelectorAll(".settings-pane");
-const botLanguageSelect = document.querySelector("#botLanguageSelect");
-
-if (botLanguageSelect) {
-  botLanguageSelect.value = localStorage.getItem("botLanguage") || "Indonesia";
-  applyLanguageUI(botLanguageSelect.value);
-}
 
 // Sniper Settings Inputs
 const set5mScanStart = document.querySelector("#set5mScanStart");
@@ -4191,12 +4184,7 @@ if (btnSettings && settingsModal) {
       d1: { hour: set1dHour?.value || 9, min: set1dMin?.value || 36 }
     };
     localStorage.setItem("sniperConfig", JSON.stringify(sniperConf));
-    
-    if (botLanguageSelect) {
-      localStorage.setItem("botLanguage", botLanguageSelect.value);
-      applyLanguageUI(botLanguageSelect.value);
-    }
-    
+
     settingsModal.style.display = "none";
     showCustomAlert("Settings tersimpan!");
   });
@@ -4256,61 +4244,6 @@ if (activeTabId) {
 } else {
   renderTabs();
   renderMessages();
-}
-
-function applyLanguageUI(lang) {
-  const translations = {
-    English: {
-      ".settings-tab[data-target='pane-language']": "Language",
-      ".settings-tab[data-target='pane-alerts']": "Alerts & Audio",
-      ".settings-tab[data-target='pane-sniper']": "Sniper Trigger",
-      ".settings-tab[data-target='pane-analytics']": "Analytics",
-      "#pane-language h2": "Language",
-      "#pane-language p": "Select the language Qwen will use for analysis responses.",
-      "#pane-alerts h2": "Alerts & Audio",
-      "#pane-alerts p": "Configure system notifications and sound alerts.",
-      "#pane-sniper h2": "Sniper Trigger Timing",
-      "#pane-sniper p": "How many minutes/seconds before market close should Qwen trigger?",
-      "#pane-analytics h2": "Analytics Stats",
-      "#pane-analytics p": "Performance summary and predictions from Qwen.",
-    },
-    Spanish: {
-      ".settings-tab[data-target='pane-language']": "Idioma",
-      ".settings-tab[data-target='pane-alerts']": "Alertas y Audio",
-      ".settings-tab[data-target='pane-sniper']": "Disparador Sniper",
-      ".settings-tab[data-target='pane-analytics']": "Analítica",
-      "#pane-language h2": "Idioma",
-      "#pane-language p": "Seleccione el idioma que usará Qwen para responder el análisis.",
-      "#pane-alerts h2": "Alertas y Audio",
-      "#pane-alerts p": "Configura notificaciones del sistema y alertas de sonido.",
-      "#pane-sniper h2": "Tiempo de Disparo Sniper",
-      "#pane-sniper p": "¿Cuántos minutos/segundos antes del cierre del mercado debe disparar Qwen?",
-      "#pane-analytics h2": "Estadísticas Analítica",
-      "#pane-analytics p": "Resumen de rendimiento y predicciones de Qwen.",
-    },
-    Russian: {
-      ".settings-tab[data-target='pane-language']": "Язык",
-      ".settings-tab[data-target='pane-alerts']": "Уведомления",
-      ".settings-tab[data-target='pane-sniper']": "Снайпер Триггер",
-      ".settings-tab[data-target='pane-analytics']": "Аналитика",
-      "#pane-language h2": "Язык",
-      "#pane-language p": "Выберите язык, который Qwen будет использовать для ответов.",
-      "#pane-alerts h2": "Уведомления и Звук",
-      "#pane-alerts p": "Настройте системные уведомления и звуковые сигналы.",
-      "#pane-sniper h2": "Снайпер Триггер",
-      "#pane-sniper p": "За сколько минут/секунд до закрытия рынка Qwen должен сработать?",
-      "#pane-analytics h2": "Статистика",
-      "#pane-analytics p": "Сводка производительности и прогнозы от Qwen.",
-    }
-  };
-
-  const dict = translations[lang];
-  if (!dict) return; // Default ID in HTML
-
-  for (const [selector, text] of Object.entries(dict)) {
-    const el = document.querySelector(selector);
-    if (el) el.textContent = text;
-  }
 }
 
 // Queue polling handled by the sniper interval above
@@ -5249,240 +5182,3 @@ function toggleWhaleVolume() {
   }
 }
 window.toggleWhaleVolume = toggleWhaleVolume;
-
-let selectedPulseAsset = "BTC";
-let selectedPulseTimeframe = "5m";
-let marketPulseState = null;
-let marketPulseStream = null;
-
-function escapePulseHtml(value) {
-  return escapeHtml(value);
-}
-
-function setMarketPulseOpen(isOpen) {
-  const drawer = document.getElementById("marketPulseDrawer");
-  const backdrop = document.getElementById("marketPulseBackdrop");
-  const trigger = document.getElementById("marketPulseTrigger");
-  if (!drawer || !backdrop) return;
-
-  drawer.classList.toggle("is-open", isOpen);
-  backdrop.classList.toggle("is-open", isOpen);
-  drawer.setAttribute("aria-hidden", String(!isOpen));
-  backdrop.setAttribute("aria-hidden", String(!isOpen));
-  trigger?.setAttribute("aria-expanded", String(isOpen));
-  if (isOpen) document.getElementById("marketPulseClose")?.focus();
-  else trigger?.focus();
-}
-
-function selectPulseAsset(asset) {
-  selectedPulseAsset = String(asset || "BTC").toUpperCase();
-  document.querySelectorAll(".market-pulse-asset").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.pulseAsset === selectedPulseAsset);
-  });
-}
-
-function selectPulseTimeframe(timeframe) {
-  selectedPulseTimeframe = String(timeframe || "5m").toLowerCase();
-  document.querySelectorAll(".market-pulse-timeframe").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.pulseTimeframe === selectedPulseTimeframe);
-  });
-}
-
-function pulseMetric(label, value, note) {
-  return `<div class="market-pulse-metric"><span class="market-pulse-metric-label">${escapePulseHtml(label)}</span><strong>${escapePulseHtml(value)}</strong><small>${escapePulseHtml(note)}</small></div>`;
-}
-
-function formatPulsePrice(value, asset) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "-";
-  return `$${number.toLocaleString(undefined, { minimumFractionDigits: asset === "DOGE" ? 4 : 2, maximumFractionDigits: asset === "DOGE" ? 5 : 2 })}`;
-}
-
-function formatPulseClock(value) {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "-";
-}
-
-function updatePulseCountdown() {
-  const element = document.getElementById("marketPulseNextScan");
-  if (!element) return;
-  const next = new Date(element.dataset.next || "").getTime();
-  if (!Number.isFinite(next)) {
-    element.textContent = "Paused";
-    return;
-  }
-  const seconds = Math.max(0, Math.ceil((next - Date.now()) / 1000));
-  element.textContent = `Next ${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
-}
-
-function renderMarketPulseState(nextState) {
-  const content = document.getElementById("marketPulseContent");
-  const runButton = document.getElementById("marketPulseRun");
-  const runCopy = runButton?.querySelector("strong");
-  const stopButton = document.getElementById("marketPulseStop");
-  const refreshSelect = document.getElementById("marketPulseRefreshSelect");
-  if (!content || !runButton || !stopButton || !refreshSelect) return;
-
-  const firstState = marketPulseState == null;
-  marketPulseState = nextState || {};
-  if (marketPulseState.active || firstState) {
-    selectPulseAsset(marketPulseState.config?.asset || selectedPulseAsset);
-    selectPulseTimeframe(marketPulseState.config?.timeframe || selectedPulseTimeframe);
-    refreshSelect.value = String(marketPulseState.config?.refreshSeconds || 30);
-  }
-
-  runButton.disabled = Boolean(marketPulseState.scanning);
-  if (runCopy) runCopy.textContent = marketPulseState.active ? "Update monitor" : "Start monitor";
-  stopButton.hidden = !marketPulseState.active;
-
-  if (marketPulseState.scanning && !marketPulseState.reading) {
-    content.innerHTML = `<div class="market-pulse-loading"><span class="market-pulse-loading-mark"><i data-lucide="loader-circle"></i></span><strong>Reading market regime</strong><p>Mengambil closed candles dan menghitung struktur ${escapePulseHtml(selectedPulseAsset)} ${escapePulseHtml(selectedPulseTimeframe)}.</p></div>`;
-  } else if (marketPulseState.error && !marketPulseState.reading) {
-    content.innerHTML = `<div class="market-pulse-error"><span class="market-pulse-error-mark"><i data-lucide="wifi-off"></i></span><strong>Market data unavailable</strong><p>${escapePulseHtml(marketPulseState.error)}</p></div>`;
-  } else if (!marketPulseState.reading) {
-    content.innerHTML = `<div class="market-pulse-empty"><span class="market-pulse-empty-mark"><i data-lucide="activity"></i></span><strong>Monitor belum berjalan</strong><p>Pilih asset dan timeframe untuk mendeteksi kondisi market saat ini.</p></div>`;
-  } else {
-    const reading = marketPulseState.reading;
-    const regime = reading.regime || {};
-    const metrics = reading.metrics || {};
-    const directionClass = regime.direction === "UP" ? "is-up" : regime.direction === "DOWN" ? "is-down" : "is-neutral";
-    const changeClass = Number(reading.windowChange) >= 0 ? "is-positive" : "is-negative";
-    const modifiers = (reading.modifiers || []).map((modifier) => `<span class="market-pulse-modifier">${escapePulseHtml(modifier)}</span>`).join("");
-    const adxNote = Number(metrics.adx) >= 25 ? "trend strength" : "weak trend";
-    const chopNote = Number(metrics.choppiness) >= 61.8 ? "choppy" : Number(metrics.choppiness) <= 38.2 ? "directional" : "mixed";
-    const atrNote = `percentile ${metrics.atrPercentile ?? "-"}`;
-    const bbNote = `percentile ${metrics.bbWidthPercentile ?? "-"}`;
-    const volumeNote = Number(metrics.volumeRatio) >= 1.5 ? "spike" : Number(metrics.volumeRatio) < 0.7 ? "low" : "normal";
-    const rsiNote = Number(metrics.rsi) >= 70 ? "overbought" : Number(metrics.rsi) <= 30 ? "oversold" : "balanced";
-    const errorBanner = marketPulseState.error ? `<p class="market-pulse-market-source">Last refresh failed: ${escapePulseHtml(marketPulseState.error)}</p>` : "";
-
-    content.innerHTML = `
-      <section class="market-pulse-result ${directionClass}">
-        <div class="market-pulse-result-meta">
-          <span>${marketPulseState.active ? "Live regime" : "Last reading"}</span>
-          <strong>${escapePulseHtml(reading.asset)} / ${escapePulseHtml(String(reading.timeframe).toUpperCase())}</strong>
-        </div>
-        <div class="market-pulse-result-hero">
-          <div class="market-pulse-verdict">
-            <span class="market-pulse-verdict-label">Current condition</span>
-            <strong class="market-pulse-verdict-value">${escapePulseHtml(regime.label || "UNKNOWN")}</strong>
-            <span class="market-pulse-change">${escapePulseHtml(regime.confidence ?? "-")}% confidence</span>
-          </div>
-          <div class="market-pulse-price-stack">
-            <span class="market-pulse-price-label">Last candle close</span>
-            <strong class="market-pulse-price-value">${formatPulsePrice(reading.price, reading.asset)}</strong>
-            <span class="market-pulse-change ${changeClass}">${Number(reading.windowChange) > 0 ? "+" : ""}${escapePulseHtml(reading.windowChange)}% / 5 candles</span>
-          </div>
-        </div>
-        <div class="market-pulse-recommendation">
-          <span class="market-pulse-recommendation-label">Market structure</span>
-          <strong>${escapePulseHtml(regime.description || "Kondisi belum dapat ditentukan.")}</strong>
-          <p class="market-pulse-market-source">Range ${formatPulsePrice(reading.range?.low, reading.asset)} - ${formatPulsePrice(reading.range?.high, reading.asset)} · position ${escapePulseHtml(reading.range?.position ?? "-")}%</p>
-        </div>
-        <div class="market-pulse-metrics">
-          ${pulseMetric("ADX", metrics.adx ?? "-", adxNote)}
-          ${pulseMetric("CHOP", metrics.choppiness ?? "-", chopNote)}
-          ${pulseMetric("ATR", `${metrics.atrPercent ?? "-"}%`, atrNote)}
-          ${pulseMetric("BB WIDTH", `${metrics.bbWidth ?? "-"}%`, bbNote)}
-          ${pulseMetric("VOLUME", `${metrics.volumeRatio ?? "-"}x`, volumeNote)}
-          ${pulseMetric("RSI 14", metrics.rsi ?? "-", rsiNote)}
-        </div>
-        <div class="market-pulse-modifiers">${modifiers}</div>
-        ${errorBanner}
-        <div class="market-pulse-monitor-meta">
-          <span>Last ${escapePulseHtml(formatPulseClock(marketPulseState.lastScanAt))}</span>
-          <span id="marketPulseNextScan" data-next="${escapePulseHtml(marketPulseState.nextScanAt || "")}"></span>
-        </div>
-      </section>`;
-  }
-  if (window.lucide) window.lucide.createIcons({ root: content });
-  updatePulseCountdown();
-}
-
-async function loadMarketPulseState() {
-  try {
-    const response = await fetch("/api/market-pulse");
-    const payload = await response.json();
-    if (!response.ok || !payload.ok) throw new Error(payload.error || "Gagal memuat Market Pulse");
-    renderMarketPulseState(payload.data);
-  } catch (error) {
-    const content = document.getElementById("marketPulseContent");
-    if (content) content.innerHTML = `<div class="market-pulse-error"><span class="market-pulse-error-mark"><i data-lucide="wifi-off"></i></span><strong>Market Pulse unavailable</strong><p>${escapePulseHtml(error.message)}</p></div>`;
-  }
-}
-
-function connectMarketPulseStream() {
-  if (marketPulseStream) return;
-  marketPulseStream = new EventSource("/api/market-pulse/stream");
-  marketPulseStream.onmessage = (event) => {
-    try { renderMarketPulseState(JSON.parse(event.data)); } catch { /* ignore malformed event */ }
-  };
-}
-
-async function runMarketPulse() {
-  const content = document.getElementById("marketPulseContent");
-  const runButton = document.getElementById("marketPulseRun");
-  const refreshSelect = document.getElementById("marketPulseRefreshSelect");
-  if (!content || !runButton || !refreshSelect) return;
-
-  runButton.disabled = true;
-  content.innerHTML = `
-    <div class="market-pulse-loading">
-      <span class="market-pulse-loading-mark"><i data-lucide="loader-circle"></i></span>
-      <strong>Reading market regime</strong>
-      <p>Mengambil closed candles ${escapePulseHtml(selectedPulseAsset)} ${escapePulseHtml(selectedPulseTimeframe)}.</p>
-    </div>`;
-  if (window.lucide) window.lucide.createIcons({ root: content });
-
-  try {
-    const response = await fetch("/api/market-pulse", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ asset: selectedPulseAsset, timeframe: selectedPulseTimeframe, refreshSeconds: Number(refreshSelect.value) }),
-    });
-    const payload = await response.json();
-    if (!response.ok || !payload.ok) throw new Error(payload.error || "Pulse monitor gagal dimulai");
-    renderMarketPulseState(payload.data);
-  } catch (error) {
-    content.innerHTML = `<div class="market-pulse-error"><span class="market-pulse-error-mark"><i data-lucide="triangle-alert"></i></span><strong>Pulse monitor gagal</strong><p>${escapePulseHtml(error.message)}</p></div>`;
-    if (window.lucide) window.lucide.createIcons({ root: content });
-  } finally {
-    runButton.disabled = false;
-  }
-}
-
-window.openMarketPulse = async function(asset = selectedPulseAsset) {
-  setMarketPulseOpen(true);
-  selectPulseAsset(asset);
-  connectMarketPulseStream();
-  await loadMarketPulseState();
-};
-window.closeMarketPulse = () => setMarketPulseOpen(false);
-window.triggerMarketPulse = async function(asset = selectedPulseAsset) {
-  setMarketPulseOpen(true);
-  selectPulseAsset(asset);
-  connectMarketPulseStream();
-  await loadMarketPulseState();
-};
-
-document.getElementById("marketPulseTrigger")?.addEventListener("click", () => window.openMarketPulse());
-document.getElementById("marketPulseClose")?.addEventListener("click", window.closeMarketPulse);
-document.getElementById("marketPulseBackdrop")?.addEventListener("click", window.closeMarketPulse);
-document.getElementById("marketPulseRun")?.addEventListener("click", () => runMarketPulse());
-document.getElementById("marketPulseStop")?.addEventListener("click", async () => {
-  const response = await fetch("/api/market-pulse", { method: "DELETE" });
-  const payload = await response.json();
-  if (payload?.data) renderMarketPulseState(payload.data);
-});
-document.querySelectorAll(".market-pulse-asset").forEach((button) => {
-  button.addEventListener("click", () => selectPulseAsset(button.dataset.pulseAsset));
-});
-document.querySelectorAll(".market-pulse-timeframe").forEach((button) => {
-  button.addEventListener("click", () => selectPulseTimeframe(button.dataset.pulseTimeframe));
-});
-setInterval(updatePulseCountdown, 1000);
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && document.getElementById("marketPulseDrawer")?.classList.contains("is-open")) {
-    window.closeMarketPulse();
-  }
-});

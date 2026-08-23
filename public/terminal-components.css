@@ -44,19 +44,19 @@
   --neon-purple: #9d7ede;
 
   /* Radius */
-  --radius-xs: 0px;
-  --radius-sm: 0px;
-  --radius-md: 0px;
-  --radius-lg: 0px;
-  --radius-xl: 0px;
-  --radius-full: 0px;
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 999px;
 
   /* Shadows â€” richer in deep dark */
-  --shadow-sm: none;
-  --shadow-md: none;
-  --shadow-lg: none;
-  --shadow-xl: none;
-  --shadow-card: none;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.35);
+  --shadow-md: 0 8px 24px rgba(0,0,0,.4);
+  --shadow-lg: 0 16px 44px rgba(0,0,0,.5);
+  --shadow-xl: 0 22px 60px rgba(0,0,0,.55);
+  --shadow-card: 0 1px 3px rgba(0,0,0,.3);
 }
 
 /* Spectre logo responsive light/dark mode */
@@ -158,7 +158,7 @@ h1, h2, h3 {
   height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 0px;
+  border-radius: var(--radius-sm);
   background: rgba(99, 91, 255, 0.1);
   border: 1px solid rgba(99, 91, 255, 0.2);
   overflow: hidden;
@@ -220,8 +220,8 @@ h1 {
   border: 1px solid var(--border-strong);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  border-radius: 0px;
-  font-family: 0px;
+  border-radius: var(--radius-full);
+
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -232,7 +232,7 @@ h1 {
 .status-pill::before {
   content: "";
   width: 6px; height: 6px;
-  border-radius: 0px;
+  border-radius: 50%;
   background: var(--green);
   flex-shrink: 0;
   animation: dotPulse 2.5s ease-in-out infinite;
@@ -303,7 +303,7 @@ h1 {
 
 .section-icon {
   width: 6px; height: 6px;
-  border-radius: 0px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
@@ -344,7 +344,7 @@ h1 {
   border: 1px solid var(--border-strong);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  border-radius: 0px;
+  border-radius: var(--radius-full);
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   font-weight: 500;
@@ -396,8 +396,8 @@ h1 {
   font-size: 9px;
   font-weight: 700;
   padding: 1px 5px;
-  border-radius: 0px;
-  text-transform: 0px;
+  border-radius: var(--radius-full);
+  text-transform: uppercase;
   letter-spacing: 0.04em;
   background: rgba(161, 127, 224, 0.18);
   color: var(--purple);
@@ -420,9 +420,9 @@ textarea {
   resize: none;
   padding: 12px 14px;
   border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   background: var(--bg-base);
   color: var(--text-primary);
-  border-radius: 0px;
   outline: none;
   font-family: "JetBrains Mono", monospace;
   font-size: 12px;
@@ -505,7 +505,7 @@ textarea:focus {
   font-family: "JetBrains Mono", monospace;
   font-size: 13px;
   font-weight: 600;
-  border-radius: 0px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.15s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 0px var(--accent-glow);
@@ -533,7 +533,7 @@ textarea:focus {
   font-family: "JetBrains Mono", monospace;
   font-size: 13px;
   font-weight: 500;
-  border-radius: 0px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.15s ease;
   border: 1px solid var(--border-strong); box-shadow: none;
@@ -600,7 +600,7 @@ textarea:focus {
 
 .guard-dot {
   width: 6px; height: 6px;
-  border-radius: 0px;
+  border-radius: 50%;
   background: var(--green);
   flex-shrink: 0;
   animation: dotPulse 2.5s ease-in-out infinite;
@@ -666,7 +666,7 @@ textarea:focus {
   display: block;
   border: 1px solid var(--border-strong);
   background: var(--bg-overlay);
-  border-radius: 0px;
+  border-radius: var(--radius-sm);
 }
 .console-metrics span:nth-child(2) { height: 18px; background: rgba(99, 91, 255, 0.2); border-color: rgba(99, 91, 255, 0.3); }
 .console-metrics span:nth-child(3) { height: 8px; }
@@ -692,7 +692,7 @@ textarea:focus {
   padding: 0 16px;
   border: none;
   border-bottom: 2px solid transparent;
-  border-radius: 0px;
+  border-radius: var(--radius-xs);
   background: transparent;
   color: var(--text-tertiary);
   font-family: "JetBrains Mono", monospace;
@@ -722,7 +722,7 @@ textarea:focus {
   align-items: center;
   justify-content: center;
   width: 14px; height: 14px;
-  border-radius: 0px;
+  border-radius: var(--radius-full);
   font-size: 0px;
   line-height: 1;
   color: var(--text-tertiary);
@@ -793,7 +793,7 @@ textarea:focus {
   padding: 7px 14px;
   border: 1px solid var(--border-strong);
   background: var(--bg-surface);
-  border-radius: 0px;
+  border-radius: var(--radius-sm);
   box-shadow: 0px;
   backdrop-filter: blur(12px);
 }
@@ -815,7 +815,7 @@ textarea:focus {
   flex: 0 0 14px;
   border: 2px solid var(--border-strong);
   border-top-color: var(--accent);
-  border-radius: 0px;
+  border-radius: 50%;
   animation: spin 700ms linear infinite;
 }
 
@@ -840,7 +840,7 @@ textarea:focus {
   flex: 0 0 auto;
   border: none !important;
   background: transparent !important;
-  border-radius: 0px;
+  border-radius: var(--radius-md);
   overflow: 0px;
   position: relative;
   animation: messageIn 180ms ease-out;
@@ -922,7 +922,7 @@ textarea:focus {
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
   color: var(--text-secondary);
-  border-radius: 0px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -969,7 +969,7 @@ textarea:focus {
   border: 1px solid var(--border-strong);
   color: var(--text-secondary);
   background: var(--bg-elevated);
-  border-radius: 0px;
+  border-radius: var(--radius-xs);
   text-decoration: none;
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
@@ -1036,7 +1036,7 @@ textarea:focus {
 
 .status-bar-dot {
   width: 5px; height: 5px;
-  border-radius: 0px;
+  border-radius: 50%;
   background: var(--green);
   flex-shrink: 0;
   animation: dotPulse 2.5s ease-in-out infinite;
@@ -1064,7 +1064,7 @@ textarea::-webkit-scrollbar-track,
 .messages::-webkit-scrollbar-thumb,
 textarea::-webkit-scrollbar-thumb,
 .message-body::-webkit-scrollbar-thumb,
-.smart-actions::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 0px; }
+.smart-actions::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
 
 /* ================================================================
    UTILITIES
@@ -1128,7 +1128,7 @@ textarea::-webkit-scrollbar-thumb,
   background: var(--bg-overlay);
   border: 1px solid var(--border-strong);
   padding: 12px 14px;
-  border-radius: 0px;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-family: "JetBrains Mono", monospace;
   font-size: 11px;
@@ -1152,7 +1152,7 @@ textarea::-webkit-scrollbar-thumb,
 .analysis-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 0px;
+  border-radius: var(--radius-md);
   padding: 0px;
   display: flex;
   flex-direction: column;
@@ -1190,7 +1190,7 @@ textarea::-webkit-scrollbar-thumb,
   background: rgba(48, 199, 127, 0.06);
   border: 1px solid rgba(48, 199, 127, 0.2);
   border-left: 3px solid var(--green);
-  border-radius: 0px;
+  border-radius: var(--radius-md);
   padding: 14px 16px;
   margin-bottom: 8px;
 }
@@ -1218,7 +1218,7 @@ textarea::-webkit-scrollbar-thumb,
 .visual-bar-container {
   background: var(--bg-base);
   border: 1px solid var(--border);
-  border-radius: 0px;
+  border-radius: 999px;
   height: 0px;
   display: flex;
   overflow: hidden;
@@ -1261,7 +1261,7 @@ textarea::-webkit-scrollbar-thumb,
 .metric-box {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 0px;
+  border-radius: var(--radius-xs);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
@@ -2186,7 +2186,7 @@ textarea::-webkit-scrollbar-thumb,
   flex-direction: column;
   overflow: hidden;
   font-family: var(--font-secondary);
-  
+
   /* Entry Animation */
   opacity: 0;
   transform: translateY(16px);

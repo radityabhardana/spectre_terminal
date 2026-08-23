@@ -466,61 +466,59 @@ export async function searchMarkets(keyword, limit = 5, signal = null) {
   return sortMarkets(scored, keyword).slice(0, limit);
 }
 
+const SHORT_MARKET_SERIES = {
+  "5m": "5m",
+  "15m": "15m",
+  "1h": "hourly",
+  "4h": "4h",
+  "1d": "daily",
+};
+
+// How far ahead each duration's events are tracked, and how long after close
+// an event stays visible. Mirrors the client-side filters in processEvents.
+const SHORT_MARKET_TRACKING_WINDOW_MS = {
+  "5m": 60 * 60 * 1000,
+  "15m": 3 * 60 * 60 * 1000,
+  "1h": 12 * 60 * 60 * 1000,
+  "4h": 2 * 24 * 60 * 60 * 1000,
+  "1d": 3 * 24 * 60 * 60 * 1000,
+};
+const SHORT_MARKET_GRACE_MS = 60 * 60 * 1000;
+
+function shortMarketEventsUrl(assetLower, seriesSuffix, durationType, now) {
+  const url = new URL("/events", config.gammaUrl);
+  const maxFutureMs = SHORT_MARKET_TRACKING_WINDOW_MS[durationType];
+  // Polymarket pre-creates these events ~24h ahead, so ordering by endDate and
+  // paging can return a page full of tomorrow's markets while the live ones fall
+  // outside the limit. Constrain each query to its relevant end-date window.
+  url.searchParams.set("series_slug", `${assetLower}-up-or-down-${seriesSuffix}`);
+  url.searchParams.set("active", "true");
+  url.searchParams.set("closed", "false");
+  url.searchParams.set("end_date_min", new Date(now - SHORT_MARKET_GRACE_MS).toISOString());
+  url.searchParams.set("end_date_max", new Date(now + maxFutureMs).toISOString());
+  url.searchParams.set("order", "endDate");
+  url.searchParams.set("ascending", "true");
+  url.searchParams.set("limit", "100");
+  return url;
+}
+
 export async function getShortTermMarkets(asset = "btc") {
   const assetLower = asset.toLowerCase();
-  
-  const url5m = new URL("/events", config.gammaUrl);
-  url5m.searchParams.set("series_slug", `${assetLower}-up-or-down-5m`);
-  url5m.searchParams.set("active", "true");
-  url5m.searchParams.set("closed", "false");
-  url5m.searchParams.set("order", "endDate");
-  url5m.searchParams.set("ascending", "false");
-  url5m.searchParams.set("limit", "100");
+  const now = Date.now();
 
-  const url15m = new URL("/events", config.gammaUrl);
-  url15m.searchParams.set("series_slug", `${assetLower}-up-or-down-15m`);
-  url15m.searchParams.set("active", "true");
-  url15m.searchParams.set("closed", "false");
-  url15m.searchParams.set("order", "endDate");
-  url15m.searchParams.set("ascending", "false");
-  url15m.searchParams.set("limit", "100");
+  const requests = Object.entries(SHORT_MARKET_SERIES).map(([durationType, seriesSuffix]) =>
+    fetchJson(shortMarketEventsUrl(assetLower, seriesSuffix, durationType, now).toString())
+      .then((events) => [durationType, events])
+  );
 
-  const url1h = new URL("/events", config.gammaUrl);
-  url1h.searchParams.set("series_slug", `${assetLower}-up-or-down-hourly`);
-  url1h.searchParams.set("active", "true");
-  url1h.searchParams.set("closed", "false");
-  url1h.searchParams.set("order", "endDate");
-  url1h.searchParams.set("ascending", "false");
-  url1h.searchParams.set("limit", "100");
-
-  const url4h = new URL("/events", config.gammaUrl);
-  url4h.searchParams.set("series_slug", `${assetLower}-up-or-down-4h`);
-  url4h.searchParams.set("active", "true");
-  url4h.searchParams.set("closed", "false");
-  url4h.searchParams.set("order", "endDate");
-  url4h.searchParams.set("ascending", "false");
-  url4h.searchParams.set("limit", "100");
-
-  const url1d = new URL("/events", config.gammaUrl);
-  url1d.searchParams.set("series_slug", `${assetLower}-up-or-down-daily`);
-  url1d.searchParams.set("active", "true");
-  url1d.searchParams.set("closed", "false");
-  url1d.searchParams.set("order", "endDate");
-  url1d.searchParams.set("ascending", "false");
-  url1d.searchParams.set("limit", "100");
-
-  const [events5m, events15m, events1h, events4h, events1d] = await Promise.all([
-    fetchJson(url5m.toString()),
-    fetchJson(url15m.toString()),
-    fetchJson(url1h.toString()),
-    fetchJson(url4h.toString()),
-    fetchJson(url1d.toString())
-  ]).catch(err => {
+  let results;
+  try {
+    results = await Promise.all(requests);
+  } catch (err) {
     console.error("[Polymarket] getShortTermMarkets fetch error:", err.message);
     throw new Error("Failed to fetch short markets from Polymarket: " + err.message);
-  });
+  }
 
-  const now = Date.now();
   const shortMarkets = [];
 
   const processEvents = (events, durationType) => {
@@ -533,10 +531,10 @@ export async function getShortTermMarkets(asset = "btc") {
       m.duration_type = durationType;
       m.durationType = durationType;
       m.asset = asset;
-      
+
       const endTime = new Date(m.endDate).getTime();
       const timeToClose = endTime - now;
-        
+
       // Cache the raw market so getMarketById avoids network calls (prevents timeouts during snipe)
       setCache(new URL(`/markets/${rawMarket.id}`, config.gammaUrl).toString(), {
         ...rawMarket,
@@ -562,12 +560,10 @@ export async function getShortTermMarkets(asset = "btc") {
     }
   };
 
-  processEvents(events5m, "5m");
-  processEvents(events15m, "15m");
-  processEvents(events1h, "1h");
-  processEvents(events4h, "4h");
-  processEvents(events1d, "1d");
-  
+  for (const [durationType, events] of results) {
+    processEvents(events, durationType);
+  }
+
   // Sort by end date
   shortMarkets.sort((a, b) => {
     const timeA = new Date(a.endDate).getTime();

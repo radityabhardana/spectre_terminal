@@ -220,17 +220,6 @@ test("mobile uses focused bottom navigation without page overflow", async ({ pag
   await expect(page.locator("#secondaryToolsDrawer")).toBeVisible();
 });
 
-test("command palette is keyboard accessible", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "desktop", "desktop-only keyboard assertion");
-
-  await page.keyboard.press("Control+K");
-  await expect(page.locator("#terminalCommandPalette")).toBeVisible();
-  await expect(page.locator("#terminalCommandPalette button").first()).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(page.locator("#terminalCommandPalette")).not.toBeVisible();
-  await expect(page.locator("#terminalCommandTrigger")).toBeFocused();
-});
-
 test("queued market produces a deterministic no-entry result", async ({ page }) => {
   await page.evaluate(() => window.addToQueue({
     id: "qa-market-5m",

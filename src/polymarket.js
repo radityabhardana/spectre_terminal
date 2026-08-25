@@ -2,6 +2,7 @@ import dns from "node:dns";
 import { config } from "./config.js";
 import { assertMarketAllowed, isBlockedUfcMarket } from "./market-policy.js";
 import { getCache, setCache } from "./storage.js";
+import { mapExactUpDownTokens, ShortObserveContractError } from "./short-observe-contract.js";
 
 // Multi-network resilience: Dynamic DoH resolver for Polymarket endpoints
 // Works across School Wi-Fi, Smartfren Hotspot, Home Wi-Fi & Cloudflare 1.1.1.1 WARP
@@ -855,5 +856,35 @@ export function pickYesNoTokens(market) {
     noLabel: market.outcomes[secondaryIndex] || "No",
     yesIndex: primaryIndex,
     noIndex: secondaryIndex,
+  };
+}
+
+export function pickShortUpDownTokens(market) {
+  const outcomesValue = market?.raw?.outcomes ?? market?.outcomes;
+  const tokenIdsValue = market?.raw?.clobTokenIds ?? market?.clobTokenIds;
+  let mapped;
+  try {
+    mapped = mapExactUpDownTokens(outcomesValue, tokenIdsValue);
+  } catch (error) {
+    if (!(error instanceof ShortObserveContractError) && error?.name !== "ShortObserveContractError") throw error;
+    const reason = String(error.message || "invalid short UP/DOWN mapping").slice(0, 240);
+    throw new ShortObserveContractError(
+      "TOKEN_MAPPING_INVALID",
+      `Short UP/DOWN token mapping invalid: ${reason}`,
+      { originalCode: error.code || "SHORT_OBSERVE_CONTRACT_ERROR", reason },
+    );
+  }
+  const outcomes = safeJsonParse(outcomesValue, outcomesValue);
+  const upIndex = outcomes.findIndex((outcome) => String(outcome).toUpperCase() === "UP");
+  const downIndex = outcomes.findIndex((outcome) => String(outcome).toUpperCase() === "DOWN");
+  return {
+    yesTokenId: mapped.UP,
+    noTokenId: mapped.DOWN,
+    yesPrice: market.outcomePrices?.[upIndex],
+    noPrice: market.outcomePrices?.[downIndex],
+    yesLabel: outcomes[upIndex],
+    noLabel: outcomes[downIndex],
+    yesIndex: upIndex,
+    noIndex: downIndex,
   };
 }

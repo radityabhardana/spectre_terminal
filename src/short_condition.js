@@ -987,7 +987,7 @@ export async function evaluateShortMarketCondition({
         fetchChainlinkLivePrice(normalizedAsset, signal, oracleSource),
         typeof refreshMarketPrices === "function"
             ? Promise.resolve(refreshMarketPrices()).catch((error) => {
-              if (signal?.aborted || error?.name === "AbortError" || error?.code === "UNSUPPORTED_UFC") throw error;
+              if (signal?.aborted || error?.name === "AbortError" || error?.code === "UNSUPPORTED_UFC" || error?.code === "TOKEN_MAPPING_INVALID") throw error;
               return null;
             })
           : Promise.resolve(null),
@@ -1006,7 +1006,7 @@ export async function evaluateShortMarketCondition({
         };
       }
     } catch (error) {
-      if (signal?.aborted || error?.code === "UNSUPPORTED_UFC") throw error;
+      if (signal?.aborted || error?.code === "UNSUPPORTED_UFC" || error?.code === "TOKEN_MAPPING_INVALID") throw error;
     }
   }
 

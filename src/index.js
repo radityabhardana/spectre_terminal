@@ -22,6 +22,7 @@ import {
   getOrderBook,
   parsePolymarketLink,
   pickYesNoTokens,
+  pickShortUpDownTokens,
   SEARCH_ENGINE_VERSION,
   searchMarkets,
 } from "./polymarket.js";
@@ -251,7 +252,7 @@ async function refreshShortExecutionSnapshot(marketId, score, signal = null) {
     if (signal?.aborted || error?.code === "UNSUPPORTED_UFC") throw error;
     return null;
   });
-  const freshTokens = freshMarket ? pickYesNoTokens(freshMarket) : null;
+  const freshTokens = freshMarket ? pickShortUpDownTokens(freshMarket) : null;
   const primaryTokenId = freshTokens?.yesTokenId || score.primaryTokenId;
   const secondaryTokenId = freshTokens?.noTokenId || score.secondaryTokenId;
   const [upBook, downBook] = await Promise.all([
@@ -341,14 +342,14 @@ async function resolveAnalyzeInput(arg, signal = null) {
   return { kind: "market", market, event: null };
 }
 
-async function scoreOneMarket(market, signal = null) {
+export async function scoreOneMarket(market, signal = null) {
   assertMarketAllowed(market);
-  const tokens = pickYesNoTokens(market);
+  const shortMarket = isShortCryptoMarket(market);
+  const tokens = shortMarket ? pickShortUpDownTokens(market) : pickYesNoTokens(market);
   if (!tokens.yesTokenId) {
     throw new Error(`Market ${market.id} tidak punya token utama.`);
   }
 
-  const shortMarket = isShortCryptoMarket(market);
   let yesBook;
   let noBook = null;
   if (shortMarket) {
@@ -365,7 +366,10 @@ async function scoreOneMarket(market, signal = null) {
   } else {
     yesBook = await getOrderBook(tokens.yesTokenId, signal);
   }
-  const baseScore = scoreMarket({ market, yesBook });
+  const scoreMarketInput = shortMarket
+    ? { ...market, outcomePrices: [tokens.yesPrice, tokens.noPrice] }
+    : market;
+  const baseScore = scoreMarket({ market: scoreMarketInput, yesBook });
   const clobMidpoint =
     baseScore.marketProbability == null ? null : baseScore.marketProbability / 100;
   const gammaPrice = Number(tokens.yesPrice);
@@ -1090,7 +1094,7 @@ export async function handleCommand(text, message, ctx) {
     const usage = "Pakai format: /book <marketId atau link Polymarket>\n\nContoh: /book 2169995";
     if (!arg || (!isShortMarketId(arg) && !looksLikeUrl(arg))) return menuAnswer(usage);
     const market = await resolveMarketInput(arg, ctx?.signal);
-    const tokens = pickYesNoTokens(market);
+    const tokens = isShortCryptoMarket(market) ? pickShortUpDownTokens(market) : pickYesNoTokens(market);
     if (!tokens.yesTokenId) {
       return menuAnswer("Market ditemukan, tapi token utama tidak tersedia.");
     }

@@ -86,6 +86,9 @@ function mockShortRefreshNetwork(t, { marketId, refreshOverrides }) {
     slug: `bitcoin-updown-5m-${marketId}`,
     category: "Crypto",
     durationType: "5m",
+    outcomes: ["Up", "Down"],
+    outcomePrices: ["0.51", "0.49"],
+    clobTokenIds: ["up-token", "down-token"],
     startDate,
     endDate,
     resolutionSource: "https://data.chain.link/streams/btc-usd",
@@ -496,4 +499,18 @@ test("non-policy short refresh failures remain fail-soft", async (t) => {
   assert.equal(snapshot.marketId, marketId);
   assert.equal(state.gammaRequests, 2);
   assert.equal(state.clobRequests, 4);
+});
+
+test("malformed final refresh metadata hard-fails before retaining original books", async (t) => {
+  const marketId = `6${String(process.pid).slice(-6)}`;
+  const state = mockShortRefreshNetwork(t, {
+    marketId,
+    refreshOverrides: { outcomes: ["Up", "Up"], clobTokenIds: ["up-a", "up-b"] },
+  });
+
+  await assert.rejects(
+    getFastShortEntrySnapshot(marketId),
+    (error) => error?.code === "TOKEN_MAPPING_INVALID",
+  );
+  assert.equal(state.clobRequests, 2, "invalid final metadata must not authorize another book fetch");
 });

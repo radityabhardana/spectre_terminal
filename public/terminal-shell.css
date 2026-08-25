@@ -1194,38 +1194,6 @@ select:focus-visible,
 
 .terminal-market-link:hover { filter: brightness(1.08); }
 
-.hover-tooltip {
-  position: relative;
-  display: inline-flex;
-  width: 26px;
-  height: 26px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--terminal-line);
-  background: rgba(255, 255, 255, .05);
-  cursor: help;
-}
-
-.hover-tooltip .tooltip-text {
-  position: absolute;
-  z-index: 120;
-  top: 130%;
-  left: 0;
-  visibility: hidden;
-  width: 260px;
-  padding: 10px;
-  border: 1px solid rgba(76, 195, 138, .5);
-  background: rgba(0, 0, 0, .95);
-  color: var(--terminal-text);
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1.5;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--terminal-fast);
-}
-
-.hover-tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
 #historyListContainer::-webkit-scrollbar { display: none; }
 
 .maximized-tracker {

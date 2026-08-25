@@ -830,6 +830,8 @@ export async function evaluateShortMarketCondition({
   downTokenAsk = null,
   upTokenMidpoint = null,
   downTokenMidpoint = null,
+  upExecution = null,
+  downExecution = null,
   refreshMarketPrices = null,
   marketActive = true,
   marketClosed = false,
@@ -907,6 +909,7 @@ export async function evaluateShortMarketCondition({
     downAsk: finiteNumber(downTokenAsk),
     upMidpoint: finiteNumber(upTokenMidpoint),
     downMidpoint: finiteNumber(downTokenMidpoint),
+    execution: { UP: upExecution, DOWN: downExecution },
   };
   const evaluateSnapshot = (openingPrice, livePrice, marketPrices, nowMs) => evaluateDeterministicShortSnapshot({
     currentPrice: livePrice?.price ?? null,
@@ -1009,6 +1012,7 @@ export async function evaluateShortMarketCondition({
         downAsk: finiteNumber(refreshedPrices.downAsk),
         upMidpoint: finiteNumber(refreshedPrices.upMidpoint),
         downMidpoint: finiteNumber(refreshedPrices.downMidpoint),
+        execution: refreshedPrices.execution || null,
         marketActive: refreshedPrices.marketActive === true,
         marketClosed: refreshedPrices.marketClosed !== false,
         acceptingOrders: refreshedPrices.acceptingOrders === true,
@@ -1024,6 +1028,7 @@ export async function evaluateShortMarketCondition({
         downAsk: null,
         upMidpoint: null,
         downMidpoint: null,
+        execution: null,
         marketActive: false,
         marketClosed: true,
         acceptingOrders: false,
@@ -1059,6 +1064,7 @@ export async function evaluateShortMarketCondition({
     marketActive: finalMarketPrices.marketActive ?? marketActive,
     marketClosed: finalMarketPrices.marketClosed ?? marketClosed,
     acceptingOrders: finalMarketPrices.acceptingOrders ?? acceptingOrders,
+    execution: finalMarketPrices.execution || null,
   };
   const changed = snapshotChanged(initialSnapshot, {
     currentPrice: finalSnapshot.currentPrice,
@@ -1088,6 +1094,7 @@ export async function evaluateShortMarketCondition({
     ...explanation,
     validation_issues: finalRefreshError ? [finalRefreshError] : [],
     final_refresh_error: finalRefreshError,
+    execution_diagnostics: finalSnapshot.execution,
     raw_recommendation: finalDecision.recommendation,
     raw_direction: finalDecision.forecast_direction,
     raw_primary_probability: finalDecision.primary_outcome_probability,

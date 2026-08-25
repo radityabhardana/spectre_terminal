@@ -229,22 +229,101 @@ export function requireShortAnalysisMarket(target) {
   return target.market;
 }
 
+export function calculateExecutableOrderBook(book, targetNotional = config.entryTargetNotional) {
+  const normalizedTarget = Number(targetNotional);
+  const parseLevels = (levels, direction) => {
+    if (!Array.isArray(levels) || levels.length === 0) {
+      return { levels: [], error: `${direction.toUpperCase()}_BOOK_EMPTY` };
+    }
+    const parsed = levels.map((level) => {
+      const price = Number(level?.price);
+      const size = Number(level?.size);
+      if (!Number.isFinite(price) || price <= 0 || price > 1 || !Number.isFinite(size) || size <= 0) return null;
+      return { price, size };
+    });
+    if (parsed.some((level) => level == null)) {
+      return { levels: [], error: `${direction.toUpperCase()}_BOOK_LEVEL_INVALID` };
+    }
+    return { levels: parsed, error: null };
+  };
+
+  const bidsResult = parseLevels(book?.bids, "bid");
+  const asksResult = parseLevels(book?.asks, "ask");
+  const bids = bidsResult.levels.sort((a, b) => b.price - a.price);
+  const asks = asksResult.levels.sort((a, b) => a.price - b.price);
+  const bestBid = bids[0]?.price ?? null;
+  const bestAsk = asks[0]?.price ?? null;
+  const base = {
+    valid: false,
+    reason: bidsResult.error || asksResult.error || null,
+    bestBid,
+    bestAsk,
+    midpoint: null,
+    spread: null,
+    spreadBps: null,
+    targetNotional: Number.isFinite(normalizedTarget) && normalizedTarget > 0 ? normalizedTarget : null,
+    availableAskDepth: asks.reduce((total, level) => total + level.size, 0),
+    availableAskNotional: asks.reduce((total, level) => total + level.price * level.size, 0),
+    filledAskDepth: 0,
+    filledAskNotional: 0,
+    vwapAsk: null,
+    slippageFromBestAsk: null,
+    slippageBps: null,
+    assetId: book?.asset_id ?? null,
+    bookTimestamp: book?.timestamp ?? null,
+    bookTimestampMs: parseBookTimestampMs(book?.timestamp),
+  };
+  if (base.reason) return base;
+  if (bestBid == null || bestAsk == null) {
+    base.reason = "ONE_SIDED_BOOK";
+    return base;
+  }
+  if (bestBid >= bestAsk) {
+    base.reason = "CROSSED_BOOK";
+    return base;
+  }
+  if (base.targetNotional == null) {
+    base.reason = "TARGET_NOTIONAL_INVALID";
+    return base;
+  }
+
+  base.midpoint = (bestBid + bestAsk) / 2;
+  base.spread = bestAsk - bestBid;
+  base.spreadBps = (base.spread / bestAsk) * 10_000;
+  let remainingNotional = base.targetNotional;
+  for (const level of asks) {
+    if (remainingNotional <= 0) break;
+    const quantity = Math.min(level.size, remainingNotional / level.price);
+    base.filledAskDepth += quantity;
+    base.filledAskNotional += quantity * level.price;
+    remainingNotional -= quantity * level.price;
+  }
+  if (remainingNotional > 1e-9 || base.filledAskDepth <= 0) {
+    base.reason = "INSUFFICIENT_ASK_DEPTH";
+    return base;
+  }
+  base.vwapAsk = base.filledAskNotional / base.filledAskDepth;
+  base.slippageFromBestAsk = base.vwapAsk - bestAsk;
+  base.slippageBps = (base.slippageFromBestAsk / bestAsk) * 10_000;
+  base.valid = [base.midpoint, base.spread, base.spreadBps, base.vwapAsk, base.slippageFromBestAsk, base.slippageBps]
+    .every((value) => Number.isFinite(value));
+  if (!base.valid) base.reason = "EXECUTION_METRICS_INVALID";
+  return base;
+}
+
+function parseBookTimestampMs(value) {
+  // Match strict observer handling: CLOB timestamps are integer milliseconds;
+  // do not guess seconds, ISO strings, or other undocumented units here.
+  const numeric = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+  return Number.isSafeInteger(numeric) && numeric >= 1_000_000_000_000 ? numeric : null;
+}
+
+// Final CLOB age budget matches the active Chainlink snapshot timing budget.
+const FINAL_CLOB_MAX_AGE_MS = 15_000;
+const FINAL_CLOB_MAX_FUTURE_SKEW_MS = 2_000;
+
 function executableOrderBookPricing(book) {
-  const prices = (levels) => (Array.isArray(levels) ? levels : [])
-    .map((level) => {
-      if (level?.price == null || (typeof level.price === "string" && !level.price.trim())) return null;
-      const value = Number(level.price);
-      return Number.isFinite(value) && value > 0 && value <= 1 ? value : null;
-    })
-    .filter((value) => value != null);
-  const bids = prices(book?.bids);
-  const asks = prices(book?.asks);
-  const bestBid = bids.length ? Math.max(...bids) : null;
-  const bestAsk = asks.length ? Math.min(...asks) : null;
-  const midpoint = bestBid != null && bestAsk != null && bestBid < bestAsk
-    ? (bestBid + bestAsk) / 2
-    : null;
-  return { bestBid, bestAsk, midpoint };
+  return calculateExecutableOrderBook(book);
 }
 
 async function refreshShortExecutionSnapshot(marketId, score, signal = null) {
@@ -269,9 +348,16 @@ async function refreshShortExecutionSnapshot(marketId, score, signal = null) {
     if (book?.asset_id !== tokenId) {
       throw Object.assign(new Error(`Final ${side} CLOB book asset_id does not match requested token.`), { code: "FINAL_CLOB_REFRESH_FAILED" });
     }
-    const prices = executableOrderBookPricing(book);
-    if (!Array.isArray(book?.bids) || !Array.isArray(book?.asks) || prices.bestAsk == null) {
-      throw Object.assign(new Error(`Final ${side} CLOB book is malformed or has no executable ask.`), { code: "FINAL_CLOB_REFRESH_FAILED" });
+    const prices = calculateExecutableOrderBook(book);
+    if (!prices.valid) {
+      throw Object.assign(new Error(`Final ${side} CLOB book is not executable: ${prices.reason || "invalid execution metrics"}.`), { code: "FINAL_CLOB_REFRESH_FAILED" });
+    }
+    if (prices.bookTimestampMs == null) {
+      throw Object.assign(new Error(`Final ${side} CLOB book timestamp is missing or invalid.`), { code: "FINAL_CLOB_REFRESH_FAILED" });
+    }
+    const ageMs = Date.now() - prices.bookTimestampMs;
+    if (ageMs > FINAL_CLOB_MAX_AGE_MS || ageMs < -FINAL_CLOB_MAX_FUTURE_SKEW_MS) {
+      throw Object.assign(new Error(`Final ${side} CLOB book timestamp is stale or skewed.`), { code: "FINAL_CLOB_REFRESH_FAILED" });
     }
     return prices;
   };
@@ -280,10 +366,13 @@ async function refreshShortExecutionSnapshot(marketId, score, signal = null) {
     requiredBook(secondaryTokenId, "DOWN"),
   ]);
   return {
-    upAsk: up.bestAsk,
-    downAsk: down.bestAsk,
+    upAsk: up.vwapAsk,
+    downAsk: down.vwapAsk,
     upMidpoint: up.midpoint,
     downMidpoint: down.midpoint,
+    upBestAsk: up.bestAsk,
+    downBestAsk: down.bestAsk,
+    execution: { UP: up, DOWN: down },
     marketActive: freshMarket?.active === true,
     marketClosed: freshMarket?.closed !== false,
     acceptingOrders: freshMarket?.acceptingOrders === true,
@@ -649,6 +738,7 @@ export function entrySnapshotFromShortResult(shortRes, market) {
     actionable: evaluation.actionable === true,
     blockers: evaluation.guardrail_blockers || [],
     timingPhase: evaluation.timing_phase ?? null,
+    executionDiagnostics: evaluation.execution_diagnostics || snapshot.execution || null,
   };
 }
 
@@ -668,10 +758,12 @@ export async function getFastShortEntrySnapshot(marketId, signal = null) {
     marketId: scored.market.id,
     asset: shortCryptoAsset(scored.market.question),
     marketQuestion: scored.market.question,
-    upTokenAsk: scored.score.shortBookPrices?.up.bestAsk,
-    downTokenAsk: scored.score.shortBookPrices?.down.bestAsk,
+    upTokenAsk: scored.score.shortBookPrices?.up.vwapAsk ?? scored.score.shortBookPrices?.up.bestAsk,
+    downTokenAsk: scored.score.shortBookPrices?.down.vwapAsk ?? scored.score.shortBookPrices?.down.bestAsk,
     upTokenMidpoint: scored.score.shortBookPrices?.up.midpoint,
     downTokenMidpoint: scored.score.shortBookPrices?.down.midpoint,
+    upExecution: scored.score.shortBookPrices?.up,
+    downExecution: scored.score.shortBookPrices?.down,
     refreshMarketPrices: () => refreshShortExecutionSnapshot(scored.market.id, scored.score, signal),
     marketActive: scored.market.active,
     marketClosed: scored.market.closed,
@@ -717,10 +809,12 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
       marketId: scored.market.id,
       asset,
       marketQuestion: scored.market.question,
-      upTokenAsk: scored.score.shortBookPrices?.up.bestAsk,
-      downTokenAsk: scored.score.shortBookPrices?.down.bestAsk,
+      upTokenAsk: scored.score.shortBookPrices?.up.vwapAsk ?? scored.score.shortBookPrices?.up.bestAsk,
+      downTokenAsk: scored.score.shortBookPrices?.down.vwapAsk ?? scored.score.shortBookPrices?.down.bestAsk,
       upTokenMidpoint: scored.score.shortBookPrices?.up.midpoint,
       downTokenMidpoint: scored.score.shortBookPrices?.down.midpoint,
+      upExecution: scored.score.shortBookPrices?.up,
+      downExecution: scored.score.shortBookPrices?.down,
       refreshMarketPrices: () => refreshShortExecutionSnapshot(scored.market.id, scored.score, signal),
       marketActive: scored.market.active,
       marketClosed: scored.market.closed,
@@ -885,10 +979,12 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
       marketId: best.market.id,
       asset,
       marketQuestion: best.market.question,
-      upTokenAsk: best.score.shortBookPrices?.up.bestAsk,
-      downTokenAsk: best.score.shortBookPrices?.down.bestAsk,
+      upTokenAsk: best.score.shortBookPrices?.up.vwapAsk ?? best.score.shortBookPrices?.up.bestAsk,
+      downTokenAsk: best.score.shortBookPrices?.down.vwapAsk ?? best.score.shortBookPrices?.down.bestAsk,
       upTokenMidpoint: best.score.shortBookPrices?.up.midpoint,
       downTokenMidpoint: best.score.shortBookPrices?.down.midpoint,
+      upExecution: best.score.shortBookPrices?.up,
+      downExecution: best.score.shortBookPrices?.down,
       refreshMarketPrices: () => refreshShortExecutionSnapshot(best.market.id, best.score, signal),
       marketActive: best.market.active,
       marketClosed: best.market.closed,
@@ -1370,10 +1466,12 @@ export async function handleCommand(text, message, ctx) {
         marketId: market.id,
         asset: shortCryptoAsset(market.question),
         marketQuestion: market.question,
-        upTokenAsk: scored.score.shortBookPrices?.up.bestAsk,
-        downTokenAsk: scored.score.shortBookPrices?.down.bestAsk,
+        upTokenAsk: scored.score.shortBookPrices?.up.vwapAsk ?? scored.score.shortBookPrices?.up.bestAsk,
+        downTokenAsk: scored.score.shortBookPrices?.down.vwapAsk ?? scored.score.shortBookPrices?.down.bestAsk,
         upTokenMidpoint: scored.score.shortBookPrices?.up.midpoint,
         downTokenMidpoint: scored.score.shortBookPrices?.down.midpoint,
+        upExecution: scored.score.shortBookPrices?.up,
+        downExecution: scored.score.shortBookPrices?.down,
         refreshMarketPrices: () => refreshShortExecutionSnapshot(market.id, scored.score, requestSignal),
         marketActive: market.active,
         marketClosed: market.closed,

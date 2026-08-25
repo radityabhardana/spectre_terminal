@@ -69,7 +69,7 @@ function assertUnsupportedUfc(error) {
   return true;
 }
 
-function mockShortRefreshNetwork(t, { marketId, refreshOverrides, finalClobFailure = false, finalOneSidedFailure = false, finalChainlinkFailure = false, finalPriceChange = false, finalAssetIdIssue = null }) {
+function mockShortRefreshNetwork(t, { marketId, refreshOverrides, finalClobFailure = false, finalOneSidedFailure = false, finalChainlinkFailure = false, finalPriceChange = false, finalAssetIdIssue = null, finalTimestampIssue = null }) {
   const endDate = new Date(Date.now() + 2 * 60 * 1000).toISOString();
   const startDate = new Date(Date.now() - 3 * 60 * 1000).toISOString();
   const candles = Array.from({ length: 40 }, (_, index) => ({
@@ -81,6 +81,7 @@ function mockShortRefreshNetwork(t, { marketId, refreshOverrides, finalClobFailu
   }));
   const state = { gammaRequests: 0, clobRequests: 0 };
   let liveMessages = 0;
+  const freshBookTimestamp = Date.now();
   const baseMarket = gammaMarket({
     id: marketId,
     question: "Bitcoin Up or Down",
@@ -130,7 +131,13 @@ function mockShortRefreshNetwork(t, { marketId, refreshOverrides, finalClobFailu
       const book = {
         bids: [{ price: finalBook ? "0.59" : "0.49", size: "100" }],
         asks: [{ price: finalBook ? "0.61" : "0.51", size: "100" }],
+        timestamp: freshBookTimestamp,
       };
+      if (finalBook && finalTimestampIssue === `missing-${side}`) delete book.timestamp;
+      if (finalBook && finalTimestampIssue === `invalid-${side}`) book.timestamp = "not-a-timestamp";
+      if (finalBook && finalTimestampIssue === `seconds-${side}`) book.timestamp = Math.floor(freshBookTimestamp / 1000);
+      if (finalBook && finalTimestampIssue === `stale-${side}`) book.timestamp = freshBookTimestamp - 20_000;
+      if (finalBook && finalTimestampIssue === `future-${side}`) book.timestamp = freshBookTimestamp + 5_000;
       if (!(finalBook && finalAssetIdIssue === `missing-${side}`)) {
         book.asset_id = finalBook && finalAssetIdIssue === `mismatch-${side}`
           ? `${tokenId}-wrong`
@@ -579,6 +586,25 @@ test("mismatched final DOWN asset_id fails closed", async (t) => {
   assert.equal(state.clobRequests, 4);
 });
 
+let timestampRegressionId = 7000000;
+for (const issue of ["missing", "invalid", "seconds", "stale", "future"]) {
+  for (const side of ["up", "down"]) {
+    test(`${issue} final ${side.toUpperCase()} book timestamp fails closed`, async (t) => {
+      const marketId = String(timestampRegressionId++);
+      const state = mockShortRefreshNetwork(t, {
+        marketId,
+        refreshOverrides: {},
+        finalTimestampIssue: `${issue}-${side}`,
+      });
+      const failed = await getFastShortEntrySnapshot(marketId);
+      assert.equal(failed.sides.UP.ask, null);
+      assert.equal(failed.sides.DOWN.ask, null);
+      assert.equal(failed.actionable, false);
+      assert.equal(state.clobRequests, 4);
+    });
+  }
+}
+
 test("final Chainlink refresh failure fails closed", async (t) => {
   const marketId = `1${String(process.pid).slice(-6)}`;
   const state = mockShortRefreshNetwork(t, { marketId, refreshOverrides: {}, finalChainlinkFailure: true });
@@ -597,6 +623,8 @@ test("successful final Chainlink and CLOB refresh replaces initial prices", asyn
   assert.equal(snapshot.sides.UP.ask, 0.61);
   assert.equal(snapshot.sides.DOWN.ask, 0.61);
   assert.equal(snapshot.actionable, true);
+  assert.ok(snapshot.executionDiagnostics?.UP?.bookTimestamp);
+  assert.ok(snapshot.executionDiagnostics?.DOWN?.bookTimestamp);
   assert.equal(state.clobRequests, 4);
 });
 

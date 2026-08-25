@@ -186,6 +186,8 @@ export const config = {
   minQwenConfidence: positiveInt(process.env.MIN_QWEN_CONFIDENCE, 80),
   entryMaxPrice: probabilityPrice(process.env.ENTRY_MAX_PRICE, 0.70),
   entryFeeBufferCents: positiveNumber(process.env.ENTRY_FEE_BUFFER_CENTS, 4),
+  // Conservative dollar notional used to walk executable asks for short-entry VWAP.
+  entryTargetNotional: positiveNumber(process.env.ENTRY_TARGET_NOTIONAL, 5),
   entryMinSecondsToClose: positiveInt(process.env.ENTRY_MIN_SECONDS_TO_CLOSE, 30),
   allowInsecureTls: process.env.ALLOW_INSECURE_TLS === "true",
 

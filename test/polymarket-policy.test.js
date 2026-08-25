@@ -69,7 +69,7 @@ function assertUnsupportedUfc(error) {
   return true;
 }
 
-function mockShortRefreshNetwork(t, { marketId, refreshOverrides }) {
+function mockShortRefreshNetwork(t, { marketId, refreshOverrides, finalClobFailure = false, finalOneSidedFailure = false, finalChainlinkFailure = false, finalPriceChange = false, finalAssetIdIssue = null }) {
   const endDate = new Date(Date.now() + 2 * 60 * 1000).toISOString();
   const startDate = new Date(Date.now() - 3 * 60 * 1000).toISOString();
   const candles = Array.from({ length: 40 }, (_, index) => ({
@@ -80,6 +80,7 @@ function mockShortRefreshNetwork(t, { marketId, refreshOverrides }) {
     close: 100.5 + index * 0.1,
   }));
   const state = { gammaRequests: 0, clobRequests: 0 };
+  let liveMessages = 0;
   const baseMarket = gammaMarket({
     id: marketId,
     question: "Bitcoin Up or Down",
@@ -97,9 +98,14 @@ function mockShortRefreshNetwork(t, { marketId, refreshOverrides }) {
   const originalOn = WebSocket.prototype.on;
   t.mock.method(WebSocket.prototype, "on", function (event, listener) {
     if (event === "message") {
-      queueMicrotask(() => listener(JSON.stringify({
-        payload: { value: 104, timestamp: Date.now() },
-      })));
+      liveMessages += 1;
+      if (finalChainlinkFailure && liveMessages > 1) {
+        queueMicrotask(() => this.emit("error", new Error("final Chainlink refresh failed")));
+      } else {
+        queueMicrotask(() => listener(JSON.stringify({
+          payload: { value: finalPriceChange && liveMessages > 1 ? 105 : 104, timestamp: Date.now() },
+        })));
+      }
       return this;
     }
     if (event === "error") return originalOn.call(this, event, listener);
@@ -116,10 +122,21 @@ function mockShortRefreshNetwork(t, { marketId, refreshOverrides }) {
     }
     if (url.hostname === "clob.polymarket.com") {
       state.clobRequests += 1;
-      return jsonResponse({
-        bids: [{ price: "0.49", size: "100" }],
-        asks: [{ price: "0.51", size: "100" }],
-      });
+      if (finalClobFailure && state.clobRequests > 2) return jsonResponse({ malformed: true });
+      if (finalOneSidedFailure && state.clobRequests > 2) return jsonResponse({ bids: [{ price: "0.49", size: "100" }], asks: [] });
+      const finalBook = state.clobRequests > 2;
+      const tokenId = url.searchParams.get("token_id");
+      const side = tokenId === "up-token" ? "up" : "down";
+      const book = {
+        bids: [{ price: finalBook ? "0.59" : "0.49", size: "100" }],
+        asks: [{ price: finalBook ? "0.61" : "0.51", size: "100" }],
+      };
+      if (!(finalBook && finalAssetIdIssue === `missing-${side}`)) {
+        book.asset_id = finalBook && finalAssetIdIssue === `mismatch-${side}`
+          ? `${tokenId}-wrong`
+          : tokenId;
+      }
+      return jsonResponse(book);
     }
     if (url.pathname === "/api/crypto/crypto-price") return jsonResponse({ openPrice: 100 });
     if (url.pathname === "/api/chainlink-candles") return jsonResponse({ candles });
@@ -498,6 +515,88 @@ test("non-policy short refresh failures remain fail-soft", async (t) => {
 
   assert.equal(snapshot.marketId, marketId);
   assert.equal(state.gammaRequests, 2);
+  assert.equal(state.clobRequests, 4);
+});
+
+test("final CLOB refresh failure cannot retain initial executable asks", async (t) => {
+  const marketId = `4${String(process.pid).slice(-6)}`;
+  const state = mockShortRefreshNetwork(t, { marketId, refreshOverrides: {}, finalClobFailure: true });
+  const snapshot = await getFastShortEntrySnapshot(marketId);
+  assert.equal(snapshot.sides.UP.ask, null);
+  assert.equal(snapshot.sides.DOWN.ask, null);
+  assert.equal(snapshot.actionable, false);
+  assert.ok(snapshot.blockers.some((blocker) => blocker.includes("CLOB") || blocker.includes("Chainlink")));
+  assert.equal(state.clobRequests, 4);
+});
+
+test("one-side final CLOB refresh failure fails closed", async (t) => {
+  const marketId = `3${String(process.pid).slice(-6)}`;
+  const state = mockShortRefreshNetwork(t, { marketId, refreshOverrides: {}, finalOneSidedFailure: true });
+  const failed = await getFastShortEntrySnapshot(marketId);
+  assert.equal(failed.sides.UP.ask, null);
+  assert.equal(failed.sides.DOWN.ask, null);
+  assert.equal(failed.actionable, false);
+  assert.equal(state.clobRequests, 4);
+});
+
+test("missing final UP asset_id fails closed", async (t) => {
+  const marketId = `8${String(process.pid).slice(-6)}`;
+  const state = mockShortRefreshNetwork(t, { marketId, refreshOverrides: {}, finalAssetIdIssue: "missing-up" });
+  const failed = await getFastShortEntrySnapshot(marketId);
+  assert.equal(failed.sides.UP.ask, null);
+  assert.equal(failed.sides.DOWN.ask, null);
+  assert.equal(failed.actionable, false);
+  assert.equal(state.clobRequests, 4);
+});
+
+test("missing final DOWN asset_id fails closed", async (t) => {
+  const marketId = `9${String(process.pid).slice(-6)}`;
+  const state = mockShortRefreshNetwork(t, { marketId, refreshOverrides: {}, finalAssetIdIssue: "missing-down" });
+  const failed = await getFastShortEntrySnapshot(marketId);
+  assert.equal(failed.sides.UP.ask, null);
+  assert.equal(failed.sides.DOWN.ask, null);
+  assert.equal(failed.actionable, false);
+  assert.equal(state.clobRequests, 4);
+});
+
+test("mismatched final UP asset_id fails closed", async (t) => {
+  const marketId = `5${String(process.pid).slice(-6)}`;
+  const state = mockShortRefreshNetwork(t, { marketId, refreshOverrides: {}, finalAssetIdIssue: "mismatch-up" });
+  const failed = await getFastShortEntrySnapshot(marketId);
+  assert.equal(failed.sides.UP.ask, null);
+  assert.equal(failed.sides.DOWN.ask, null);
+  assert.equal(failed.actionable, false);
+  assert.equal(state.clobRequests, 4);
+});
+
+test("mismatched final DOWN asset_id fails closed", async (t) => {
+  const marketId = `0${String(process.pid).slice(-6)}`;
+  const state = mockShortRefreshNetwork(t, { marketId, refreshOverrides: {}, finalAssetIdIssue: "mismatch-down" });
+  const failed = await getFastShortEntrySnapshot(marketId);
+  assert.equal(failed.sides.UP.ask, null);
+  assert.equal(failed.sides.DOWN.ask, null);
+  assert.equal(failed.actionable, false);
+  assert.equal(state.clobRequests, 4);
+});
+
+test("final Chainlink refresh failure fails closed", async (t) => {
+  const marketId = `1${String(process.pid).slice(-6)}`;
+  const state = mockShortRefreshNetwork(t, { marketId, refreshOverrides: {}, finalChainlinkFailure: true });
+  const failed = await getFastShortEntrySnapshot(marketId);
+  assert.equal(failed.sides.UP.ask, null);
+  assert.equal(failed.sides.DOWN.ask, null);
+  assert.equal(failed.actionable, false);
+  assert.ok(failed.blockers.some((blocker) => blocker.includes("Chainlink") || blocker.includes("oracle")));
+  assert.ok(state.clobRequests >= 2);
+});
+
+test("successful final Chainlink and CLOB refresh replaces initial prices", async (t) => {
+  const marketId = `2${String(process.pid).slice(-6)}`;
+  const state = mockShortRefreshNetwork(t, { marketId, refreshOverrides: {}, finalPriceChange: true });
+  const snapshot = await getFastShortEntrySnapshot(marketId);
+  assert.equal(snapshot.sides.UP.ask, 0.61);
+  assert.equal(snapshot.sides.DOWN.ask, 0.61);
+  assert.equal(snapshot.actionable, true);
   assert.equal(state.clobRequests, 4);
 });
 

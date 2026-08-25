@@ -249,26 +249,36 @@ function executableOrderBookPricing(book) {
 
 async function refreshShortExecutionSnapshot(marketId, score, signal = null) {
   const freshMarket = await getMarketById(marketId, true, signal).catch((error) => {
-    if (signal?.aborted || error?.code === "UNSUPPORTED_UFC") throw error;
+    if (signal?.aborted || error?.code === "UNSUPPORTED_UFC" || error?.code === "TOKEN_MAPPING_INVALID") throw error;
     return null;
   });
   const freshTokens = freshMarket ? pickShortUpDownTokens(freshMarket) : null;
   const primaryTokenId = freshTokens?.yesTokenId || score.primaryTokenId;
   const secondaryTokenId = freshTokens?.noTokenId || score.secondaryTokenId;
-  const [upBook, downBook] = await Promise.all([
-    primaryTokenId ? getOrderBook(primaryTokenId, signal).catch((error) => {
+  const requiredBook = async (tokenId, side) => {
+    if (!tokenId) {
+      throw Object.assign(new Error(`Final ${side} CLOB token is unavailable.`), { code: "FINAL_CLOB_REFRESH_FAILED" });
+    }
+    let book;
+    try {
+      book = await getOrderBook(tokenId, signal);
+    } catch (error) {
       if (signal?.aborted) throw error;
-      return null;
-    }) : Promise.resolve(null),
-    secondaryTokenId
-      ? getOrderBook(secondaryTokenId, signal).catch((error) => {
-          if (signal?.aborted) throw error;
-          return null;
-        })
-      : Promise.resolve(null),
+      throw Object.assign(new Error(`Final ${side} CLOB book is unavailable.`), { code: "FINAL_CLOB_REFRESH_FAILED" });
+    }
+    if (book?.asset_id !== tokenId) {
+      throw Object.assign(new Error(`Final ${side} CLOB book asset_id does not match requested token.`), { code: "FINAL_CLOB_REFRESH_FAILED" });
+    }
+    const prices = executableOrderBookPricing(book);
+    if (!Array.isArray(book?.bids) || !Array.isArray(book?.asks) || prices.bestAsk == null) {
+      throw Object.assign(new Error(`Final ${side} CLOB book is malformed or has no executable ask.`), { code: "FINAL_CLOB_REFRESH_FAILED" });
+    }
+    return prices;
+  };
+  const [up, down] = await Promise.all([
+    requiredBook(primaryTokenId, "UP"),
+    requiredBook(secondaryTokenId, "DOWN"),
   ]);
-  const up = executableOrderBookPricing(upBook);
-  const down = executableOrderBookPricing(downBook);
   return {
     upAsk: up.bestAsk,
     downAsk: down.bestAsk,

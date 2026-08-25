@@ -978,35 +978,56 @@ export async function evaluateShortMarketCondition({
   let finalOpeningPrice = initialOpeningPrice;
   let finalLivePrice = initialLivePrice;
   let finalMarketPrices = initialMarketPrices;
+  let finalRefreshError = null;
   if (oracleSourceVerified && refreshFinalSnapshot) {
     try {
       const [openingPrice, livePrice, refreshedPrices] = await Promise.all([
         initialOpeningPrice
           ? Promise.resolve(initialOpeningPrice)
-          : fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal),
-        fetchChainlinkLivePrice(normalizedAsset, signal, oracleSource),
+          : fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal).catch((error) => {
+            if (signal?.aborted) throw error;
+            throw Object.assign(new Error("Final Chainlink opening price is unavailable."), { code: "FINAL_CHAINLINK_REFRESH_FAILED" });
+          }),
+        fetchChainlinkLivePrice(normalizedAsset, signal, oracleSource).catch((error) => {
+          if (signal?.aborted) throw error;
+          throw Object.assign(new Error("Final Chainlink live price is unavailable."), { code: "FINAL_CHAINLINK_REFRESH_FAILED" });
+        }),
         typeof refreshMarketPrices === "function"
-            ? Promise.resolve(refreshMarketPrices()).catch((error) => {
-              if (signal?.aborted || error?.name === "AbortError" || error?.code === "UNSUPPORTED_UFC" || error?.code === "TOKEN_MAPPING_INVALID") throw error;
-              return null;
-            })
+            ? Promise.resolve(refreshMarketPrices())
           : Promise.resolve(null),
       ]);
+      if (!livePrice || !Number.isFinite(Number(livePrice.price)) || Number(livePrice.price) <= 0) {
+        throw Object.assign(new Error("Final Chainlink live price is unavailable."), { code: "FINAL_CHAINLINK_REFRESH_FAILED" });
+      }
+      if (!refreshedPrices || finiteNumber(refreshedPrices.upAsk) == null || finiteNumber(refreshedPrices.downAsk) == null) {
+        throw Object.assign(new Error("Final UP/DOWN CLOB prices are unavailable."), { code: "FINAL_CLOB_REFRESH_FAILED" });
+      }
       finalOpeningPrice = openingPrice;
       finalLivePrice = livePrice;
-      if (refreshedPrices) {
-        finalMarketPrices = {
-          upAsk: finiteNumber(refreshedPrices.upAsk),
-          downAsk: finiteNumber(refreshedPrices.downAsk),
-          upMidpoint: finiteNumber(refreshedPrices.upMidpoint),
-          downMidpoint: finiteNumber(refreshedPrices.downMidpoint),
-          marketActive: refreshedPrices.marketActive === true,
-          marketClosed: refreshedPrices.marketClosed !== false,
-          acceptingOrders: refreshedPrices.acceptingOrders === true,
-        };
-      }
+      finalMarketPrices = {
+        upAsk: finiteNumber(refreshedPrices.upAsk),
+        downAsk: finiteNumber(refreshedPrices.downAsk),
+        upMidpoint: finiteNumber(refreshedPrices.upMidpoint),
+        downMidpoint: finiteNumber(refreshedPrices.downMidpoint),
+        marketActive: refreshedPrices.marketActive === true,
+        marketClosed: refreshedPrices.marketClosed !== false,
+        acceptingOrders: refreshedPrices.acceptingOrders === true,
+      };
     } catch (error) {
       if (signal?.aborted || error?.code === "UNSUPPORTED_UFC" || error?.code === "TOKEN_MAPPING_INVALID") throw error;
+      finalRefreshError = error?.code === "FINAL_CHAINLINK_REFRESH_FAILED"
+        ? "FINAL_CHAINLINK_REFRESH_FAILED"
+        : "FINAL_CLOB_REFRESH_FAILED";
+      finalLivePrice = null;
+      finalMarketPrices = {
+        upAsk: null,
+        downAsk: null,
+        upMidpoint: null,
+        downMidpoint: null,
+        marketActive: false,
+        marketClosed: true,
+        acceptingOrders: false,
+      };
     }
   }
 
@@ -1065,7 +1086,8 @@ export async function evaluateShortMarketCondition({
   const result = {
     ...finalDecision,
     ...explanation,
-    validation_issues: [],
+    validation_issues: finalRefreshError ? [finalRefreshError] : [],
+    final_refresh_error: finalRefreshError,
     raw_recommendation: finalDecision.recommendation,
     raw_direction: finalDecision.forecast_direction,
     raw_primary_probability: finalDecision.primary_outcome_probability,

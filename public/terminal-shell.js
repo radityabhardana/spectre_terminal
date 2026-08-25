@@ -158,6 +158,9 @@ function initTerminalShell() {
     className: "terminal-top-action",
     type: "button",
     "aria-label": "Open settings",
+    "aria-haspopup": "dialog",
+    "aria-controls": "settingsModal",
+    "aria-expanded": "false",
   }, '<i data-lucide="settings" aria-hidden="true"></i><span>Settings</span>');
   const drawerTrigger = element("button", {
     id: "secondaryToolsTrigger",
@@ -220,20 +223,44 @@ function initTerminalShell() {
     setDrawer(false);
     setMobileView(button.dataset.mobileView);
   });
-  settingsTrigger.addEventListener("click", () => {
+  const positionSettingsDropdown = () => {
     const settingsModal = document.querySelector("#settingsModal");
     const panel = settingsModal?.querySelector(".settings-dropdown-panel");
-    if (settingsModal && panel) {
-      const buttonRect = settingsTrigger.getBoundingClientRect();
-      const panelWidth = Math.min(420, window.innerWidth - 20);
-      const left = Math.min(
-        Math.max(10, buttonRect.right - panelWidth),
-        window.innerWidth - panelWidth - 10,
-      );
-      settingsModal.style.setProperty("--settings-dropdown-top", `${buttonRect.bottom + 8}px`);
-      settingsModal.style.setProperty("--settings-dropdown-left", `${left}px`);
+    if (!settingsModal || !panel || window.innerWidth < 768) return;
+    const buttonRect = settingsTrigger.getBoundingClientRect();
+    const panelWidth = Math.min(480, window.innerWidth - 24);
+    const gap = 8;
+    const top = buttonRect.bottom + gap;
+    const left = Math.min(
+      Math.max(12, buttonRect.right - panelWidth),
+      window.innerWidth - panelWidth - 12,
+    );
+    const anchorX = Math.min(panelWidth - 18, Math.max(18, buttonRect.left + (buttonRect.width / 2) - left));
+    const availableHeight = Math.max(180, window.innerHeight - top - 12);
+    settingsModal.style.setProperty("--settings-dropdown-top", `${top}px`);
+    settingsModal.style.setProperty("--settings-dropdown-left", `${left}px`);
+    settingsModal.style.setProperty("--settings-dropdown-anchor-x", `${anchorX}px`);
+    settingsModal.style.setProperty("--settings-dropdown-available-height", `${availableHeight}px`);
+  };
+
+  settingsTrigger.addEventListener("click", () => {
+    const settingsModal = document.querySelector("#settingsModal");
+    if (settingsModal && !settingsModal.hidden) {
+      document.querySelector("#closeSettingsModal")?.click();
+      return;
     }
+    positionSettingsDropdown();
     document.querySelector("#btnSettings")?.click();
+    window.requestAnimationFrame(() => {
+      positionSettingsDropdown();
+      if (settingsModal && !settingsModal.hidden) {
+        settingsModal.querySelector(".settings-tab.active, #closeSettingsModal")?.focus();
+      }
+    });
+  });
+  window.addEventListener("resize", () => {
+    const settingsModal = document.querySelector("#settingsModal");
+    if (settingsModal && !settingsModal.hidden) positionSettingsDropdown();
   });
   drawerTrigger.addEventListener("click", () => {
     const isOpen = toolDrawer.classList.contains("is-open");

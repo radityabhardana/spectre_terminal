@@ -1,0 +1,35 @@
+{
+  "data": [
+    {
+      "id": "event-100",
+      "startTime": "2026-08-25T12:00:00.000Z",
+      "series": [{ "id": "10192" }],
+      "cryptoFingerprint": {
+        "id": "btc-15m-twap-60",
+        "asset": "btc",
+        "duration": "15m",
+        "twapEnabled": true,
+        "twapLookbackSeconds": 60
+      },
+      "markets": [
+        {
+          "id": "market-100-a",
+          "conditionId": "condition-100-a",
+          "eventStartTime": "2026-08-25T12:00:00.000Z",
+          "endDate": "2026-08-25T12:15:00.000Z",
+          "outcomes": "[\"Up\",\"Down\"]",
+          "clobTokenIds": "[\"token-100-a-up\",\"token-100-a-down\"]"
+        },
+        {
+          "id": "market-100-b",
+          "conditionId": "condition-100-b",
+          "eventStartTime": "2026-08-25T12:00:00.000Z",
+          "endDate": "2026-08-25T12:15:00.000Z",
+          "outcomes": ["Down", "Up"],
+          "clobTokenIds": ["token-100-b-down", "token-100-b-up"]
+        }
+      ]
+    }
+  ],
+  "next_cursor": "event-100"
+}

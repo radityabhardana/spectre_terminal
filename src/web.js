@@ -14,6 +14,8 @@ import { getBinanceWsStatus } from "./binance_ws.js";
 import { runWithAiLanguage } from "./qwen.js";
 import { getSnifferWsStatus, getSnifferEventCounters, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
 import { getBlockchainTrackerHealth } from "./blockchain-tracker.js";
+import { getProviderStatuses } from "./provider-status.js";
+import { getEngineStatuses } from "./engine-status.js";
 import { assertSecureWebBinding, getSecurityHeaders, normalizeWalletAddress, resolvePublicPath, validateMutationRequest, validateRequestHost } from "./web-security.js";
 
 export const DEFAULT_SERVER_CLOSE_DEADLINE_MS = 4500;
@@ -412,7 +414,7 @@ function checkAuth(req, res) {
 }
 
 export function startWebServer(options = {}) {
-  const webPort = Number(options.port || port);
+  const webPort = Number(options.port ?? port);
   const webHost = options.host || host;
   assertSecureWebBinding(webHost, config.webPassword);
 
@@ -436,6 +438,16 @@ export function startWebServer(options = {}) {
           cooldown: getCooldownState(),
           totalAITokensUsed: getTotalAITokensUsed()
         });
+        return;
+      }
+
+      if (req.method === "GET" && new URL(req.url, `http://${req.headers.host || "localhost"}`).pathname === "/api/provider-status") {
+        sendJson(res, 200, { providers: await getProviderStatuses() });
+        return;
+      }
+
+      if (req.method === "GET" && new URL(req.url, `http://${req.headers.host || "localhost"}`).pathname === "/api/engine-status") {
+        sendJson(res, 200, { engines: getEngineStatuses() });
         return;
       }
 
@@ -711,7 +723,8 @@ export function startWebServer(options = {}) {
   });
 
   server.listen(webPort, webHost, () => {
-    console.log(`Web UI running at http://${webHost}:${webPort}`);
+    const listeningPort = server.address()?.port ?? webPort;
+    console.log(`Web UI running at http://${webHost}:${listeningPort}`);
   });
 
   return server;

@@ -806,10 +806,10 @@ const SoundManager = {
   },
 
   updateBtnState(btn) {
-    btn.textContent = this.config.enabled ? "ON" : "OFF";
-    btn.style.color = this.config.enabled ? "var(--green)" : "var(--text-tertiary)";
-    btn.style.borderColor = this.config.enabled ? "var(--green)" : "var(--text-tertiary)";
-    btn.style.background = this.config.enabled ? "rgba(45,184,112,0.1)" : "rgba(255,255,255,0.05)";
+    const enabled = Boolean(this.config.enabled);
+    btn.textContent = enabled ? "ON" : "OFF";
+    btn.setAttribute("aria-pressed", String(enabled));
+    btn.classList.toggle("is-active", enabled);
   },
   
   save() {
@@ -2043,8 +2043,8 @@ function renderShortMarkets(markets) {
       <div class="btc5m-card" draggable="${!isClosed && !isLockedOut}" data-card-state="${cardState}" data-id="${safeId}" data-url="${safeUrl}" data-question="${safeQuestion}" data-end-date="${safeEndDate}" data-duration-type="${safeDuration}" style="padding:8px 10px; border:1px solid ${cardBorder}; border-radius:4px; background:${cardBg}; opacity:${cardOpacity}; cursor:${cardCursor}; transition:all 0.2s;">
         <div style="display:flex; justify-content:space-between; margin-bottom:4px; align-items:flex-start;">
           <span style="font-weight:600; color:var(--text-primary); font-size:11px; flex:1; min-width:0; word-wrap:break-word;">${safeTitle}</span>
-          <div style="display:flex; align-items:center;">
-            <span class="short-market-timer" data-end-date="${safeEndDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${safeLabelYes}" data-l-no="${safeLabelNo}" data-is-future="${isFuture}" style="color:${timeColor}; font-weight:700; font-size:10px; white-space:nowrap; flex-shrink:0; text-align:right; margin-left:8px;">${escapeHtml(timeText)}</span>
+          <div class="short-market-actions${isSnipeBtn ? " has-action" : ""}" style="display:flex; align-items:center;">
+            <span class="short-market-timer" data-end-date="${safeEndDate}" data-p-yes="${pYes}" data-p-no="${pNo}" data-l-yes="${safeLabelYes}" data-l-no="${safeLabelNo}" data-is-future="${isFuture}" style="color:${timeColor}; font-weight:700; font-size:10px; white-space:nowrap; flex-shrink:0; text-align:right; margin-left:auto;">${escapeHtml(timeText)}</span>
             ${addBtnHtml}
           </div>
         </div>
@@ -4036,7 +4036,7 @@ window.showReasonModal = function(eventId) {
   reasonModal.style.display = "flex";
 };
 
-/* --- Settings Modal --- */
+/* --- Settings popover / mobile sheet --- */
 const settingsModal = document.querySelector("#settingsModal");
 const btnSettings = document.querySelector("#btnSettings");
 const closeSettingsModal = document.querySelector("#closeSettingsModal");
@@ -4044,6 +4044,36 @@ const btnSaveSettings = document.querySelector("#btnSaveSettings");
 const toggleAudioBtn = document.querySelector("#toggleAudioBtn");
 const settingsTabs = document.querySelectorAll(".settings-tab");
 const settingsPanes = document.querySelectorAll(".settings-pane");
+let settingsPreviousFocus = null;
+
+function activateSettingsTab(tab, { moveFocus = false } = {}) {
+  if (!(tab instanceof HTMLElement)) return;
+  const targetId = tab.dataset.target;
+  const targetPane = targetId ? document.getElementById(targetId) : null;
+  if (!targetPane) return;
+
+  settingsTabs.forEach((candidate) => {
+    const selected = candidate === tab;
+    candidate.classList.toggle("active", selected);
+    candidate.setAttribute("aria-selected", String(selected));
+    candidate.tabIndex = selected ? 0 : -1;
+  });
+  settingsPanes.forEach((pane) => {
+    pane.hidden = pane !== targetPane;
+  });
+  const settingsContent = settingsModal?.querySelector(".settings-popover-content");
+  if (settingsContent) settingsContent.scrollTop = 0;
+
+  if (moveFocus) tab.focus();
+}
+
+function closeSettings() {
+  if (!settingsModal) return;
+  settingsModal.hidden = true;
+  document.querySelector("#terminalSettingsTrigger")?.setAttribute("aria-expanded", "false");
+  if (settingsPreviousFocus instanceof HTMLElement) settingsPreviousFocus.focus();
+  settingsPreviousFocus = null;
+}
 
 // Sniper Settings Inputs
 const set5mScanStart = document.querySelector("#set5mScanStart");
@@ -4068,8 +4098,8 @@ async function fetchStats() {
     if (data.ok && data.stats) {
       const statTotal = document.querySelector("#statTotal");
       const statWinRate = document.querySelector("#statWinRate");
-      if (statTotal) statTotal.textContent = data.stats.totalAnalyzed;
-      if (statWinRate) statWinRate.textContent = data.stats.winRate + "%";
+      if (statTotal) statTotal.textContent = data.stats.totalAnalyzed ?? 0;
+      if (statWinRate) statWinRate.textContent = `${data.stats.winRate ?? 0}%`;
     }
   } catch (err) {
     console.error("Failed to load stats:", err);
@@ -4152,45 +4182,64 @@ setInterval(fetchDashboardMetrics, 30000);
 if (btnSettings && settingsModal) {
   btnSettings.addEventListener("click", () => {
     fetchStats();
-    settingsModal.style.display = "flex";
+    settingsPreviousFocus = document.activeElement;
+    settingsModal.hidden = false;
+    document.querySelector("#terminalSettingsTrigger")?.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(() => settingsModal.querySelector(".settings-tab.active, #closeSettingsModal")?.focus());
   });
   
   closeSettingsModal.addEventListener("click", () => {
-    settingsModal.style.display = "none";
+    closeSettings();
   });
   
   settingsModal.addEventListener("click", (e) => {
-    if (e.target === settingsModal) settingsModal.style.display = "none";
+    if (e.target === settingsModal) closeSettings();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !settingsModal.hidden) {
+      event.preventDefault();
+      closeSettings();
+      return;
+    }
+    if (event.key !== "Tab" || settingsModal.hidden) return;
+    const focusableSettings = [...settingsModal.querySelectorAll(
+      'button:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])'
+    )].filter(element => element.getClientRects().length > 0);
+    if (!focusableSettings.length) return;
+    const first = focusableSettings[0];
+    const last = focusableSettings.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   });
   
   // (Old theme toggle logic removed, handled by Padre Theme Modal)
 
-  settingsTabs.forEach(tab => {
+  settingsTabs.forEach((tab, index) => {
     tab.addEventListener("click", () => {
-      // Deactivate all tabs and panes
-      settingsTabs.forEach(t => {
-        t.classList.remove("active");
-        t.style.background = "transparent";
-        t.style.color = "var(--text-secondary)";
-      });
-      settingsPanes.forEach(p => p.style.display = "none");
-      
-      // Activate clicked tab
-      tab.classList.add("active");
-      tab.style.background = "rgba(255,255,255,0.05)";
-      tab.style.color = "var(--text-primary)";
-      
-      // Show corresponding pane
-      const targetId = tab.dataset.target;
-      const targetPane = document.getElementById(targetId);
-      if (targetPane) {
-        targetPane.style.display = "block";
-      }
+      activateSettingsTab(tab);
+    });
+
+    tab.addEventListener("keydown", (event) => {
+      const tabs = [...settingsTabs];
+      let targetIndex = null;
+      if (event.key === "ArrowRight") targetIndex = (index + 1) % tabs.length;
+      if (event.key === "ArrowLeft") targetIndex = (index - 1 + tabs.length) % tabs.length;
+      if (event.key === "Home") targetIndex = 0;
+      if (event.key === "End") targetIndex = tabs.length - 1;
+      if (targetIndex == null) return;
+      event.preventDefault();
+      activateSettingsTab(tabs[targetIndex], { moveFocus: true });
     });
   });
-  
-  
-  
+
+  activateSettingsTab(settingsModal.querySelector(".settings-tab.active") || settingsTabs[0]);
+
   btnSaveSettings.addEventListener("click", () => {
     // Save sniper settings
     const sniperConf = {
@@ -4210,7 +4259,7 @@ if (btnSettings && settingsModal) {
     };
     localStorage.setItem("sniperConfig", JSON.stringify(sniperConf));
 
-    settingsModal.style.display = "none";
+    closeSettings();
     showCustomAlert("Settings tersimpan!");
   });
 }

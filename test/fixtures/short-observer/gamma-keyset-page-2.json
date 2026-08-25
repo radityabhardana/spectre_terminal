@@ -1,0 +1,27 @@
+{
+  "data": [
+    {
+      "id": "event-200",
+      "startTime": "2026-08-25T12:15:00.000Z",
+      "series": [{ "id": "10192" }],
+      "cryptoFingerprint": {
+        "id": "btc-15m-twap-60",
+        "asset": "btc",
+        "duration": "15m",
+        "twapEnabled": true,
+        "twapLookbackSeconds": 60
+      },
+      "markets": [
+        {
+          "id": "market-200",
+          "conditionId": "condition-200",
+          "eventStartTime": "2026-08-25T12:15:00.000Z",
+          "endDate": "2026-08-25T12:30:00.000Z",
+          "outcomes": ["Up", "Down"],
+          "clobTokenIds": ["token-200-up", "token-200-down"]
+        }
+      ]
+    }
+  ],
+  "next_cursor": null
+}

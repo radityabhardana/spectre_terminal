@@ -1,0 +1,9 @@
+{
+  "event_type": "market_resolved",
+  "market": "condition-100-a",
+  "assets_ids": ["token-100-a-up", "token-100-a-down"],
+  "winning_asset_id": "token-100-a-up",
+  "winning_outcome": "Up",
+  "event_message": null,
+  "timestamp": "1787660100000"
+}

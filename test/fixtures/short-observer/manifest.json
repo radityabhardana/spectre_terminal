@@ -1,0 +1,133 @@
+{
+  "manifestVersion": 2,
+  "generatedAt": "2026-08-25T00:00:00.000Z",
+  "fixtures": [
+    {
+      "file": "gamma-keyset-page-1.json",
+      "provenance": "schema_derived_synthetic",
+      "source": {
+        "request": {
+          "method": "GET",
+          "url": "https://gamma-api.polymarket.com/events/keyset",
+          "query": {
+            "series_id": "10192",
+            "closed": "false",
+            "start_time_min": "2026-08-25T12:00:00.000Z",
+            "start_time_max": "2026-08-25T12:30:00.000Z",
+            "limit": "100"
+          }
+        },
+        "schemaDocumentation": "https://docs.polymarket.com/developers/gamma-markets-api/get-events",
+        "schemaRetrievedAt": "2026-08-25T00:00:00.000Z"
+      },
+      "generator": { "name": "spectre-short-observer-fixture-builder", "version": "1.0.0" },
+      "observed": false,
+      "digest": { "algorithm": "sha256", "scope": "fixture_file_bytes", "value": "4edb8aa0cd72615f809a2bea6eb8a53a49e442197af607a38529cf2ebae2b119" }
+    },
+    {
+      "file": "gamma-keyset-page-2.json",
+      "provenance": "schema_derived_synthetic",
+      "source": {
+        "request": {
+          "method": "GET",
+          "url": "https://gamma-api.polymarket.com/events/keyset",
+          "query": {
+            "series_id": "10192",
+            "closed": "false",
+            "start_time_min": "2026-08-25T12:00:00.000Z",
+            "start_time_max": "2026-08-25T12:30:00.000Z",
+            "limit": "100",
+            "after_cursor": "event-100"
+          }
+        },
+        "schemaDocumentation": "https://docs.polymarket.com/developers/gamma-markets-api/get-events",
+        "schemaRetrievedAt": "2026-08-25T00:00:00.000Z"
+      },
+      "generator": { "name": "spectre-short-observer-fixture-builder", "version": "1.0.0" },
+      "observed": false,
+      "digest": { "algorithm": "sha256", "scope": "fixture_file_bytes", "value": "0d8a4edf0e1c74b52d803313bd132a283cc374ca495efc04ea711d450e5c6016" }
+    },
+    {
+      "file": "rtds-twap-frame.json",
+      "provenance": "schema_derived_synthetic",
+      "source": {
+        "request": {
+          "transport": "websocket",
+          "url": "wss://ws-live-data.polymarket.com",
+          "subscription": {
+            "topic": "crypto_prices_twap_sixty",
+            "type": "update",
+            "filters": "{\"symbol\":\"btc/usd\"}"
+          }
+        },
+        "schemaDocumentation": "https://docs.polymarket.com/developers/RTDS/RTDS-crypto-prices",
+        "schemaRetrievedAt": "2026-08-25T00:00:00.000Z"
+      },
+      "generator": { "name": "spectre-short-observer-fixture-builder", "version": "1.0.0" },
+      "observed": false,
+      "digest": { "algorithm": "sha256", "scope": "fixture_file_bytes", "value": "17fc4cfe6ade1e5e77a9f699a64b480ab89e3bb07bab38be3b72856dba4eb607" }
+    },
+    {
+      "file": "chainlink-report.json",
+      "provenance": "schema_derived_synthetic",
+      "source": {
+        "request": {
+          "transport": "injected_decoded_report",
+          "feedIdPolicy": "caller_supplied_btc_usd_twap_60_v2"
+        },
+        "schemaDocumentation": "https://docs.chain.link/data-streams",
+        "schemaRetrievedAt": "2026-08-25T00:00:00.000Z"
+      },
+      "generator": { "name": "spectre-short-observer-fixture-builder", "version": "1.0.0" },
+      "observed": false,
+      "digest": { "algorithm": "sha256", "scope": "fixture_file_bytes", "value": "b3ff5ceb56d08220d47f7334937f653b6da2202ca3cfb1b7e2870a56602edb67" }
+    },
+    {
+      "file": "clob-book-unsorted.json",
+      "provenance": "schema_derived_synthetic",
+      "source": {
+        "request": {
+          "method": "GET",
+          "url": "https://clob.polymarket.com/book",
+          "query": { "token_id": "token-100-a-up" }
+        },
+        "schemaDocumentation": "https://docs.polymarket.com/api-reference/orderbook/get-order-book-summary",
+        "schemaRetrievedAt": "2026-08-25T00:00:00.000Z"
+      },
+      "generator": { "name": "spectre-short-observer-fixture-builder", "version": "1.0.0" },
+      "observed": false,
+      "digest": { "algorithm": "sha256", "scope": "fixture_file_bytes", "value": "fedb2bbbdefc7d03ba7add6c52bd4f928b58ae189a4f3d077f47de229c57e2ed" }
+    },
+    {
+      "file": "clob-market-resolved.json",
+      "provenance": "schema_derived_synthetic",
+      "source": {
+        "request": {
+          "transport": "websocket",
+          "url": "wss://ws-subscriptions-clob.polymarket.com/ws/market",
+          "subscription": { "type": "market", "assets_ids": ["token-100-a-up", "token-100-a-down"] }
+        },
+        "schemaDocumentation": "https://docs.polymarket.com/developers/CLOB/websocket/market-channel",
+        "schemaRetrievedAt": "2026-08-25T00:00:00.000Z"
+      },
+      "generator": { "name": "spectre-short-observer-fixture-builder", "version": "1.0.0" },
+      "observed": false,
+      "digest": { "algorithm": "sha256", "scope": "fixture_file_bytes", "value": "5ef9b94e84042166d21e64d0f5f170f3fa2c7312752ecb5eeb0b404b2c41ff44" }
+    },
+    {
+      "file": "gamma-resolved.json",
+      "provenance": "schema_derived_synthetic",
+      "source": {
+        "request": {
+          "method": "GET",
+          "url": "https://gamma-api.polymarket.com/markets/market-100-a"
+        },
+        "schemaDocumentation": "https://docs.polymarket.com/developers/gamma-markets-api/get-markets",
+        "schemaRetrievedAt": "2026-08-25T00:00:00.000Z"
+      },
+      "generator": { "name": "spectre-short-observer-fixture-builder", "version": "1.0.0" },
+      "observed": false,
+      "digest": { "algorithm": "sha256", "scope": "fixture_file_bytes", "value": "fd0d86db34af2e103e6ac4c41fd5c3465a0df6402c728568f3e888c625b8505a" }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "market-100-a",
+  "conditionId": "condition-100-a",
+  "closed": true,
+  "umaResolutionStatus": "resolved",
+  "outcomes": "[\"Up\",\"Down\"]",
+  "clobTokenIds": "[\"token-100-a-up\",\"token-100-a-down\"]",
+  "outcomePrices": "[\"1\",\"0\"]"
+}

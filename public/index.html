@@ -364,19 +364,13 @@
             </div>
           </div>
 
-          <div style="position:relative; display:flex; align-items:center;">
+          <div class="engine-status-group" aria-label="Engine and external provider status">
             <div class="padre-system-status interactive" id="btnToggleEngines" style="cursor:pointer;" title="View Engine Statuses">
               3 Engines Loaded
             </div>
           </div>
 
           <div style="width:1px; height:12px; background:var(--border-strong); margin:0 4px;"></div>
-
-          <div class="padre-status-item interactive" id="btnSettings" title="Settings">
-            <i data-lucide="settings" style="width:12px; height:12px;"></i>
-          </div>
-
-
 
           <div style="display:none;">
             <span id="connLabel">Connected</span>
@@ -417,6 +411,9 @@
           </div>
         </div>
       </footer>
+
+      <!-- Proxy retained for the topbar settings trigger; no settings control remains in the footer. -->
+      <button id="btnSettings" type="button" hidden aria-hidden="true" tabindex="-1"></button>
 
 
 
@@ -615,176 +612,172 @@
           </div>
         </div>
       </div>
-      <!-- Settings Modal -->
-      <div id="settingsModal" class="settings-dropdown-backdrop" style="display:none; position:fixed; inset:0; width:100%; height:100%; background:transparent; backdrop-filter:none; z-index:10002; justify-content:flex-start; align-items:flex-start;">
-        <div class="settings-dropdown-panel" style="background:var(--bg-surface); border:1px solid var(--border-strong); border-radius:16px; width:min(520px,calc(100vw - 20px)); height:min(76vh,675px); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 54px rgba(0,0,0,0.62);">
-
-          <!-- Header -->
-          <div style="padding:0 20px; height:52px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--bg-surface); flex-shrink:0;">
-            <h3 style="margin:0; font-size:14px; font-weight:600; color:var(--text-primary); font-family:var(--font-primary); letter-spacing:-0.01em;">System Settings</h3>
-            <button id="closeSettingsModal" style="background:transparent; border:1px solid var(--border-strong); border-radius:var(--radius-md); color:var(--text-tertiary); cursor:pointer; width:28px; height:28px; display:flex; align-items:center; justify-content:center; transition:all 0.15s ease;">
-              <i data-lucide="x" style="width:14px; height:14px;"></i>
-            </button>
-          </div>
-
-          <!-- Body -->
-          <div style="display:flex; flex:1; min-height:0;">
-
-            <!-- Left Sidebar -->
-            <div style="width:132px; border-right:1px solid var(--border); display:flex; flex-direction:column; padding:10px 8px; gap:2px; background:var(--bg-surface); flex-shrink:0;">
-              <button class="settings-tab active" data-target="pane-alerts" style="text-align:left; padding:9px 14px; background:rgba(255,255,255,0.06); border:none; border-radius:var(--radius-md); color:var(--text-primary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Alerts &amp; Audio</button>
-              <button class="settings-tab" data-target="pane-sniper" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Sniper Trigger</button>
-              <button class="settings-tab" data-target="pane-analytics" style="text-align:left; padding:9px 14px; background:transparent; border:none; border-radius:var(--radius-md); color:var(--text-secondary); cursor:pointer; font-size:13px; font-weight:500; font-family:var(--font-primary); transition:all 0.15s;">Analytics</button>
-
-              <div style="margin-top:auto; padding-top:12px; border-top:1px solid var(--border);">
-                <button id="btnSaveSettings" class="btn-primary" style="width:100%; justify-content:center;">
-                  <i data-lucide="check" style="width:13px; height:13px;"></i> Done
-                </button>
+      <!-- System settings: anchored popover on desktop, bottom sheet on mobile. -->
+      <div id="settingsModal" class="settings-dropdown-backdrop" hidden>
+        <section class="settings-dropdown-panel" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+          <header class="settings-popover-header">
+            <div class="settings-title-lockup">
+              <span class="settings-title-mark" aria-hidden="true"></span>
+              <div>
+                <span class="settings-eyebrow">Terminal controls</span>
+                <h2 id="settingsModalTitle">System Settings</h2>
               </div>
             </div>
-
-            <!-- Right Content -->
-            <div style="flex:1; overflow-y:auto; padding:18px 16px; background:var(--bg-base); scrollbar-width:thin; scrollbar-color:var(--border-strong) transparent;">
-
-              <!-- Appearance Pane Removed -> Moved to new Padre Theme Panel -->
-
-              <!-- Alerts Pane -->
-              <div id="pane-alerts" class="settings-pane" style="display:block;">
-                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Alerts &amp; Audio</h2>
-                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Configure system notifications and sound alerts.</p>
-
-                <div style="display:flex; flex-direction:column; gap:12px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:16px 18px; border-radius:10px; border:1px solid var(--border);">
-                    <div style="display:flex; flex-direction:column; gap:3px;">
-                      <span style="color:var(--text-primary); font-size:13px; font-weight:500; font-family:var(--font-primary);">Master Audio</span>
-                      <span style="color:var(--text-tertiary); font-size:11px;">Enable or disable all sound effects.</span>
-                    </div>
-                    <button id="toggleAudioBtn" style="background:rgba(45,184,112,0.1); border:1px solid var(--green); color:var(--green); padding:5px 14px; border-radius:var(--radius-md); font-size:11px; font-weight:700; cursor:pointer; transition:all 0.15s; font-family:var(--font-primary); width:50px;">ON</button>
-                  </div>
-
-                  <div style="display:flex; flex-direction:column; background:var(--bg-elevated); padding:16px 18px; border-radius:10px; border:1px solid var(--border); gap:12px;">
-                    <div style="color:var(--text-primary); font-size:13px; font-weight:500; font-family:var(--font-primary);">Notification Sounds:</div>
-
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                      <div style="display:flex; align-items:center; gap:8px;">
-                        <input type="checkbox" id="chkSoundSniffer" checked style="cursor:pointer; width:16px; height:16px; accent-color:var(--neon-amber);">
-                        <span style="color:var(--text-secondary); font-size:12px; display:flex; align-items:center;"><i data-lucide="radar" style="width:14px;height:14px;margin-right:6px;color:var(--neon-amber)"></i>Live Whale Sniffer</span>
-                      </div>
-                      <div style="display:flex; gap:6px;">
-                        <select id="selectSoundSniffer" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-primary); border-radius: var(--radius-md); font-size: 11px; padding: 0 4px; height: 24px; outline: none; cursor:pointer;">
-                          <option value="chime" style="background:var(--bg-elevated)">Chime</option>
-                          <option value="coin" style="background:var(--bg-elevated)">Coin</option>
-                          <option value="beep" style="background:var(--bg-elevated)">Beep</option>
-                        </select>
-                        <button class="btnTestSound" data-type="sniffer" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:var(--radius-md); padding:0 8px; color:var(--text-secondary); cursor:pointer; height:24px; display:flex; align-items:center; justify-content:center;"><i data-lucide="play" style="width:10px;height:10px;"></i></button>
-                      </div>
-                    </div>
-
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                      <div style="display:flex; align-items:center; gap:8px;">
-                        <input type="checkbox" id="chkSoundQueue" checked style="cursor:pointer; width:16px; height:16px; accent-color:var(--neon-purple);">
-                        <span style="color:var(--text-secondary); font-size:12px; display:flex; align-items:center;"><i data-lucide="cpu" style="width:14px;height:14px;margin-right:6px;color:var(--neon-purple)"></i>Analysis Complete</span>
-                      </div>
-                      <div style="display:flex; gap:6px;">
-                        <select id="selectSoundQueue" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-primary); border-radius: var(--radius-md); font-size: 11px; padding: 0 4px; height: 24px; outline: none; cursor:pointer;">
-                          <option value="chime" style="background:var(--bg-elevated)">Chime</option>
-                          <option value="coin" style="background:var(--bg-elevated)">Coin</option>
-                          <option value="beep" style="background:var(--bg-elevated)">Beep</option>
-                        </select>
-                        <button class="btnTestSound" data-type="queue" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:var(--radius-md); padding:0 8px; color:var(--text-secondary); cursor:pointer; height:24px; display:flex; align-items:center; justify-content:center;"><i data-lucide="play" style="width:10px;height:10px;"></i></button>
-                      </div>
-                    </div>
-
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                      <div style="display:flex; align-items:center; gap:8px;">
-                        <input type="checkbox" id="chkSoundAlerts" checked style="cursor:pointer; width:16px; height:16px; accent-color:var(--neon-cyan);">
-                        <span style="color:var(--text-secondary); font-size:12px; display:flex; align-items:center;"><i data-lucide="bell" style="width:14px;height:14px;margin-right:6px;color:var(--neon-cyan)"></i>Alerts &amp; Arb</span>
-                      </div>
-                      <div style="display:flex; gap:6px;">
-                        <select id="selectSoundAlerts" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-primary); border-radius: var(--radius-md); font-size: 11px; padding: 0 4px; height: 24px; outline: none; cursor:pointer;">
-                          <option value="chime" style="background:var(--bg-elevated)">Chime</option>
-                          <option value="coin" style="background:var(--bg-elevated)">Coin</option>
-                          <option value="beep" style="background:var(--bg-elevated)">Beep</option>
-                        </select>
-                        <button class="btnTestSound" data-type="alerts" style="background:rgba(255,255,255,0.05); border:1px solid var(--border); border-radius:var(--radius-md); padding:0 8px; color:var(--text-secondary); cursor:pointer; height:24px; display:flex; align-items:center; justify-content:center;"><i data-lucide="play" style="width:10px;height:10px;"></i></button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Sniper Pane -->
-              <div id="pane-sniper" class="settings-pane" style="display:none;">
-                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Dynamic EV Scanner</h2>
-                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Market 5 menit dipantau tanpa menunggu AI. Entry hanya muncul saat arah stabil, harga executable, dan EV lolos.</p>
-
-                <div style="display:flex; flex-direction:column; gap:8px;">
-                  <div style="background:linear-gradient(135deg, rgba(16,185,129,0.08), rgba(6,182,212,0.04)); padding:16px 18px; border-radius:10px; border:1px solid rgba(16,185,129,0.28);">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-                      <div><div style="font-weight:700; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">5-Min Entry Window</div><div style="font-size:10px; color:var(--text-tertiary); margin-top:3px;">Scan setiap 5 detik, revalidate entry setiap 2 detik</div></div>
-                      <span style="font-size:9px; font-weight:800; color:var(--neon-green); border:1px solid rgba(16,185,129,0.35); background:rgba(16,185,129,0.1); padding:4px 7px; border-radius:999px; letter-spacing:.08em;">DYNAMIC</span>
-                    </div>
-                    <div class="ev-settings-grid">
-                      <label class="ev-setting"><span>Scan mulai</span><div><input type="number" id="set5mScanStart" value="4" disabled><b>m</b></div></label>
-                      <label class="ev-setting"><span>Scan berhenti</span><div><input type="number" id="set5mScanStop" value="2" disabled><b>m</b></div></label>
-                      <label class="ev-setting"><span>Min fair</span><div><input type="number" id="set5mMinFair" value="60" min="60" max="90" step="1"><b>%</b></div></label>
-                      <label class="ev-setting"><span>Min net EV</span><div><input type="number" id="set5mMinEv" value="8" min="8" max="30" step="1"><b>c</b></div></label>
-                      <label class="ev-setting"><span>Max ask</span><div><input type="number" id="set5mMaxAsk" value="0.65" min="0.40" max="0.65" step="0.01"><b>$</b></div></label>
-                      <label class="ev-setting"><span>Konfirmasi</span><div><input type="number" id="set5mConfirmations" value="2" min="2" max="4" step="1"><b>x</b></div></label>
-                    </div>
-                  </div>
-                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
-                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">15-Min Market</span>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                      <input type="number" id="set15mMin" value="6" min="0" max="14" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
-                      <input type="number" id="set15mSec" value="0" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
-                    </div>
-                  </div>
-                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
-                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">1-Hour Market</span>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                      <input type="number" id="set1hMin" value="24" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
-                      <input type="number" id="set1hSec" value="0" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">s</span>
-                    </div>
-                  </div>
-                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
-                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">4-Hour Market</span>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                      <input type="number" id="set4hHour" value="1" min="0" max="3" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">h</span>
-                      <input type="number" id="set4hMin" value="36" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
-                    </div>
-                  </div>
-                  <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:14px 18px; border-radius:10px; border:1px solid var(--border);">
-                    <span style="font-weight:600; color:var(--text-primary); font-size:13px; font-family:var(--font-primary);">1-Day Market</span>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                      <input type="number" id="set1dHour" value="9" min="0" max="23" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">h</span>
-                      <input type="number" id="set1dMin" value="36" min="0" max="59" style="width:52px; height:34px; font-size:13px; background:var(--bg-base); border:1px solid var(--border-strong); color:var(--text-primary); text-align:center; border-radius:var(--radius-md); outline:none; font-family:'JetBrains Mono',monospace;"><span style="color:var(--text-tertiary); font-size:12px;">m</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Analytics Pane -->
-              <div id="pane-analytics" class="settings-pane" style="display:none;">
-                <h2 style="font-size:16px; font-weight:600; margin-bottom:6px; color:var(--text-primary); font-family:var(--font-primary);">Analytics Stats</h2>
-                <p style="font-size:12px; color:var(--text-tertiary); margin-bottom:20px; line-height:1.5;">Ringkasan performa dan prediksi dari Qwen.</p>
-
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
-                  <div style="background:var(--bg-elevated); border:1px solid var(--border); padding:20px; border-radius:10px; text-align:center;">
-                    <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-tertiary); margin-bottom:8px; font-family:var(--font-primary);">Total Analyzed</div>
-                    <div id="statTotal" style="font-size:26px; font-weight:700; color:var(--text-primary); font-family:'JetBrains Mono',monospace;">0</div>
-                  </div>
-                  <div style="background:rgba(45,184,112,0.05); border:1px solid rgba(45,184,112,0.18); padding:20px; border-radius:10px; text-align:center;">
-                    <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-tertiary); margin-bottom:8px; font-family:var(--font-primary);">Win Rate</div>
-                    <div id="statWinRate" style="font-size:26px; font-weight:700; color:var(--green); font-family:'JetBrains Mono',monospace;">0%</div>
-                  </div>
-                </div>
-              </div>
-
+            <div class="settings-header-actions">
+              <button id="btnSaveSettings" type="button">
+                <i data-lucide="check" aria-hidden="true"></i>
+                <span>Save</span>
+              </button>
+              <button id="closeSettingsModal" type="button" aria-label="Close settings" title="Close settings">
+                <i data-lucide="x" aria-hidden="true"></i>
+              </button>
             </div>
+          </header>
+
+          <div class="settings-tablist" role="tablist" aria-label="System settings sections">
+            <button id="settings-tab-alerts" class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="pane-alerts" data-target="pane-alerts">Alerts &amp; Audio</button>
+            <button id="settings-tab-sniper" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="pane-sniper" data-target="pane-sniper" tabindex="-1">Sniper Trigger</button>
+            <button id="settings-tab-analytics" class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="pane-analytics" data-target="pane-analytics" tabindex="-1">Analytics</button>
           </div>
 
-        </div>
+          <div class="settings-popover-content">
+            <section id="pane-alerts" class="settings-pane" role="tabpanel" aria-labelledby="settings-tab-alerts">
+              <header class="settings-pane-intro">
+                <h3>Alerts &amp; Audio</h3>
+                <p>Configure system notifications and sound alerts.</p>
+              </header>
+
+              <div class="settings-card settings-master-audio">
+                <div>
+                  <strong>Master Audio</strong>
+                  <span>Enable or disable all sound effects.</span>
+                </div>
+                <button id="toggleAudioBtn" class="settings-state-toggle" type="button" aria-pressed="true">ON</button>
+              </div>
+
+              <section class="settings-card settings-sound-list" aria-labelledby="notificationSoundsTitle">
+                <header>
+                  <span id="notificationSoundsTitle">Notification sounds</span>
+                  <span>Event / tone / preview</span>
+                </header>
+                <div class="settings-sound-row">
+                  <label class="settings-sound-name" for="chkSoundSniffer">
+                    <input type="checkbox" id="chkSoundSniffer" checked>
+                    <i data-lucide="radar" aria-hidden="true"></i>
+                    <span>Live Whale Sniffer</span>
+                  </label>
+                  <select id="selectSoundSniffer" aria-label="Live Whale Sniffer sound">
+                    <option value="chime">Chime</option>
+                    <option value="coin">Coin</option>
+                    <option value="beep">Beep</option>
+                  </select>
+                  <button class="btnTestSound" type="button" data-type="sniffer" aria-label="Preview Live Whale Sniffer sound"><i data-lucide="play" aria-hidden="true"></i></button>
+                </div>
+                <div class="settings-sound-row">
+                  <label class="settings-sound-name" for="chkSoundQueue">
+                    <input type="checkbox" id="chkSoundQueue" checked>
+                    <i data-lucide="cpu" aria-hidden="true"></i>
+                    <span>Analysis Complete</span>
+                  </label>
+                  <select id="selectSoundQueue" aria-label="Analysis Complete sound">
+                    <option value="chime">Chime</option>
+                    <option value="coin">Coin</option>
+                    <option value="beep">Beep</option>
+                  </select>
+                  <button class="btnTestSound" type="button" data-type="queue" aria-label="Preview Analysis Complete sound"><i data-lucide="play" aria-hidden="true"></i></button>
+                </div>
+                <div class="settings-sound-row">
+                  <label class="settings-sound-name" for="chkSoundAlerts">
+                    <input type="checkbox" id="chkSoundAlerts" checked>
+                    <i data-lucide="bell" aria-hidden="true"></i>
+                    <span>Alerts &amp; Arb</span>
+                  </label>
+                  <select id="selectSoundAlerts" aria-label="Alerts and arbitrage sound">
+                    <option value="chime">Chime</option>
+                    <option value="coin">Coin</option>
+                    <option value="beep">Beep</option>
+                  </select>
+                  <button class="btnTestSound" type="button" data-type="alerts" aria-label="Preview Alerts and arbitrage sound"><i data-lucide="play" aria-hidden="true"></i></button>
+                </div>
+              </section>
+            </section>
+
+            <section id="pane-sniper" class="settings-pane" role="tabpanel" aria-labelledby="settings-tab-sniper" hidden>
+              <header class="settings-pane-intro">
+                <h3>Dynamic EV Scanner</h3>
+                <p>Market 5 menit dipantau tanpa menunggu AI. Entry hanya muncul saat arah stabil, harga executable, dan EV lolos.</p>
+              </header>
+
+              <section class="settings-card settings-scanner-card" aria-labelledby="entryWindowTitle">
+                <header class="settings-scanner-head">
+                  <div>
+                    <strong id="entryWindowTitle">5-Min Entry Window</strong>
+                    <span>Scan setiap 5 detik · revalidate entry setiap 2 detik</span>
+                  </div>
+                  <span class="settings-mode-badge">Dynamic</span>
+                </header>
+                <div class="ev-settings-grid">
+                  <label class="ev-setting"><span>Scan mulai</span><div><input type="number" id="set5mScanStart" value="4" disabled><b>m</b></div></label>
+                  <label class="ev-setting"><span>Scan berhenti</span><div><input type="number" id="set5mScanStop" value="2" disabled><b>m</b></div></label>
+                  <label class="ev-setting"><span>Min fair</span><div><input type="number" id="set5mMinFair" value="60" min="60" max="90" step="1"><b>%</b></div></label>
+                  <label class="ev-setting"><span>Min net EV</span><div><input type="number" id="set5mMinEv" value="8" min="8" max="30" step="1"><b>c</b></div></label>
+                  <label class="ev-setting"><span>Max ask</span><div><input type="number" id="set5mMaxAsk" value="0.65" min="0.40" max="0.65" step="0.01"><b>$</b></div></label>
+                  <label class="ev-setting"><span>Konfirmasi</span><div><input type="number" id="set5mConfirmations" value="2" min="2" max="4" step="1"><b>x</b></div></label>
+                </div>
+              </section>
+
+              <div class="settings-timing-grid" aria-label="Market trigger timings">
+                <div class="settings-timing-card">
+                  <span>15-Min Market</span>
+                  <span class="settings-time-fields">
+                    <input type="number" id="set15mMin" value="6" min="0" max="14" aria-label="15-minute market trigger minutes"><b>m</b>
+                    <input type="number" id="set15mSec" value="0" min="0" max="59" aria-label="15-minute market trigger seconds"><b>s</b>
+                  </span>
+                </div>
+                <div class="settings-timing-card">
+                  <span>1-Hour Market</span>
+                  <span class="settings-time-fields">
+                    <input type="number" id="set1hMin" value="24" min="0" max="59" aria-label="1-hour market trigger minutes"><b>m</b>
+                    <input type="number" id="set1hSec" value="0" min="0" max="59" aria-label="1-hour market trigger seconds"><b>s</b>
+                  </span>
+                </div>
+                <div class="settings-timing-card">
+                  <span>4-Hour Market</span>
+                  <span class="settings-time-fields">
+                    <input type="number" id="set4hHour" value="1" min="0" max="3" aria-label="4-hour market trigger hours"><b>h</b>
+                    <input type="number" id="set4hMin" value="36" min="0" max="59" aria-label="4-hour market trigger minutes"><b>m</b>
+                  </span>
+                </div>
+                <div class="settings-timing-card">
+                  <span>1-Day Market</span>
+                  <span class="settings-time-fields">
+                    <input type="number" id="set1dHour" value="9" min="0" max="23" aria-label="1-day market trigger hours"><b>h</b>
+                    <input type="number" id="set1dMin" value="36" min="0" max="59" aria-label="1-day market trigger minutes"><b>m</b>
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            <section id="pane-analytics" class="settings-pane" role="tabpanel" aria-labelledby="settings-tab-analytics" hidden>
+              <header class="settings-pane-intro">
+                <h3>Analytics Stats</h3>
+                <p>Ringkasan performa dan prediksi dari Qwen.</p>
+              </header>
+              <div class="settings-stats-grid">
+                <article class="settings-stat-card">
+                  <span>Total analyzed</span>
+                  <strong id="statTotal">0</strong>
+                  <small>Recorded predictions</small>
+                </article>
+                <article class="settings-stat-card settings-stat-card--accent">
+                  <span>Win rate</span>
+                  <strong id="statWinRate">0%</strong>
+                  <small>Resolved outcomes</small>
+                </article>
+              </div>
+            </section>
+          </div>
+        </section>
       </div>
 
       <!-- Toast Notification Container -->
@@ -838,6 +831,7 @@
     </div>
 
     <script src="/app.js?v=112-dynamic-ev" type="module"></script>
+    <script src="/provider-status.js?v=20260825-engine-status"></script>
     <script src="/terminal-shell.js"></script>
   <!-- ================================================== -->
   <!-- BODY-LEVEL MODALS (outside pointer-events:none wrappers) -->
@@ -845,10 +839,44 @@
 
   <!-- Engines Popup - BODY LEVEL (position:fixed to escape app-shell stacking context) -->
   <div id="enginesPopup" class="padre-engines-popup engines-closed" style="display:none; position:fixed; bottom:40px; left:20px; z-index:999999;">
-    <div class="padre-system-status">Gamma</div>
-    <div class="padre-system-status">CLOB</div>
-    <div id="qwenStatus" class="padre-system-status ai">Qwen</div>
-    <div class="padre-system-status muted">Local</div>
+    <div id="engineStatusList" class="provider-status provider-status-popover" aria-label="Engine and provider statuses" aria-live="polite">
+      <div class="padre-system-status provider-status-item provider-status-popover-row" data-engine="gamma" data-state="checking" aria-label="Gamma engine status" title="Gamma engine status">
+        <span class="provider-status-dot" aria-hidden="true"></span>
+        <span class="provider-status-name">GAMMA</span>
+        <span class="provider-status-state">CHECKING</span>
+        <span class="provider-status-latency"></span>
+      </div>
+      <div class="padre-system-status provider-status-item provider-status-popover-row" data-engine="clob" data-state="checking" aria-label="CLOB engine status" title="CLOB engine status">
+        <span class="provider-status-dot" aria-hidden="true"></span>
+        <span class="provider-status-name">CLOB</span>
+        <span class="provider-status-state">CHECKING</span>
+        <span class="provider-status-latency"></span>
+      </div>
+      <div id="qwenStatus" class="padre-system-status provider-status-item provider-status-popover-row ai" data-engine="ai-provider" data-state="checking" aria-label="AI provider status" title="AI provider status">
+        <span class="provider-status-dot" aria-hidden="true"></span>
+        <span class="provider-status-name">AI PROVIDER</span>
+        <span class="provider-status-state">CHECKING</span>
+        <span class="provider-status-latency"></span>
+      </div>
+      <div class="padre-system-status provider-status-item provider-status-popover-row muted" data-engine="local" data-state="checking" aria-label="Local engine status" title="Local engine status">
+        <span class="provider-status-dot" aria-hidden="true"></span>
+        <span class="provider-status-name">LOCAL</span>
+        <span class="provider-status-state">CHECKING</span>
+        <span class="provider-status-latency"></span>
+      </div>
+      <div class="padre-system-status provider-status-item provider-status-popover-row" data-engine="binance" data-provider="binance" data-state="checking" aria-label="Binance provider status" title="Binance provider status">
+        <span class="provider-status-dot" aria-hidden="true"></span>
+        <span class="provider-status-name">BINANCE</span>
+        <span class="provider-status-state">CHECKING</span>
+        <span class="provider-status-latency"></span>
+      </div>
+      <div class="padre-system-status provider-status-item provider-status-popover-row" data-engine="gdelt" data-provider="gdelt" data-state="checking" aria-label="GDELT provider status" title="GDELT provider status">
+        <span class="provider-status-dot" aria-hidden="true"></span>
+        <span class="provider-status-name">GDELT</span>
+        <span class="provider-status-state">CHECKING</span>
+        <span class="provider-status-latency"></span>
+      </div>
+    </div>
   </div>
 
 

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { canonicalizeChainlinkFeedId } from "./short-market-sources.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RETIRED_ENV_KEYS = new Set([
@@ -74,11 +75,15 @@ function probabilityPrice(value, fallback) {
 
 const SHORT_OBSERVER_ENV_KEYS = Object.freeze({
   enabled: "SHORT_OBSERVER_BTC_15M_ENABLED",
+  expectedChainlinkFeedId: "SHORT_OBSERVER_BTC_15M_EXPECTED_CHAINLINK_FEED_ID",
   discoveryIntervalMs: "SHORT_OBSERVER_BTC_15M_DISCOVERY_INTERVAL_MS",
   discoveryLookaheadMs: "SHORT_OBSERVER_BTC_15M_DISCOVERY_LOOKAHEAD_MS",
   discoveryTimeoutMs: "SHORT_OBSERVER_BTC_15M_DISCOVERY_TIMEOUT_MS",
   snapshotIntervalMs: "SHORT_OBSERVER_BTC_15M_SNAPSHOT_INTERVAL_MS",
   snapshotTimeoutMs: "SHORT_OBSERVER_BTC_15M_SNAPSHOT_TIMEOUT_MS",
+  resolutionIntervalMs: "SHORT_OBSERVER_BTC_15M_RESOLUTION_INTERVAL_MS",
+  resolutionTimeoutMs: "SHORT_OBSERVER_BTC_15M_RESOLUTION_TIMEOUT_MS",
+  resolutionGraceMs: "SHORT_OBSERVER_BTC_15M_RESOLUTION_GRACE_MS",
   freezeBeforeCloseMs: "SHORT_OBSERVER_BTC_15M_FREEZE_BEFORE_CLOSE_MS",
   lateStartGraceMs: "SHORT_OBSERVER_BTC_15M_LATE_START_GRACE_MS",
   retries: "SHORT_OBSERVER_BTC_15M_RETRIES",
@@ -99,11 +104,15 @@ function optionalObserverNumber(value) {
 }
 
 const shortObserverBtc15m = {
+  expectedChainlinkFeedId: canonicalizeChainlinkFeedId(shortObserverRawConfig.expectedChainlinkFeedId) || undefined,
   discoveryIntervalMs: optionalObserverNumber(shortObserverRawConfig.discoveryIntervalMs),
   discoveryLookaheadMs: optionalObserverNumber(shortObserverRawConfig.discoveryLookaheadMs),
   discoveryTimeoutMs: optionalObserverNumber(shortObserverRawConfig.discoveryTimeoutMs),
   snapshotIntervalMs: optionalObserverNumber(shortObserverRawConfig.snapshotIntervalMs),
   snapshotTimeoutMs: optionalObserverNumber(shortObserverRawConfig.snapshotTimeoutMs),
+  resolutionIntervalMs: optionalObserverNumber(shortObserverRawConfig.resolutionIntervalMs),
+  resolutionTimeoutMs: optionalObserverNumber(shortObserverRawConfig.resolutionTimeoutMs),
+  resolutionGraceMs: optionalObserverNumber(shortObserverRawConfig.resolutionGraceMs),
   freezeBeforeCloseMs: optionalObserverNumber(shortObserverRawConfig.freezeBeforeCloseMs),
   lateStartGraceMs: optionalObserverNumber(shortObserverRawConfig.lateStartGraceMs),
   retries: optionalObserverNumber(shortObserverRawConfig.retries),
@@ -191,6 +200,9 @@ export const config = {
   shortObserverBtc15mDiscoveryTimeoutMs: shortObserverBtc15m.discoveryTimeoutMs,
   shortObserverBtc15mSnapshotIntervalMs: shortObserverBtc15m.snapshotIntervalMs,
   shortObserverBtc15mSnapshotTimeoutMs: shortObserverBtc15m.snapshotTimeoutMs,
+  shortObserverBtc15mResolutionIntervalMs: shortObserverBtc15m.resolutionIntervalMs,
+  shortObserverBtc15mResolutionTimeoutMs: shortObserverBtc15m.resolutionTimeoutMs,
+  shortObserverBtc15mResolutionGraceMs: shortObserverBtc15m.resolutionGraceMs,
   shortObserverBtc15mFreezeBeforeCloseMs: shortObserverBtc15m.freezeBeforeCloseMs,
   shortObserverBtc15mLateStartGraceMs: shortObserverBtc15m.lateStartGraceMs,
   shortObserverBtc15mRetries: shortObserverBtc15m.retries,
@@ -221,23 +233,43 @@ export function assertShortObserverConfig() {
   }
 
   const missing = [];
-  const invalid = [];
-  for (const name of Object.keys(shortObserverBtc15m)) {
+  const invalidNumbers = [];
+  const expectedFeedIdRaw = shortObserverRawConfig.expectedChainlinkFeedId;
+  if (expectedFeedIdRaw == null || expectedFeedIdRaw === "") {
+    missing.push(SHORT_OBSERVER_ENV_KEYS.expectedChainlinkFeedId);
+  }
+  const invalidFeedId = expectedFeedIdRaw != null
+    && expectedFeedIdRaw !== ""
+    && !shortObserverBtc15m.expectedChainlinkFeedId;
+
+  for (const name of Object.keys(shortObserverBtc15m).filter((key) => key !== "expectedChainlinkFeedId")) {
     const envKey = SHORT_OBSERVER_ENV_KEYS[name];
     const rawValue = shortObserverRawConfig[name];
     const value = shortObserverBtc15m[name];
     if (rawValue == null || rawValue === "") {
       missing.push(envKey);
     } else if (!Number.isSafeInteger(value) || value <= 0) {
-      invalid.push(envKey);
+      invalidNumbers.push(envKey);
     }
   }
 
-  if (missing.length || invalid.length) {
+  if (missing.length || invalidFeedId || invalidNumbers.length) {
     const details = [];
     if (missing.length) details.push(`missing: ${missing.join(", ")}`);
-    if (invalid.length) details.push(`invalid positive safe integer values: ${invalid.join(", ")}`);
+    if (invalidFeedId) details.push(`invalid V2 Chainlink feed ID: ${SHORT_OBSERVER_ENV_KEYS.expectedChainlinkFeedId}`);
+    if (invalidNumbers.length) details.push(`invalid positive safe integer values: ${invalidNumbers.join(", ")}`);
     throw new Error(`Invalid BTC 15m short observer configuration (${details.join("; ")}).`);
+  }
+
+  const invalidTiming = [];
+  if (shortObserverBtc15m.resolutionTimeoutMs > shortObserverBtc15m.resolutionIntervalMs) {
+    invalidTiming.push(`${SHORT_OBSERVER_ENV_KEYS.resolutionTimeoutMs} must be <= ${SHORT_OBSERVER_ENV_KEYS.resolutionIntervalMs}`);
+  }
+  if (shortObserverBtc15m.resolutionGraceMs < shortObserverBtc15m.resolutionIntervalMs) {
+    invalidTiming.push(`${SHORT_OBSERVER_ENV_KEYS.resolutionGraceMs} must be >= ${SHORT_OBSERVER_ENV_KEYS.resolutionIntervalMs}`);
+  }
+  if (invalidTiming.length) {
+    throw new Error(`Invalid BTC 15m short observer configuration (${invalidTiming.join("; ")}).`);
   }
 
   return { enabled: true, ...shortObserverBtc15m };

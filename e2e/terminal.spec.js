@@ -222,6 +222,151 @@ test("mobile uses focused bottom navigation without page overflow", async ({ pag
   await expect(page.locator("#secondaryToolsDrawer")).toBeVisible();
 });
 
+test("settings exposes every pane in an anchored desktop popover or mobile sheet", async ({ page }, testInfo) => {
+  const trigger = page.locator("#terminalSettingsTrigger");
+  const modal = page.locator("#settingsModal");
+  const panel = modal.locator(".settings-dropdown-panel");
+  const tablist = panel.getByRole("tablist", { name: "System settings sections" });
+  const tabs = {
+    alerts: tablist.getByRole("tab", { name: "Alerts & Audio", exact: true }),
+    sniper: tablist.getByRole("tab", { name: "Sniper Trigger", exact: true }),
+    analytics: tablist.getByRole("tab", { name: "Analytics", exact: true }),
+  };
+
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+  await expect(modal).toBeVisible();
+  await expect(panel).toBeVisible();
+  await panel.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+  await expect(panel.locator("#closeSettingsModal")).toBeFocused();
+  await expect(tablist).toBeVisible();
+  await expect(tabs.alerts).toBeVisible();
+  await expect(tabs.sniper).toBeVisible();
+  await expect(tabs.analytics).toBeVisible();
+  await expect.poll(() => tablist.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  for (const tab of Object.values(tabs)) {
+    await expect.poll(() => tab.evaluate((element) => (
+      element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight
+    ))).toBe(true);
+  }
+
+  await testInfo.attach(`settings-${testInfo.project.name}-alerts`, {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  });
+
+  const layout = await page.evaluate(() => {
+    const triggerElement = document.querySelector("#terminalSettingsTrigger");
+    const panelElement = document.querySelector(".settings-dropdown-panel");
+    if (!triggerElement || !panelElement) return null;
+    const triggerRect = triggerElement.getBoundingClientRect();
+    const panelRect = panelElement.getBoundingClientRect();
+    return {
+      viewportWidth: window.innerWidth,
+      panelLeft: panelRect.left,
+      panelRight: panelRect.right,
+      panelTop: panelRect.top,
+      panelHeight: panelRect.height,
+      panelWidth: panelRect.width,
+      triggerBottom: triggerRect.bottom,
+    };
+  });
+
+  expect(layout).not.toBeNull();
+  expect(layout.panelLeft).toBeGreaterThanOrEqual(0);
+  expect(layout.panelRight).toBeLessThanOrEqual(layout.viewportWidth);
+  expect(layout.panelWidth).toBeLessThanOrEqual(480);
+  if (testInfo.project.name === "desktop") {
+    expect(layout.panelTop).toBeGreaterThanOrEqual(layout.triggerBottom + 7);
+    expect(layout.panelHeight).toBeLessThan(500);
+  } else {
+    expect(layout.panelLeft).toBe(0);
+    expect(layout.panelRight).toBe(layout.viewportWidth);
+  }
+
+  await expect(panel.locator("#pane-alerts")).toBeVisible();
+  await expect(panel.locator("#pane-alerts")).toContainText("Master Audio");
+  await expect(tabs.alerts).toHaveAttribute("aria-selected", "true");
+
+  await tabs.sniper.click();
+  await expect(panel.locator("#pane-sniper")).toBeVisible();
+  await expect(panel.locator("#pane-sniper")).toContainText("Dynamic EV Scanner");
+  await expect(tabs.sniper).toHaveAttribute("aria-selected", "true");
+  await panel.locator("#set5mMinFair").fill("64");
+
+  await tabs.analytics.click();
+  await expect(panel.locator("#pane-analytics")).toBeVisible();
+  await expect(panel.locator("#pane-analytics")).toContainText("Analytics Stats");
+  await expect(tabs.analytics).toHaveAttribute("aria-selected", "true");
+
+  await tabs.alerts.click();
+  await expect(panel.locator("#pane-alerts")).toBeVisible();
+  await expect(panel.locator("#pane-sniper")).toBeHidden();
+  await expect(panel.locator("#pane-analytics")).toBeHidden();
+
+  await tabs.sniper.click();
+  await expect(panel.locator("#set5mMinFair")).toHaveValue("64");
+
+  const navigationLayout = await page.evaluate(() => {
+    const nav = document.querySelector(".settings-tablist");
+    const content = document.querySelector(".settings-popover-content");
+    if (!nav || !content) return null;
+    const navRect = nav.getBoundingClientRect();
+    const contentRect = content.getBoundingClientRect();
+    return {
+      navDisplay: getComputedStyle(nav).display,
+      navColumns: getComputedStyle(nav).gridTemplateColumns.split(" ").length,
+      navHeight: navRect.height,
+      navWidth: navRect.width,
+      contentLeft: contentRect.left,
+      navLeft: navRect.left,
+    };
+  });
+  expect(navigationLayout).not.toBeNull();
+  expect(navigationLayout.navDisplay).toBe("grid");
+  expect(navigationLayout.navColumns).toBe(3);
+  expect(navigationLayout.navHeight).toBeLessThanOrEqual(44);
+  expect(navigationLayout.contentLeft).toBe(navigationLayout.navLeft);
+  expect(navigationLayout.navWidth).toBeGreaterThanOrEqual(layout.panelWidth - 2);
+
+  await page.keyboard.press("Escape");
+  await expect(modal).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await expect(modal).toBeVisible();
+  await page.mouse.click(4, 4);
+  await expect(modal).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await tabs.sniper.click();
+  await panel.locator("#set5mMinFair").fill("66");
+  await panel.locator("#btnSaveSettings").click();
+  await expect(modal).toBeHidden();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("sniperConfig"))?.m5?.minFairProbability)).toBe(66);
+});
+
+test("market-card countdown is flush with its content row edge", async ({ page }) => {
+  const card = page.locator(".btc5m-card").first();
+  const actions = card.locator(".short-market-actions");
+  const timer = card.locator(".short-market-timer");
+
+  await expect(card).toBeVisible();
+  await expect(timer).toBeVisible();
+  await expect.poll(() => card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+
+  const alignment = await page.evaluate(() => {
+    const actionsElement = document.querySelector(".btc5m-card .short-market-actions");
+    const timerElement = document.querySelector(".btc5m-card .short-market-timer");
+    if (!actionsElement || !timerElement) return null;
+    return actionsElement.getBoundingClientRect().right - timerElement.getBoundingClientRect().right;
+  });
+
+  expect(alignment).not.toBeNull();
+  expect(Math.abs(alignment)).toBeLessThanOrEqual(1);
+});
+
 test("queued market produces a deterministic no-entry result", async ({ page }) => {
   await page.evaluate(() => window.addToQueue({
     id: "qa-market-5m",

@@ -107,15 +107,16 @@ function initTerminalShell() {
     "aria-label": "Dynamic EV decision lifecycle",
   }, `
     <li data-decision-step="watching"><span>01</span><strong>Watching</strong></li>
-    <li data-decision-step="candidate"><span>02</span><strong>Candidate</strong></li>
-    <li data-decision-step="entry"><span>03</span><strong>Entry</strong></li>
-    <li data-decision-step="no_entry"><span>04</span><strong>No entry</strong></li>
-    <li data-decision-step="no_chase"><span>05</span><strong>No chase</strong></li>
+    <li data-decision-step="candidate"><span>02</span><strong>Experimental Candidate</strong></li>
+    <li data-decision-step="entry"><span>03</span><strong>Experimental Candidate</strong></li>
+    <li data-decision-step="no_entry"><span>04</span><strong>Not selected</strong></li>
+    <li data-decision-step="no_chase"><span>05</span><strong>Candidate withdrawn</strong></li>
   `);
   queuePanelContent?.prepend(decisionSpine);
 
   const syncDecisionSpine = () => {
-    const current = String(entrySignalStatus?.textContent || "WATCHING").trim().toLowerCase();
+    const lifecycle = String(entrySignalStatus?.dataset.lifecycle || entrySignalStatus?.textContent || "WATCHING").trim().toLowerCase();
+    const current = lifecycle === "skipped" ? "no_entry" : lifecycle;
     decisionSpine.querySelectorAll("[data-decision-step]").forEach((step) => {
       const active = step.dataset.decisionStep === current;
       if (active) step.setAttribute("aria-current", "step");

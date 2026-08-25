@@ -1724,3 +1724,53 @@ body.terminal-shell-ready {
   .terminal-shell-ready #btnRunQueue:not(:disabled):hover,
   .terminal-shell-ready .settings-dropdown-panel #btnSaveSettings:hover { transform: none; }
 }
+
+/* Compact secondary workspace: keep scrolling available, remove only its chrome. */
+.terminal-shell-ready .terminal-tool-drawer {
+  top: 68px !important;
+  right: 12px !important;
+  bottom: auto !important;
+  width: min(536px, calc(100vw - 24px)) !important;
+  height: auto !important;
+  max-height: min(720px, calc(100dvh - 80px)) !important;
+  border-radius: 20px !important;
+}
+.terminal-shell-ready .terminal-tool-content {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.terminal-shell-ready .terminal-tool-content::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.terminal-shell-ready #secondaryToolsContent #centerDashboard { grid-template-columns: minmax(0, 1fr) !important; align-items: start; gap: 10px !important; }
+.terminal-shell-ready #secondaryToolsContent .dash-bottom-card { width: 100% !important; height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; border-radius: 14px !important; cursor: default; transform: none !important; }
+.terminal-shell-ready #secondaryToolsContent .dash-bottom-card::before { display: none !important; }
+.terminal-shell-ready #secondaryToolsContent #dashboardArchivePanel { align-self: start; max-height: 300px !important; }
+.terminal-shell-ready #secondaryToolsContent #dashboardArchivePanel .dash-inner-core { flex: 0 1 auto !important; min-height: 0 !important; padding: 12px 14px !important; }
+.terminal-shell-ready #secondaryToolsContent #dashboardArchivePanel .poly-head { min-height: 0 !important; margin-bottom: 10px !important; padding: 0 0 10px !important; }
+.terminal-shell-ready #secondaryToolsContent #historyListContainer { flex: 0 1 auto !important; min-height: 42px; max-height: 190px; overscroll-behavior: contain; }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerCard { align-self: start; height: auto !important; min-height: 0 !important; border-bottom-color: var(--vesper-line-strong) !important; box-shadow: var(--shadow-card), inset 0 -1px rgba(255, 247, 232, .035) !important; }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerCard .tracker-inner,
+.terminal-shell-ready #secondaryToolsContent #dashTrackerCard .tracker-pane { flex: 0 0 auto; min-height: 0; }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerCard .tracker-inner { border-radius: 13px; }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerCard .tracker-tab-bar { min-height: 30px; padding: 0 10px; gap: 1px; border-bottom-color: var(--vesper-line-soft); }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerCard .tracker-tab-btn { min-height: 29px; padding: 0 8px; }
+.terminal-shell-ready #secondaryToolsContent #trackerCardStatusPill { align-self: center; margin: 0 0 0 auto; }
+.terminal-shell-ready #secondaryToolsContent #trackerMaximizeBtn { margin-left: 4px !important; padding: 0 5px !important; }
+.terminal-shell-ready #secondaryToolsContent #trackerCardPaneSniffer .tracker-controls { display: grid; grid-template-columns: max-content 60px minmax(0, 1fr) max-content; gap: 6px; padding: 7px 10px; border-bottom-color: var(--vesper-line-soft); }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerMinSize { width: 100%; min-width: 0; height: 24px; box-sizing: border-box; padding-block: 0; }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerAssetTabs { min-width: 0; margin-left: 0 !important; }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerAssetTabs .tracker-asset-tab { padding: 2px 5px !important; }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerPowerBtn { justify-self: end; min-height: 24px; margin-left: 0 !important; padding: 0 8px; white-space: nowrap; }
+.terminal-shell-ready #secondaryToolsContent #trackerCardPaneSniffer > div:nth-child(2) { flex: 0 0 auto; gap: 4px !important; padding: 6px 10px 8px !important; border-bottom: 1px solid var(--vesper-line-soft); background: var(--vesper-shell); }
+.terminal-shell-ready #secondaryToolsContent #whaleVolumeToggle { min-height: 16px; padding: 0 !important; }
+.terminal-shell-ready #secondaryToolsContent #dashAccumulatedVolumeGrid { gap: 3px !important; padding-top: 0 !important; }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerCard .tracker-feed { flex: 0 0 112px; height: 112px; min-height: 112px; max-height: 112px; overscroll-behavior: contain; background: var(--vesper-panel-2); }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerCard .tracker-empty { min-height: 112px; gap: 6px; padding: 14px 12px 16px; }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerCard .tracker-empty-icon { width: 22px; height: 22px; }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerCard .tracker-whale-item { padding: 7px 10px; }
+.terminal-shell-ready #secondaryToolsContent #dashTrackerCard .tracker-whale-item:last-child { border-bottom: 0; }
+@media (max-width: 767px) {
+  .terminal-shell-ready .terminal-tool-drawer { top: 68px !important; right: 10px !important; bottom: auto !important; left: 10px !important; width: auto !important; max-height: calc(100dvh - 156px) !important; margin: 0 !important; border: 1px solid var(--vesper-line) !important; border-radius: 18px !important; box-shadow: var(--shadow-xl) !important; }
+}

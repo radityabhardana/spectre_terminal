@@ -11,6 +11,7 @@ const RETIRED_ENV_KEYS = new Set([
   "CLOB_API_PASSPHRASE",
   "ENABLE_AI_REFLECTION_MEMORY",
 ]);
+const SHORT_OBSERVER_ENABLED_ENV_KEY = "SHORT_OBSERVER_BTC_15M_ENABLED";
 
 function loadDotEnv(filePath) {
   if (!fs.existsSync(filePath)) return;
@@ -19,6 +20,13 @@ function loadDotEnv(filePath) {
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const rawEq = line.indexOf("=");
+    const rawKey = rawEq === -1 ? "" : line.slice(0, rawEq).trim();
+    if (rawKey === SHORT_OBSERVER_ENABLED_ENV_KEY) {
+      if (!(rawKey in process.env)) process.env[rawKey] = line.slice(rawEq + 1);
+      continue;
+    }
 
     const eq = trimmed.indexOf("=");
     if (eq === -1) continue;
@@ -64,46 +72,68 @@ function probabilityPrice(value, fallback) {
   return Number.isFinite(num) && num > 0 && num < 1 ? num : fallback;
 }
 
+const SHORT_OBSERVER_ENV_KEYS = Object.freeze({
+  enabled: "SHORT_OBSERVER_BTC_15M_ENABLED",
+  discoveryIntervalMs: "SHORT_OBSERVER_BTC_15M_DISCOVERY_INTERVAL_MS",
+  discoveryLookaheadMs: "SHORT_OBSERVER_BTC_15M_DISCOVERY_LOOKAHEAD_MS",
+  discoveryTimeoutMs: "SHORT_OBSERVER_BTC_15M_DISCOVERY_TIMEOUT_MS",
+  snapshotIntervalMs: "SHORT_OBSERVER_BTC_15M_SNAPSHOT_INTERVAL_MS",
+  snapshotTimeoutMs: "SHORT_OBSERVER_BTC_15M_SNAPSHOT_TIMEOUT_MS",
+  freezeBeforeCloseMs: "SHORT_OBSERVER_BTC_15M_FREEZE_BEFORE_CLOSE_MS",
+  lateStartGraceMs: "SHORT_OBSERVER_BTC_15M_LATE_START_GRACE_MS",
+  retries: "SHORT_OBSERVER_BTC_15M_RETRIES",
+  retryBackoffMs: "SHORT_OBSERVER_BTC_15M_RETRY_BACKOFF_MS",
+  leaseTimeoutMs: "SHORT_OBSERVER_BTC_15M_LEASE_TIMEOUT_MS",
+  shutdownTimeoutMs: "SHORT_OBSERVER_BTC_15M_SHUTDOWN_TIMEOUT_MS",
+});
+
+const shortObserverRawConfig = Object.fromEntries(
+  Object.entries(SHORT_OBSERVER_ENV_KEYS).map(([name, envKey]) => [name, process.env[envKey]])
+);
+
+function optionalObserverNumber(value) {
+  const text = String(value ?? "");
+  if (!text || !/^[0-9]+$/.test(text)) return undefined;
+  const number = Number(text);
+  return Number.isSafeInteger(number) ? number : undefined;
+}
+
+const shortObserverBtc15m = {
+  discoveryIntervalMs: optionalObserverNumber(shortObserverRawConfig.discoveryIntervalMs),
+  discoveryLookaheadMs: optionalObserverNumber(shortObserverRawConfig.discoveryLookaheadMs),
+  discoveryTimeoutMs: optionalObserverNumber(shortObserverRawConfig.discoveryTimeoutMs),
+  snapshotIntervalMs: optionalObserverNumber(shortObserverRawConfig.snapshotIntervalMs),
+  snapshotTimeoutMs: optionalObserverNumber(shortObserverRawConfig.snapshotTimeoutMs),
+  freezeBeforeCloseMs: optionalObserverNumber(shortObserverRawConfig.freezeBeforeCloseMs),
+  lateStartGraceMs: optionalObserverNumber(shortObserverRawConfig.lateStartGraceMs),
+  retries: optionalObserverNumber(shortObserverRawConfig.retries),
+  retryBackoffMs: optionalObserverNumber(shortObserverRawConfig.retryBackoffMs),
+  leaseTimeoutMs: optionalObserverNumber(shortObserverRawConfig.leaseTimeoutMs),
+  shutdownTimeoutMs: optionalObserverNumber(shortObserverRawConfig.shutdownTimeoutMs),
+};
+
 function normalizeBaseUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
-const nineRouterApiKey = process.env.NINEROUTER_API_KEY || process.env.NINE_ROUTER_API_KEY || process.env.NINEROUTER_KEY || "";
-const openRouterApiKey = process.env.OPENROUTER_API_KEY || "";
-const directQwenApiKey = process.env.QWEN_API_KEY || "";
-const aiProvider = nineRouterApiKey
-  ? {
-      name: "9router",
-      apiKey: nineRouterApiKey,
-      baseUrl: process.env.NINEROUTER_BASE_URL || process.env.NINE_ROUTER_BASE_URL || process.env.NINEROUTER_URL || "http://127.0.0.1:20128/v1",
-    }
-  : openRouterApiKey
-    ? {
-        name: "openrouter",
-        apiKey: openRouterApiKey,
-        baseUrl: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
-      }
-    : {
-        name: "dashscope",
-        apiKey: directQwenApiKey,
-        baseUrl: process.env.QWEN_BASE_URL || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-      };
-const defaultModels = aiProvider.name === "9router"
-  ? {
-      fast: "alims-intl/deepseek-v4-flash-0731",
-      analyst: "alims-intl/deepseek-v4-flash-0731",
-      final: "alims-intl/deepseek-v4-pro-0813",
-      fallback: "alims-intl/deepseek-v4-flash-0731",
-    }
-  : aiProvider.name === "dashscope"
-    ? { fast: "qwen-turbo", analyst: "qwen-plus", final: "qwen-max", fallback: "qwen-max" }
-    : { fast: "", analyst: "", final: "", fallback: "" };
+const omniApiKey = process.env.OMNI_API_KEY || "";
+const aiProvider = {
+  name: "omniroute",
+  apiKey: omniApiKey,
+  baseUrl: process.env.OMNIROUTE_BASE_URL || "http://127.0.0.1:20128/v1",
+};
+const defaultModels = {
+  fast: "alims-intl/deepseek-v4-flash-0731",
+  analyst: "alims-intl/deepseek-v4-flash-0731",
+  final: "alims-intl/deepseek-v4-pro-0813",
+  fallback: "alims-intl/deepseek-v4-flash-0731",
+};
 
 export const config = {
   aiProviderName: aiProvider.name,
+  omniApiKey: aiProvider.apiKey,
+  omniRouteBaseUrl: normalizeBaseUrl(aiProvider.baseUrl),
   qwenApiKey: aiProvider.apiKey,
-  qwenApiKeyBackup: process.env.QWEN_API_KEY_BACKUP || "",
-  qwenBackupBaseUrl: normalizeBaseUrl(process.env.QWEN_BACKUP_BASE_URL),
   qwenBaseUrl: normalizeBaseUrl(aiProvider.baseUrl),
   // Model Roles for Single Market Analysis
   qwenBullModel: process.env.QWEN_BULL_MODEL || process.env.QWEN_FAST_MODEL || defaultModels.fast,
@@ -119,10 +149,6 @@ export const config = {
   qwenScoutModel: process.env.QWEN_SCOUT_MODEL || process.env.QWEN_FAST_MODEL || defaultModels.fast,
   qwenEventAnalystModel: process.env.QWEN_EVENT_ANALYST_MODEL || process.env.QWEN_ANALYST_MODEL || defaultModels.analyst,
   qwenEventFinalModel: process.env.QWEN_EVENT_FINAL_MODEL || process.env.QWEN_FINAL_MODEL || process.env.QWEN_MODEL || defaultModels.final,
-
-  customApiKey: process.env.CUSTOM_API_KEY || "",
-  customBaseUrl: normalizeBaseUrl(process.env.CUSTOM_BASE_URL),
-  customFinalModel: process.env.CUSTOM_FINAL_MODEL || "",
 
   gammaUrl:
     process.env.POLYMARKET_GAMMA_URL || "https://gamma-api.polymarket.com",
@@ -156,11 +182,26 @@ export const config = {
   entryFeeBufferCents: positiveNumber(process.env.ENTRY_FEE_BUFFER_CENTS, 4),
   entryMinSecondsToClose: positiveInt(process.env.ENTRY_MIN_SECONDS_TO_CLOSE, 30),
   allowInsecureTls: process.env.ALLOW_INSECURE_TLS === "true",
+
+  // Observer settings intentionally have no fallbacks or defaults.
+  shortObserverBtc15mEnabled: shortObserverRawConfig.enabled === "true",
+  shortObserverBtc15m,
+  shortObserverBtc15mDiscoveryIntervalMs: shortObserverBtc15m.discoveryIntervalMs,
+  shortObserverBtc15mDiscoveryLookaheadMs: shortObserverBtc15m.discoveryLookaheadMs,
+  shortObserverBtc15mDiscoveryTimeoutMs: shortObserverBtc15m.discoveryTimeoutMs,
+  shortObserverBtc15mSnapshotIntervalMs: shortObserverBtc15m.snapshotIntervalMs,
+  shortObserverBtc15mSnapshotTimeoutMs: shortObserverBtc15m.snapshotTimeoutMs,
+  shortObserverBtc15mFreezeBeforeCloseMs: shortObserverBtc15m.freezeBeforeCloseMs,
+  shortObserverBtc15mLateStartGraceMs: shortObserverBtc15m.lateStartGraceMs,
+  shortObserverBtc15mRetries: shortObserverBtc15m.retries,
+  shortObserverBtc15mRetryBackoffMs: shortObserverBtc15m.retryBackoffMs,
+  shortObserverBtc15mLeaseTimeoutMs: shortObserverBtc15m.leaseTimeoutMs,
+  shortObserverBtc15mShutdownTimeoutMs: shortObserverBtc15m.shutdownTimeoutMs,
 };
 
 export function assertConfig() {
   const missing = [];
-  if (!config.qwenApiKey) missing.push("NINEROUTER_API_KEY, OPENROUTER_API_KEY, or QWEN_API_KEY");
+  if (!config.omniApiKey) missing.push("OMNI_API_KEY");
 
   if (missing.length) {
     throw new Error(
@@ -169,16 +210,45 @@ export function assertConfig() {
   }
 }
 
+export function assertShortObserverConfig() {
+  const enabledValue = shortObserverRawConfig.enabled ?? "";
+  if (enabledValue !== "" && enabledValue !== "true" && enabledValue !== "false") {
+    throw new Error(`${SHORT_OBSERVER_ENV_KEYS.enabled} must be exactly true or false.`);
+  }
+
+  if (enabledValue !== "true") {
+    return { enabled: false, ...shortObserverBtc15m };
+  }
+
+  const missing = [];
+  const invalid = [];
+  for (const name of Object.keys(shortObserverBtc15m)) {
+    const envKey = SHORT_OBSERVER_ENV_KEYS[name];
+    const rawValue = shortObserverRawConfig[name];
+    const value = shortObserverBtc15m[name];
+    if (rawValue == null || rawValue === "") {
+      missing.push(envKey);
+    } else if (!Number.isSafeInteger(value) || value <= 0) {
+      invalid.push(envKey);
+    }
+  }
+
+  if (missing.length || invalid.length) {
+    const details = [];
+    if (missing.length) details.push(`missing: ${missing.join(", ")}`);
+    if (invalid.length) details.push(`invalid positive safe integer values: ${invalid.join(", ")}`);
+    throw new Error(`Invalid BTC 15m short observer configuration (${details.join("; ")}).`);
+  }
+
+  return { enabled: true, ...shortObserverBtc15m };
+}
+
 export function assertQwenConfig() {
-  if (!config.qwenApiKey) {
-    throw new Error("Missing AI provider key. Configure NINEROUTER_API_KEY, OPENROUTER_API_KEY, or QWEN_API_KEY.");
+  if (!config.omniApiKey) {
+    throw new Error("Missing AI provider key. Configure OMNI_API_KEY.");
   }
   const models = [config.qwenBullModel, config.qwenBearModel, config.qwenRiskManagerModel, config.qwenFallbackModel, config.qwenShortModel, config.qwenEvaluatorModel, config.qwenScoutModel, config.qwenEventAnalystModel, config.qwenEventFinalModel];
   if (models.some((model) => !String(model || "").trim())) {
     throw new Error("All AI role model IDs must be configured for the selected provider.");
-  }
-  const customValues = [config.customApiKey, config.customBaseUrl, config.customFinalModel].filter(Boolean);
-  if (customValues.length > 0 && customValues.length < 3) {
-    throw new Error("CUSTOM_API_KEY, CUSTOM_BASE_URL, and CUSTOM_FINAL_MODEL must be configured together.");
   }
 }

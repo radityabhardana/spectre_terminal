@@ -55,6 +55,18 @@ function createLegacySchema(db) {
   db.prepare("INSERT INTO prediction_reflections (id, reflection_note) VALUES (1, 'retired')").run();
 }
 
+function createPhaseAV2Schema(db) {
+  createLegacySchema(db);
+  db.exec(`CREATE TABLE short_evaluation_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, market_id TEXT, market_question TEXT, duration_type TEXT, asset TEXT,
+    captured_at TEXT NOT NULL, created_at TEXT NOT NULL, contract_version TEXT NOT NULL, model_version TEXT NOT NULL,
+    payload TEXT NOT NULL, audit_payload_hash TEXT NOT NULL
+  ); CREATE TRIGGER phase_a_no_update BEFORE UPDATE ON short_evaluation_snapshots BEGIN SELECT RAISE(ABORT, 'phase a snapshots are append-only'); END;
+  CREATE TRIGGER phase_a_no_delete BEFORE DELETE ON short_evaluation_snapshots BEGIN SELECT RAISE(ABORT, 'phase a snapshots are append-only'); END;`);
+  db.prepare(`INSERT INTO short_evaluation_snapshots (market_id, market_question, duration_type, asset, captured_at, created_at, contract_version, model_version, payload, audit_payload_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run("btc-v2", "BTC 15m", "15m", "BTC", "2026-08-24T00:15:00.000Z", "2026-08-24T00:15:01.000Z", "phase-a-v1", "model-a", '{"close":1}', "hash-a");
+  db.pragma("user_version = 2");
+}
+
 function replaceAnalyzedEventsSchema(db, {
   idDefinition = "INTEGER PRIMARY KEY AUTOINCREMENT",
   predictionDefinition = "TEXT",
@@ -106,7 +118,7 @@ test("legacy migration verifies a backup, drops retired tables, and preserves ca
     assert.equal(result.toVersion, SCHEMA_VERSION);
     assert.equal(result.migrated, true);
     assert.ok(result.backupPath);
-    assert.equal(statSync(result.backupPath).mode & 0o777, 0o600);
+    if (process.platform !== "win32") assert.equal(statSync(result.backupPath).mode & 0o777, 0o600);
     assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: SCHEMA_VERSION });
     assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM analyzed_events").get().count, 1);
     assert.equal(fixture.db.prepare("SELECT result FROM analyzed_events WHERE market_id = ?").get("market-1").result, "menang");
@@ -140,6 +152,31 @@ test("fresh databases receive only the canonical schema without a backup", async
     fixture.db.close();
     rmSync(fixture.directory, { recursive: true, force: true });
   }
+});
+
+test("v2 migration preserves Phase A rows, hashes, and immutable triggers", async () => {
+  const fixture = tempDatabase();
+  try {
+    createPhaseAV2Schema(fixture.db);
+    const before = fixture.db.prepare("SELECT id, market_id, market_question, duration_type, asset, captured_at, created_at, contract_version, model_version, payload, audit_payload_hash FROM short_evaluation_snapshots").all();
+    await migrateDatabase(fixture.db, { databasePath: fixture.databasePath });
+    assert.deepEqual(fixture.db.prepare("SELECT id, market_id, market_question, duration_type, asset, captured_at, created_at, contract_version, model_version, payload, audit_payload_hash FROM short_evaluation_snapshots").all(), before);
+    assert.deepEqual(fixture.db.prepare("SELECT run_id, sequence, collection_mode, scheduled_at, started_at, finished_at, attempt_status, error_code FROM short_evaluation_snapshots").get(), { run_id: null, sequence: null, collection_mode: null, scheduled_at: null, started_at: null, finished_at: null, attempt_status: null, error_code: null });
+    assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'trigger' AND name IN ('phase_a_no_update', 'phase_a_no_delete')").get().count, 2);
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: SCHEMA_VERSION });
+  } finally { fixture.db.close(); rmSync(fixture.directory, { recursive: true, force: true }); }
+});
+
+test("pre-commit verification failure rolls back schema, drops, version, and rows", async () => {
+  const fixture = tempDatabase();
+  try {
+    createLegacySchema(fixture.db);
+    await assert.rejects(migrateDatabase(fixture.db, { databasePath: fixture.databasePath, verify: () => ({ ok: false }) }), /Database migration verification failed/);
+    assert.equal(fixture.db.pragma("user_version", { simple: true }), 0);
+    assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM analyzed_events").get().count, 1);
+    assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM prediction_reflections").get().count, 1);
+    assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'short_observation_runs'").get().count, 0);
+  } finally { fixture.db.close(); rmSync(fixture.directory, { recursive: true, force: true }); }
 });
 
 test("a failed backup leaves the legacy database untouched", async () => {

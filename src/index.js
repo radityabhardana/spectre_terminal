@@ -651,6 +651,7 @@ export async function getFastShortEntrySnapshot(marketId, signal = null) {
   const scored = await scoreOneMarket(market, signal);
   const shortRes = await evaluateShortMarketCondition({
     signal,
+    marketId: scored.market.id,
     asset: shortCryptoAsset(scored.market.question),
     marketQuestion: scored.market.question,
     upTokenAsk: scored.score.shortBookPrices?.up.bestAsk,
@@ -699,6 +700,7 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
     const asset = shortCryptoAsset(scored.market.question);
     const shortRes = await evaluateShortMarketCondition({
       signal,
+      marketId: scored.market.id,
       asset,
       marketQuestion: scored.market.question,
       upTokenAsk: scored.score.shortBookPrices?.up.bestAsk,
@@ -866,6 +868,7 @@ async function bestCandidateAnalysis({ result, query, setStep, ctx, signal = nul
     const asset = shortCryptoAsset(best.market.question);
     const shortRes = await evaluateShortMarketCondition({
       signal,
+      marketId: best.market.id,
       asset,
       marketQuestion: best.market.question,
       upTokenAsk: best.score.shortBookPrices?.up.bestAsk,
@@ -1350,6 +1353,7 @@ export async function handleCommand(text, message, ctx) {
       const scored = await scoreOneMarket(market, requestSignal);
       const result = await evaluateShortMarketCondition({
         signal: requestSignal,
+        marketId: market.id,
         asset: shortCryptoAsset(market.question),
         marketQuestion: market.question,
         upTokenAsk: scored.score.shortBookPrices?.up.bestAsk,

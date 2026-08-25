@@ -466,13 +466,28 @@ export async function searchMarkets(keyword, limit = 5, signal = null) {
   return sortMarkets(scored, keyword).slice(0, limit);
 }
 
-const SHORT_MARKET_SERIES = {
+const SHORT_MARKET_SERIES = Object.freeze({
   "5m": "5m",
   "15m": "15m",
   "1h": "hourly",
   "4h": "4h",
   "1d": "daily",
-};
+});
+export const SHORT_TERM_DURATION_TYPES = Object.freeze(Object.keys(SHORT_MARKET_SERIES));
+
+export function validateShortTermDurationTypes(durationTypes) {
+  if (durationTypes === undefined) return [...SHORT_TERM_DURATION_TYPES];
+  if (!Array.isArray(durationTypes) || durationTypes.length === 0) {
+    throw new Error("durationTypes must be a non-empty array of supported short market durations.");
+  }
+
+  const invalid = durationTypes.filter((durationType) => !SHORT_TERM_DURATION_TYPES.includes(durationType));
+  if (invalid.length) {
+    throw new Error(`Unsupported short market durationTypes: ${invalid.join(", ")}`);
+  }
+
+  return [...new Set(durationTypes)];
+}
 
 // How far ahead each duration's events are tracked, and how long after close
 // an event stays visible. Mirrors the client-side filters in processEvents.
@@ -502,12 +517,29 @@ function shortMarketEventsUrl(assetLower, seriesSuffix, durationType, now) {
   return url;
 }
 
-export async function getShortTermMarkets(asset = "btc") {
+export async function getShortTermMarkets(asset = "btc", options = {}) {
+  options = options || {};
   const assetLower = asset.toLowerCase();
-  const now = Date.now();
+  const unsupportedFilterKeys = ["duration", "durationType", "durationFilter"]
+    .filter((key) => options[key] !== undefined);
+  if (unsupportedFilterKeys.length) {
+    throw new Error("Use durationTypes for short market duration filtering.");
+  }
+  const durationTypes = validateShortTermDurationTypes(options.durationTypes);
+  const durationEntries = durationTypes.map((durationType) => [durationType, SHORT_MARKET_SERIES[durationType]]);
 
-  const requests = Object.entries(SHORT_MARKET_SERIES).map(([durationType, seriesSuffix]) =>
-    fetchJson(shortMarketEventsUrl(assetLower, seriesSuffix, durationType, now).toString())
+  const injectedClock = options.clock ?? options.now;
+  const clockValue = typeof injectedClock === "function"
+    ? injectedClock()
+    : injectedClock && typeof injectedClock.now === "function"
+      ? injectedClock.now()
+      : injectedClock;
+  const now = clockValue == null ? Date.now() : Number(clockValue);
+  const signal = options.signal ?? null;
+  throwIfAborted(signal);
+
+  const requests = durationEntries.map(([durationType, seriesSuffix]) =>
+    fetchJson(shortMarketEventsUrl(assetLower, seriesSuffix, durationType, now).toString(), false, 3, signal)
       .then((events) => [durationType, events])
   );
 
@@ -515,6 +547,7 @@ export async function getShortTermMarkets(asset = "btc") {
   try {
     results = await Promise.all(requests);
   } catch (err) {
+    if (signal?.aborted || err?.name === "AbortError") throw err;
     console.error("[Polymarket] getShortTermMarkets fetch error:", err.message);
     throw new Error("Failed to fetch short markets from Polymarket: " + err.message);
   }

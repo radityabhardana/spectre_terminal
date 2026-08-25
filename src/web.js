@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
+import { startBtc15mObserveCollector, stopBtc15mObserveCollector } from "./short-observe-coordinator.js";
 import { getFastShortEntrySnapshot, handleCommand } from "./index.js";
 import { enterCommandGuard, getCooldownState, releaseCommandGuard } from "./rate-limit.js";
 import { SEARCH_ENGINE_VERSION, getShortTermMarkets } from "./polymarket.js";
@@ -14,6 +15,10 @@ import { runWithAiLanguage } from "./qwen.js";
 import { getSnifferWsStatus, getSnifferEventCounters, getSnifferState, setSnifferState, getSnifferStartTime, getRecentWhales, getTrendingMarkets, getTrackerConfig, setTrackerConfig } from "./sniffer.js";
 import { getBlockchainTrackerHealth } from "./blockchain-tracker.js";
 import { assertSecureWebBinding, getSecurityHeaders, normalizeWalletAddress, resolvePublicPath, validateMutationRequest, validateRequestHost } from "./web-security.js";
+
+export const DEFAULT_SERVER_CLOSE_DEADLINE_MS = 4500;
+export const DEFAULT_SAFE_EXIT_DEADLINE_MS = 5000;
+export const DEFAULT_COLLECTOR_DRAIN_DEADLINE_MS = 5000;
 
 const shortSnapshotRequestTimes = new Map();
 let shortSnapshotInFlight = 0;
@@ -712,8 +717,109 @@ export function startWebServer(options = {}) {
   return server;
 }
 
+function onceAfterListening(server, callback) {
+  if (server.listening) {
+    queueMicrotask(callback);
+    return;
+  }
+  server.once("listening", callback);
+}
+
+function closeWebServer(server, deadlineMs = 5000) {
+  if (!server?.listening) return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    let deadline = null;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (deadline != null) clearTimeout(deadline);
+      resolve();
+    };
+    const forceClose = () => {
+      try { server.closeAllConnections?.(); } catch (error) { console.error("[WEB SERVER CLOSE]:", error?.message || error); }
+      try { server.closeIdleConnections?.(); } catch (error) { console.error("[WEB SERVER CLOSE]:", error?.message || error); }
+      finish();
+    };
+    deadline = setTimeout(forceClose, Math.max(0, deadlineMs));
+    try { server.close(finish); } catch { finish(); }
+  });
+}
+
+export function startWebRuntime(dependencies = {}) {
+  const createServer = dependencies.startWebServer || startWebServer;
+  const startCollector = dependencies.startCollector || startBtc15mObserveCollector;
+  const stopCollector = dependencies.stopCollector || stopBtc15mObserveCollector;
+  const collectorEnabled = dependencies.collectorEnabled ?? config.shortObserverBtc15mEnabled;
+  const processObject = dependencies.process || process;
+  const exit = dependencies.exit || ((code) => processObject.exit(code));
+  const serverCloseDeadlineMs = dependencies.serverCloseDeadlineMs ?? DEFAULT_SERVER_CLOSE_DEADLINE_MS;
+  const safeExitDeadlineMs = dependencies.safeExitDeadlineMs ?? DEFAULT_SAFE_EXIT_DEADLINE_MS;
+  const collectorDrainDeadlineMs = dependencies.collectorDrainDeadlineMs ?? DEFAULT_COLLECTOR_DRAIN_DEADLINE_MS;
+  const server = createServer(dependencies.serverOptions || {});
+  let shuttingDown = false;
+  let shutdownPromise = null;
+  let collectorStartCalled = false;
+  let collectorStartInvoked = false;
+  let collectorStartPromise = null;
+
+  onceAfterListening(server, () => {
+    if (shuttingDown || collectorStartCalled || !collectorEnabled) return;
+    collectorStartCalled = true;
+    collectorStartPromise = Promise.resolve()
+      .then(async () => {
+        if (shuttingDown) return false;
+        collectorStartInvoked = true;
+        await startCollector();
+        return true;
+      })
+      .catch((error) => console.error("[Short observer] Startup error:", error?.message || error));
+  });
+
+  async function shutdown(exitCode = 0) {
+    if (shutdownPromise) return shutdownPromise;
+    shuttingDown = true;
+    shutdownPromise = (async () => {
+      const code = typeof exitCode === "number" ? exitCode : 0;
+      if (collectorStartCalled) {
+        const lifecycle = [collectorStartPromise || Promise.resolve(false)];
+        if (collectorStartInvoked) {
+          lifecycle.push(Promise.resolve().then(() => stopCollector()).catch((error) => {
+            console.error("[Short observer] Shutdown error:", error?.message || error);
+          }));
+        }
+        let drainTimer = null;
+        await Promise.race([
+          Promise.all(lifecycle),
+          new Promise((resolve) => { drainTimer = setTimeout(resolve, Math.max(0, collectorDrainDeadlineMs)); }),
+        ]);
+        if (drainTimer != null) clearTimeout(drainTimer);
+      }
+      const safeExit = setTimeout(() => exit(code), Math.max(0, safeExitDeadlineMs));
+      safeExit.unref?.();
+      try {
+        await closeWebServer(server, serverCloseDeadlineMs);
+      } finally {
+        clearTimeout(safeExit);
+      }
+      exit(code);
+    })();
+    return shutdownPromise;
+  }
+
+  if (dependencies.installSignals !== false) {
+    processObject.on("SIGINT", shutdown);
+    processObject.on("SIGTERM", shutdown);
+  }
+  server.on("error", (error) => {
+    console.error("[WEB SERVER FATAL]:", error?.message || error);
+    void shutdown(1);
+  });
+  return { server, shutdown };
+}
+
 const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === modulePath;
 
 if (isMainModule) {
-  startWebServer();
+  startWebRuntime();
 }

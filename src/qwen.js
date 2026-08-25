@@ -47,7 +47,7 @@ export async function checkAiProviderConnection() {
   if (providerConnectionCache && Date.now() - providerConnectionCheckedAt < 30_000) {
     return providerConnectionCache;
   }
-  if (!config.qwenApiKey || !config.qwenBaseUrl) {
+  if (!config.omniApiKey || !config.omniRouteBaseUrl) {
     return { configured: false, reachable: false, provider: config.aiProviderName, modelsAvailable: false };
   }
 
@@ -64,29 +64,29 @@ export async function checkAiProviderConnection() {
   ].filter(Boolean))];
 
   try {
-    const response = await fetch(`${config.qwenBaseUrl}/models`, {
-      headers: { authorization: `Bearer ${config.qwenApiKey}` },
+    const response = await fetch(`${config.omniRouteBaseUrl}/models`, {
+      headers: { authorization: `Bearer ${config.omniApiKey}` },
       signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) {
       return { configured: true, reachable: false, provider: config.aiProviderName, status: response.status, modelsAvailable: false };
     }
     const payload = await response.json();
-    const available = new Set((Array.isArray(payload?.data) ? payload.data : []).map((model) => String(model?.id || model)));
+    const modelEntries = Array.isArray(payload?.data) ? payload.data : [];
+    const available = new Set(modelEntries.map((model) => String(model?.id || model)));
     const verifiedModels = configuredModels.filter((model) => available.has(model));
-    // 9Router may route one model ID across upstreams, so its /models list is never
-    // authoritative: absent models are unverified, never missing.
-    const unverifiedModels = config.aiProviderName === "9router"
+    // An empty model list cannot distinguish an unavailable model from a gateway
+    // that does not expose discovery. A non-empty list is authoritative.
+    const unverifiedModels = modelEntries.length === 0
       ? configuredModels.filter((model) => !available.has(model))
       : [];
-    const missingModels = config.aiProviderName === "9router"
+    const missingModels = modelEntries.length === 0
       ? []
       : configuredModels.filter((model) => !available.has(model));
     providerConnectionCache = {
       configured: true,
       reachable: true,
       provider: config.aiProviderName,
-      // Unverified models are not counted as missing.
       modelsAvailable: configuredModels.length > 0 && missingModels.length === 0,
       configuredModels,
       verifiedModels,
@@ -510,14 +510,7 @@ async function callQwen(payload, baseUrl, apiKey, signal = null, retries = 3, de
       }
       if (signal?.aborted) throw error;
 
-      const isAuthOrQuotaError = [401, 403, 429].includes(attemptError.status) || /Insufficient|Arrearage|DataInspectionFailed/i.test(attemptError.message);
-      const canUseBackup = config.qwenApiKeyBackup && activeApiKey === config.qwenApiKey && normalizedBaseUrl === config.qwenBaseUrl;
-      
-      if (isAuthOrQuotaError && canUseBackup && i < retries - 1) {
-        activeApiKey = config.qwenApiKeyBackup;
-        activeBaseUrl = config.qwenBackupBaseUrl || config.qwenBaseUrl;
-        console.warn(`[AI] Primary provider failed; retrying with the configured backup provider.`);
-      } else if (i === retries - 1 || !retryableProviderError(attemptError)) {
+      if (i === retries - 1 || !retryableProviderError(attemptError)) {
         throw attemptError;
       } else {
         console.warn(`[AI] Request failed, retrying (${i + 1}/${retries}): ${attemptError.message}`);
@@ -589,8 +582,8 @@ export async function requestAiText(payload, { fallbackModel = "", signal = null
   const result = await callRoleQwenJson(
     payload,
     fallbackModel,
-    config.qwenBaseUrl,
-    config.qwenApiKey,
+    config.omniRouteBaseUrl,
+    config.omniApiKey,
     signal
   );
   return result;
@@ -967,7 +960,7 @@ Format JSON:
       response_format: { type: "json_object" },
     };
 
-    const result = await callRoleQwenJson(shortPayload, config.qwenFallbackModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+    const result = await callRoleQwenJson(shortPayload, config.qwenFallbackModel, config.omniRouteBaseUrl, config.omniApiKey, signal);
     const parsed = result.text ? parseJsonOr(result.text, null) : null;
     const normalizedAnalysis = normalizeAnalysis(
       parsed
@@ -1041,7 +1034,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenRiskManagerModel, config.omniRouteBaseUrl, config.omniApiKey, signal);
   const scout = parseJsonOr(scoutJson.text, {});
 
   // STAGE 2: ANALYST REVIEW (Deep risk + bull/bear evaluation)
@@ -1089,7 +1082,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const analystJson = await callRoleQwenJson(analystPayload, config.qwenRiskManagerModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  const analystJson = await callRoleQwenJson(analystPayload, config.qwenRiskManagerModel, config.omniRouteBaseUrl, config.omniApiKey, signal);
   const analyst = parseJsonOr(analystJson.text, {});
 
   // STAGE 3: RISK MANAGER (FINAL JUDGE)
@@ -1143,14 +1136,9 @@ Format JSON wajib:
 }
 `.trim();
 
-  const customFinalValues = [config.customApiKey, config.customBaseUrl, config.customFinalModel].filter(Boolean);
-  if (customFinalValues.length > 0 && customFinalValues.length < 3) {
-    throw new Error("CUSTOM_API_KEY, CUSTOM_BASE_URL, and CUSTOM_FINAL_MODEL must be configured together");
-  }
-  const usingCustomFinal = customFinalValues.length === 3;
-  const finalApiKey = usingCustomFinal ? config.customApiKey : config.qwenApiKey;
-  const finalBaseUrl = usingCustomFinal ? config.customBaseUrl : config.qwenBaseUrl;
-  const finalModel = usingCustomFinal ? config.customFinalModel : config.qwenRiskManagerModel;
+  const finalApiKey = config.omniApiKey;
+  const finalBaseUrl = config.omniRouteBaseUrl;
+  const finalModel = config.qwenRiskManagerModel;
 
   const rmPayload = {
     model: finalModel,
@@ -1163,8 +1151,7 @@ Format JSON wajib:
     response_format: { type: "json_object" },
   };
 
-  const finalFallbackModel = usingCustomFinal ? "" : config.qwenFallbackModel;
-  const finalJson = await callRoleQwenJson(rmPayload, finalFallbackModel, finalBaseUrl, finalApiKey, signal);
+  const finalJson = await callRoleQwenJson(rmPayload, config.qwenFallbackModel, finalBaseUrl, finalApiKey, signal);
 
   let analysis;
   try {
@@ -1324,7 +1311,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenEventFinalModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  const scoutJson = await callRoleQwenJson(scoutPayload, config.qwenEventFinalModel, config.omniRouteBaseUrl, config.omniApiKey, signal);
   const scout = normalizeScout(parseJsonOr(scoutJson.text, {}), scoutJson.text);
 
   const analystPrompt = `
@@ -1374,7 +1361,7 @@ Format JSON:
     response_format: { type: "json_object" },
   };
 
-  const analystJson = await callRoleQwenJson(analystPayload, config.qwenEventFinalModel, config.qwenBaseUrl, config.qwenApiKey, signal);
+  const analystJson = await callRoleQwenJson(analystPayload, config.qwenEventFinalModel, config.omniRouteBaseUrl, config.omniApiKey, signal);
   const analyst = normalizeAnalystReview(parseJsonOr(analystJson.text, {}), analystJson.text);
 
   const finalPrompt = `
@@ -1417,8 +1404,8 @@ Format JSON wajib:
 }
 `.trim();
 
-  const finalApiKey = config.qwenApiKey;
-  const finalBaseUrl = config.qwenBaseUrl;
+  const finalApiKey = config.omniApiKey;
+  const finalBaseUrl = config.omniRouteBaseUrl;
   const finalModel = config.qwenEventFinalModel;
 
   const payload = {
@@ -1521,8 +1508,8 @@ Rules:
   "risk_warning": "Concise execution/data warning."
 }`.trim();
 
-  const finalApiKey = config.qwenApiKey;
-  const finalBaseUrl = config.qwenBaseUrl;
+  const finalApiKey = config.omniApiKey;
+  const finalBaseUrl = config.omniRouteBaseUrl;
   const finalModel = config.qwenShortModel;
 
   const payload = {

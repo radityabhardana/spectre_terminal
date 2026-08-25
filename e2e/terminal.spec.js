@@ -178,6 +178,8 @@ test("desktop exposes the focused analysis workflow", async ({ page }, testInfo)
   await expect(page.locator("#btnRefreshShortMarket")).toBeVisible();
   await expect(page.locator("#commandInput")).toHaveCount(0);
   await expect(page.locator("#entryDecisionSpine")).toBeVisible();
+  await expect(page.locator("#entryDecisionSpine")).toContainText("Experimental Candidate");
+  await expect(page.locator("#entryDecisionSpine")).not.toContainText("ENTRY");
   await expect(page.locator("#btnRunQueue")).toBeDisabled();
   await expect(page.locator("#analysisFlow")).toContainText("Verdict");
   await expect(page.locator("#analysisFlow")).toContainText("Why");
@@ -238,7 +240,7 @@ test("queued market produces a deterministic no-entry result", async ({ page }) 
   await expect(runButton).toBeEnabled();
   await runButton.click();
 
-  await expect(page.locator("#entrySignalStatus")).toHaveText("NO_ENTRY", { timeout: 10_000 });
+  await expect(page.locator("#entrySignalStatus")).toHaveText("Not selected", { timeout: 10_000 });
   await expect(page.locator("#entrySignalData")).toHaveText("READY");
   await expect(page.locator("#entrySignalGates")).toContainText("Fair probability must be at least 60%.");
   await expect(page.locator("#entrySignalGates")).toContainText("Required 2 same-direction confirmations");

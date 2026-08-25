@@ -93,7 +93,7 @@ Skill lokal berada di `.agents/skills/`. Tautan di bawah mengarah langsung ke fi
 
 | Skill | Prioritas | Pakai ketika | Jangan dipakai ketika |
 |---|---|---|---|
-| [`llm-trading-agent-security`](.agents/skills/llm-trading-agent-security/SKILL.md) | **CORE** | Mengubah wallet, spend limit, order placement, router transaksi seperti 9Router, prompt injection, atau circuit breaker. | Hanya menampilkan data market tanpa kemampuan transaksi. |
+| [`llm-trading-agent-security`](.agents/skills/llm-trading-agent-security/SKILL.md) | **CORE** | Mengubah wallet, spend limit, order placement, gateway transaksi seperti OmniRoute, prompt injection, atau circuit breaker. | Hanya menampilkan data market tanpa kemampuan transaksi. |
 | [`ito-trade-planner`](.agents/skills/ito-trade-planner/SKILL.md) | **CORE** | Menilai odds, EV, orderbook, constraint, atau langkah manual prediction market. | Meminta rekomendasi investasi atau eksekusi otomatis tanpa guardrail. |
 | [`evm-token-decimals`](.agents/skills/evm-token-decimals/SKILL.md) | **SITUASIONAL** | Menangani Polygon, USDC, outcome token, normalisasi unit, atau precision lintas chain. | Tidak ada nilai token/on-chain yang diproses. |
 

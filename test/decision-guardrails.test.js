@@ -18,8 +18,8 @@ import {
 import { ANALYSIS_STRATEGY_VERSION, summarizePlayStats } from "../src/storage.js";
 
 async function withMockAiConfig(task) {
-  const previous = { qwenApiKey: config.qwenApiKey, qwenBaseUrl: config.qwenBaseUrl };
-  Object.assign(config, { qwenApiKey: "test-key", qwenBaseUrl: "http://mock.local/v1" });
+  const previous = { omniApiKey: config.omniApiKey, omniRouteBaseUrl: config.omniRouteBaseUrl };
+  Object.assign(config, { omniApiKey: "test-key", omniRouteBaseUrl: "http://mock.local/v1" });
   try {
     return await task();
   } finally {
@@ -326,7 +326,7 @@ test("short AI explanation is discarded only when the refreshed trade decision c
   assert.equal(snapshotChanged(initial, changedDecision), true);
 });
 
-test("9Router JSON response accepts a trailing SSE done marker", () => {
+test("OpenAI-compatible JSON response accepts a trailing SSE done marker", () => {
   const parsed = parseOpenAiResponse('{"choices":[{"message":{"content":"OK"}}]}\ndata: [DONE]');
   assert.equal(parsed.choices[0].message.content, "OK");
 });

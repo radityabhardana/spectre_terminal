@@ -23,18 +23,18 @@ cp .env.example .env
 npm ci
 ```
 
-Configure at least one AI provider in `.env`. The default setup uses 9Router:
+Configure the OmniRoute AI gateway in `.env`:
 
 ```text
-NINEROUTER_API_KEY=
-NINEROUTER_BASE_URL=http://127.0.0.1:20128/v1
+OMNI_API_KEY=
+OMNIROUTE_BASE_URL=http://127.0.0.1:20128/v1
 QWEN_BULL_MODEL=alims-intl/deepseek-v4-flash-0731
 QWEN_BEAR_MODEL=alims-intl/deepseek-v4-flash-0731
 QWEN_RISK_MANAGER_MODEL=alims-intl/deepseek-v4-pro-0813
 QWEN_FALLBACK_MODEL=alims-intl/deepseek-v4-flash-0731
 ```
 
-9Router may route the same model ID across multiple upstream providers, so a model ID absent from its `/models` list is treated as unverified rather than missing. `QWEN_FALLBACK_MODEL` is an application-level model fallback used only when the primary model ID fails. It is skipped automatically when it is identical to the primary model, since 9Router already handles upstream routing for the same model ID.
+OmniRoute uses the generic OpenAI-compatible endpoints `GET {base}/models` and `POST {base}/chat/completions`. A configured model absent from a non-empty `/models` response is reported as missing. `QWEN_FALLBACK_MODEL` is an application-level model fallback used only when the primary model ID fails.
 
 Public market-data providers do not require CLOB credentials:
 

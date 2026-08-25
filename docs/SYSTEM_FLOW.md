@@ -218,13 +218,7 @@ General context menggunakan Forex Factory, GDELT, dan DuckDuckGo snippets. Siste
 
 ### AI multi-role
 
-Nama model tidak hard-coded ke Qwen. Provider dipilih dari konfigurasi:
-
-1. 9Router jika key tersedia.
-2. OpenRouter jika key tersedia.
-3. DashScope sebagai fallback konfigurasi.
-
-Default 9Router saat ini menggunakan DeepSeek role models. DashScope menggunakan keluarga Qwen. Environment variables dapat mengganti setiap model.
+Nama model tidak hard-coded ke Qwen. Runtime menggunakan OmniRoute melalui `OMNI_API_KEY` dan `OMNIROUTE_BASE_URL` dengan API yang kompatibel dengan OpenAI. Environment variables `QWEN_*_MODEL` dapat mengganti setiap model role.
 
 Tiga role standard:
 

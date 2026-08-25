@@ -277,6 +277,50 @@ test("short-term discovery windows by end date and keeps only CLOB-enabled marke
   assert.deepEqual(markets.map((market) => market.id), ["current"]);
 });
 
+test("short-term discovery accepts durationTypes and an injected clock", async (t) => {
+  const asset = `short15m${process.pid}`;
+  const now = Date.parse("2026-08-24T12:00:00.000Z");
+  const seenUrls = [];
+  t.mock.method(globalThis, "fetch", async (input) => {
+    const url = trackedCacheUrl(input);
+    seenUrls.push(url);
+    return jsonResponse([]);
+  });
+
+  const markets = await getShortTermMarkets(asset, {
+    durationTypes: ["15m"],
+    clock: () => now,
+  });
+
+  assert.deepEqual(markets, []);
+  assert.deepEqual(seenUrls.map((url) => url.searchParams.get("series_slug")), [`${asset}-up-or-down-15m`]);
+  assert.equal(seenUrls[0].searchParams.get("end_date_min"), new Date(now - 60 * 60 * 1000).toISOString());
+  assert.equal(seenUrls[0].searchParams.get("end_date_max"), new Date(now + 3 * 60 * 60 * 1000).toISOString());
+});
+
+test("short-term discovery rejects invalid durationTypes and propagates abort", async (t) => {
+  for (const durationTypes of [["30m"], [], "15m"]) {
+    await assert.rejects(
+      getShortTermMarkets(`invalid-duration${process.pid}`, { durationTypes }),
+      /durationTypes|Unsupported short market durationTypes/,
+    );
+  }
+
+  let fetchCalls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    fetchCalls += 1;
+    throw new Error("network should not be reached");
+  });
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    getShortTermMarkets(`aborted${process.pid}`, { durationTypes: ["15m"], signal: controller.signal }),
+    (error) => error?.name === "AbortError",
+  );
+  assert.equal(fetchCalls, 0);
+});
+
 test("short-term collection does not cache a blocked market", async (t) => {
   const marker = String(process.pid).slice(-5);
   const blockedId = `14${marker}`;

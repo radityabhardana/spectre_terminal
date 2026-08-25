@@ -2509,6 +2509,24 @@ function scannerDirectionLabel(direction) {
   return direction === "UP" || direction === "DOWN" ? direction : "NO SIGNAL";
 }
 
+function scannerOutcomeLabel(outcome) {
+  return {
+    ENTRY: "Experimental Candidate",
+    NO_ENTRY: "Not selected",
+    NO_CHASE: "Candidate withdrawn",
+    INCOMPLETE: "Awaiting observation",
+  }[outcome] || "Experimental Candidate";
+}
+
+function scannerStatusLabel(status, direction) {
+  if (status === "candidate" || status === "entry") {
+    return `Experimental Candidate${direction ? ` · ${direction}` : ""}`;
+  }
+  if (status === "no_chase") return "Candidate withdrawn";
+  if (status === "skipped") return "Not selected";
+  return status === "waiting" ? "Waiting" : "Watching";
+}
+
 function historyPredictionLabel(prediction) {
   const value = String(prediction || "").trim().toUpperCase();
   return ["=", "SKIP", "NETRAL", "NEUTRAL", "WATCHLIST"].includes(value) ? "NO SIGNAL" : value || "-";
@@ -2516,16 +2534,16 @@ function historyPredictionLabel(prediction) {
 
 function historyResultLabel(result) {
   const value = String(result || "").trim().toUpperCase();
-  return ["NETRAL", "NEUTRAL"].includes(value) ? "NO ENTRY" : value || "-";
+  return ["NETRAL", "NEUTRAL"].includes(value) ? "Not selected" : value || "-";
 }
 
 function scannerResultReportLines(item, result) {
   const gates = scannerGateMessages(result);
   return [
     `- ${item.groupItemTitle || item.question || item.id || "Unknown market"}`,
-    `  Outcome: ${result.outcome || "INCOMPLETE"}`,
+    `  Outcome: ${scannerOutcomeLabel(result.outcome || "INCOMPLETE")}`,
     `  Diagnostic lean: ${scannerDirectionLabel(result.diagnosticLean)}`,
-    `  Entries issued / best observed: ${scannerObservationText(result)}`,
+    `  Experimental candidates / best observed: ${scannerObservationText(result)}`,
     `  Confirmations: ${result.maxConfirmationCount}/${result.requiredConfirmations}`,
     `  Data: ${result.dataStatus}`,
     `  Gates: ${gates.length ? gates.join(" | ") : "None"}`,
@@ -2543,7 +2561,7 @@ function buildDynamicScannerResultHtml(item) {
   const observed = result.bestObserved;
   const gates = scannerGateMessages(result);
   const question = escapeHtml(item?.groupItemTitle || item?.question || item?.id || "Unknown market");
-  const outcome = escapeHtml(result.outcome || "INCOMPLETE");
+  const outcome = escapeHtml(scannerOutcomeLabel(result.outcome || "INCOMPLETE"));
   const lean = escapeHtml(scannerDirectionLabel(result.diagnosticLean));
   const observedDirection = escapeHtml(observed?.direction || "-");
   const dataStatus = escapeHtml(result.dataStatus);
@@ -2573,7 +2591,7 @@ function buildDynamicScannerResultHtml(item) {
         <div><span>Data</span><strong>${dataStatus}</strong></div>
       </div>
       <div class="dynamic-ev-gates"><span>Exact Gates</span><ul>${gateHtml}</ul></div>
-      <div class="dynamic-ev-manual">${result.outcome === "ENTRY" ? "MANUAL ENTRY ONLY" : "NO TRADE"}</div>
+      <div class="dynamic-ev-manual">${result.outcome === "ENTRY" ? "Experimental review only" : "Not selected"}</div>
     </article>`;
 }
 
@@ -2651,9 +2669,9 @@ function renderEVPanel() {
   const observed = result.bestObserved;
   const phase = result.timingPhase || "UNKNOWN";
   const statusMap = {
-    entry: ["ENTRY", "entry"],
-    no_chase: ["NO CHASE", "no_chase"],
-    skipped: ["NO ENTRY", "no_entry"],
+    entry: ["Experimental Candidate", "entry"],
+    no_chase: ["Candidate withdrawn", "no_chase"],
+    skipped: ["Not selected", "no_entry"],
   };
   const entryStatus = newest.entryScanner?.status;
   const [label, cls] = statusMap[entryStatus] || ["WATCHING", "watching"];
@@ -2777,10 +2795,10 @@ function renderQueue() {
       const statusStyles = {
         waiting: [isSniperActive ? "WAITING 05→02:30" : "WINDOW 05→02:30", "var(--text-tertiary)"],
         watching: [state.degraded ? "WATCH DEGRADED" : "WATCHING", "var(--neon-cyan)"],
-        candidate: [`CAND ${state.candidateDirection} ${state.confirmationCount}/${result.requiredConfirmations}`, "var(--neon-amber)"],
-        entry: [`ENTRY ${state.signal?.direction || ""}`, "var(--neon-green)"],
-        no_chase: ["NO CHASE", "var(--neon-red)"],
-        skipped: ["NO ENTRY", "var(--text-tertiary)"],
+        candidate: [scannerStatusLabel("candidate", state.candidateDirection), "var(--neon-amber)"],
+        entry: [scannerStatusLabel("entry", state.signal?.direction), "var(--neon-green)"],
+        no_chase: [scannerStatusLabel("no_chase"), "var(--neon-red)"],
+        skipped: [scannerStatusLabel("skipped"), "var(--text-tertiary)"],
       };
       const [label, color] = statusStyles[state.status] || statusStyles.waiting;
       sniperStatus = `<span title="${escapeHtml(result.reason || label)}" style="color:${color}; font-size:9px; border:1px solid ${color}; border-radius:2px; padding:1px 4px; margin-left:6px; flex-shrink:0; font-weight:700;">${escapeHtml(label)}</span>`;
@@ -3025,10 +3043,10 @@ async function scanDynamicEntryItem(item, sessionId = sniperSessionId) {
       item.entrySignalTriggered = true;
       item.snipeFired = true;
       item.snipeFiredAtRemainingSeconds = Math.floor(data.snapshot.remainingSeconds);
-      showToast(`ENTRY ${item.entryScanner.signal.direction}: ask $${item.entryScanner.signal.ask.toFixed(2)}, EV +${item.entryScanner.signal.netEvCents.toFixed(1)}c`, "success", 10000);
+      showToast(`Experimental Candidate ${item.entryScanner.signal.direction}: ask $${item.entryScanner.signal.ask.toFixed(2)}, EV +${item.entryScanner.signal.netEvCents.toFixed(1)}c`, "success", 10000);
       playAlertSound();
     } else if (previousStatus === "entry" && item.entryScanner.status === "no_chase") {
-      showToast(`${item.entryScanner.signal.direction} berubah NO CHASE: ${item.entryScanner.reason}`, "error", 10000);
+      showToast(`${item.entryScanner.signal.direction} berubah: candidate withdrawn — ${item.entryScanner.reason}`, "error", 10000);
     }
   } catch (error) {
     if (isSniperActive && sessionId === sniperSessionId && analysisQueue.includes(item)) {
@@ -3052,6 +3070,7 @@ function renderEntrySignalPanel() {
   const item = selectNewestEntryScannerItem(analysisQueue.filter(isDynamicEntryItem));
   if (!item) {
     panel.hidden = true;
+    document.querySelector("#entrySignalStatus")?.removeAttribute("data-lifecycle");
     return;
   }
 
@@ -3066,8 +3085,13 @@ function renderEntrySignalPanel() {
   const isNoTrade = result.outcome !== "ENTRY";
   panel.hidden = false;
   panel.classList.toggle("no-chase", isNoTrade);
-  document.querySelector("#entrySignalStatus").textContent = result.outcome;
-  document.querySelector("#entrySignalExpiry").textContent = isNoTrade ? "MANUAL / NO TRADE" : `MANUAL ENTRY · ${ttlSeconds}s validity`;
+  const signalStatus = document.querySelector("#entrySignalStatus");
+  const lifecycle = item.entryScanner?.status || result.outcome || "watching";
+  signalStatus.dataset.lifecycle = lifecycle;
+  signalStatus.textContent = lifecycle === "entry" || lifecycle === "candidate"
+    ? scannerStatusLabel(lifecycle, result.diagnosticLean)
+    : scannerOutcomeLabel(result.outcome || "INCOMPLETE");
+  document.querySelector("#entrySignalExpiry").textContent = isNoTrade ? "REVIEW ONLY / NOT SELECTED" : `REVIEW ONLY · ${ttlSeconds}s observation window`;
   document.querySelector("#entrySignalMarket").textContent = item.groupItemTitle || item.question || item.id || "Unknown market";
   const lean = document.querySelector("#entrySignalDirection");
   lean.textContent = scannerDirectionLabel(result.diagnosticLean);
@@ -3292,6 +3316,7 @@ function showSniperSummaryModal() {
       const observed = result.outcome === "ENTRY" ? result.issuedSignal || result.bestObserved : result.bestObserved;
       const gates = scannerGateMessages(result);
       const outcome = result.outcome || "INCOMPLETE";
+      const outcomeLabel = scannerOutcomeLabel(outcome);
       const outcomeColor = outcome === "ENTRY" ? "var(--neon-green)" : outcome === "NO_CHASE" ? "var(--neon-red)" : "var(--neon-amber)";
       const leanColor = result.diagnosticLean === "UP" ? "var(--neon-green)" : result.diagnosticLean === "DOWN" ? "var(--neon-red)" : "var(--neon-amber)";
       html += `
@@ -3301,7 +3326,7 @@ function showSniperSummaryModal() {
             <div style="font-size:10px; color:var(--text-tertiary); margin-top:2px;">${marketId}</div>
           </td>
           <td style="padding:10px 16px; text-align:center;">
-            <span style="color:${outcomeColor}; font-weight:800;">${escapeHtml(outcome)}</span>
+            <span style="color:${outcomeColor}; font-weight:800;">${escapeHtml(outcomeLabel)}</span>
           </td>
           <td style="padding:10px 16px; text-align:center; color:${leanColor}; font-weight:800;">${escapeHtml(scannerDirectionLabel(result.diagnosticLean))}</td>
           <td style="padding:10px 16px; font-family:'JetBrains Mono',monospace; font-size:10px; line-height:1.5;">
@@ -3997,7 +4022,7 @@ window.showReasonModal = function(eventId) {
     reasonStatusBadge.style.borderColor = "var(--neon-red)";
     reasonStatusBadge.style.background = "rgba(239, 68, 68, 0.1)";
   } else if (event.result === 'netral' || event.result === 'neutral') {
-    reasonStatusBadge.textContent = "NO ENTRY";
+    reasonStatusBadge.textContent = "NOT SELECTED";
     reasonStatusBadge.style.color = "var(--neon-amber)";
     reasonStatusBadge.style.borderColor = "var(--neon-amber)";
     reasonStatusBadge.style.background = "rgba(245, 158, 11, 0.1)";

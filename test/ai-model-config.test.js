@@ -11,6 +11,8 @@ import {
 
 const CONFIG_FIELDS = [
   "aiProviderName",
+  "omniApiKey",
+  "omniRouteBaseUrl",
   "qwenApiKey",
   "qwenBaseUrl",
   "qwenBullModel",
@@ -40,7 +42,7 @@ async function withAiConfig(overrides, task) {
 
 // Cache-busted import so each scenario re-reads process.env in src/config.js.
 async function importConfigWithEnv(caseName, env) {
-  const keys = ["NINEROUTER_API_KEY", "QWEN_EVALUATOR_MODEL", "QWEN_FINAL_MODEL", "QWEN_MODEL"];
+  const keys = ["OMNI_API_KEY", "OMNIROUTE_BASE_URL", "QWEN_EVALUATOR_MODEL", "QWEN_FINAL_MODEL", "QWEN_MODEL"];
   const saved = {};
   for (const key of keys) saved[key] = process.env[key];
   for (const [key, value] of Object.entries(env)) process.env[key] = value;
@@ -64,9 +66,9 @@ function mockModelsEndpoint(t, ids) {
 }
 
 const CONNECTION_OVERRIDES = {
-  aiProviderName: "9router",
-  qwenApiKey: "test-key",
-  qwenBaseUrl: "http://mock.local/v1",
+  aiProviderName: "omniroute",
+  omniApiKey: "test-key",
+  omniRouteBaseUrl: "http://mock.local/v1",
   qwenBullModel: "model-a",
   qwenBearModel: "model-a",
   qwenRiskManagerModel: "model-a",
@@ -80,15 +82,27 @@ const CONNECTION_OVERRIDES = {
 
 test("QWEN_EVALUATOR_MODEL env value wins when set", async () => {
   const fresh = await importConfigWithEnv("explicit", {
-    NINEROUTER_API_KEY: "test-key",
+    OMNI_API_KEY: "test-key",
     QWEN_EVALUATOR_MODEL: "eval-model-x",
   });
   assert.equal(fresh.qwenEvaluatorModel, "eval-model-x");
 });
 
+test("OmniRoute credentials and base URL are loaded from the OmniRoute environment", async () => {
+  const fresh = await importConfigWithEnv("omniroute", {
+    OMNI_API_KEY: "test-key",
+    OMNIROUTE_BASE_URL: "http://gateway.local/v1/",
+  });
+  assert.equal(fresh.aiProviderName, "omniroute");
+  assert.equal(fresh.omniApiKey, "test-key");
+  assert.equal(fresh.qwenApiKey, "test-key");
+  assert.equal(fresh.omniRouteBaseUrl, "http://gateway.local/v1");
+  assert.equal(fresh.qwenBaseUrl, "http://gateway.local/v1");
+});
+
 test("evaluator model falls back to QWEN_FINAL_MODEL when its own env is empty", async () => {
   const fresh = await importConfigWithEnv("final", {
-    NINEROUTER_API_KEY: "test-key",
+    OMNI_API_KEY: "test-key",
     QWEN_EVALUATOR_MODEL: "",
     QWEN_FINAL_MODEL: "final-model-x",
     QWEN_MODEL: "",
@@ -98,7 +112,7 @@ test("evaluator model falls back to QWEN_FINAL_MODEL when its own env is empty",
 
 test("evaluator model falls back to the default final model when no env override is set", async () => {
   const fresh = await importConfigWithEnv("default", {
-    NINEROUTER_API_KEY: "test-key",
+    OMNI_API_KEY: "test-key",
     QWEN_EVALUATOR_MODEL: "",
     QWEN_FINAL_MODEL: "",
     QWEN_MODEL: "",
@@ -107,7 +121,7 @@ test("evaluator model falls back to the default final model when no env override
 });
 
 test("assertQwenConfig rejects an empty evaluator model", async () => {
-  await withAiConfig({ qwenApiKey: "test-key", qwenEvaluatorModel: "  " }, () => {
+  await withAiConfig({ omniApiKey: "test-key", omniRouteBaseUrl: "http://mock.local/v1", qwenEvaluatorModel: "  " }, () => {
     assert.throws(() => assertQwenConfig(), /model IDs/i);
   });
 });
@@ -118,7 +132,7 @@ test("application fallback is skipped when the fallback model equals the primary
     { status: 400, headers: { "content-type": "application/json" } },
   ));
 
-  await withAiConfig({ qwenApiKey: "test-key", qwenBaseUrl: "http://mock.local/v1" }, async () => {
+  await withAiConfig({ omniApiKey: "test-key", omniRouteBaseUrl: "http://mock.local/v1" }, async () => {
     await assert.rejects(
       requestAiText(
         {
@@ -141,7 +155,7 @@ test("application fallback is skipped when the fallback model only differs by wh
     { status: 400, headers: { "content-type": "application/json" } },
   ));
 
-  await withAiConfig({ qwenApiKey: "test-key", qwenBaseUrl: "http://mock.local/v1" }, async () => {
+  await withAiConfig({ omniApiKey: "test-key", omniRouteBaseUrl: "http://mock.local/v1" }, async () => {
     await assert.rejects(
       requestAiText(
         {
@@ -168,7 +182,7 @@ test("application fallback still occurs when the fallback model ID differs", asy
     return jsonResponse({ model: response.model, choices: [{ message: { content: response.content } }] });
   });
 
-  const result = await withAiConfig({ qwenApiKey: "test-key", qwenBaseUrl: "http://mock.local/v1" }, () =>
+  const result = await withAiConfig({ omniApiKey: "test-key", omniRouteBaseUrl: "http://mock.local/v1" }, () =>
     requestAiText(
       {
         model: "primary-model",
@@ -183,7 +197,36 @@ test("application fallback still occurs when the fallback model ID differs", asy
   assert.equal(fetchMock.mock.callCount(), 2);
 });
 
-test("9Router model listed in /models is verified", async (t) => {
+test("OmniRoute authentication failure stays local and does not switch endpoint or credential", async (t) => {
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    requests.push({ url, authorization: options.headers.authorization });
+    return new Response(JSON.stringify({ error: { message: "unauthorized" } }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  await withAiConfig({
+    omniApiKey: "omni-key",
+    omniRouteBaseUrl: "http://omni.local/v1",
+  }, async () => {
+    await assert.rejects(
+      requestAiText({
+        model: "omni-model",
+        messages: [{ role: "user", content: "Analyze" }],
+      }, { fallbackModel: "another-model" }),
+      /HTTP 401/,
+    );
+  });
+
+  assert.deepEqual(requests, [{
+    url: "http://omni.local/v1/chat/completions",
+    authorization: "Bearer omni-key",
+  }]);
+});
+
+test("OmniRoute model listed in /models is verified", async (t) => {
   mockModelsEndpoint(t, ["model-a", "other-model"]);
   const result = await withAiConfig(CONNECTION_OVERRIDES, () => checkAiProviderConnection());
 
@@ -195,18 +238,18 @@ test("9Router model listed in /models is verified", async (t) => {
   assert.deepEqual(result.configuredModels, ["model-a"]);
 });
 
-test("9Router model absent from a non-empty /models list is unverified, not missing", async (t) => {
+test("OmniRoute model absent from a non-empty /models list is missing", async (t) => {
   mockModelsEndpoint(t, ["other-model"]);
   const result = await withAiConfig(CONNECTION_OVERRIDES, () => checkAiProviderConnection());
 
   assert.equal(result.reachable, true);
   assert.deepEqual(result.verifiedModels, []);
-  assert.deepEqual(result.unverifiedModels, ["model-a"]);
-  assert.deepEqual(result.missingModels, []);
-  assert.equal(result.modelsAvailable, true);
+  assert.deepEqual(result.unverifiedModels, []);
+  assert.deepEqual(result.missingModels, ["model-a"]);
+  assert.equal(result.modelsAvailable, false);
 });
 
-test("9Router model stays unverified when /models returns an empty list", async (t) => {
+test("OmniRoute empty /models list leaves configured models unverified", async (t) => {
   mockModelsEndpoint(t, []);
   const result = await withAiConfig(CONNECTION_OVERRIDES, () => checkAiProviderConnection());
 
@@ -215,18 +258,6 @@ test("9Router model stays unverified when /models returns an empty list", async 
   assert.deepEqual(result.unverifiedModels, ["model-a"]);
   assert.deepEqual(result.missingModels, []);
   assert.equal(result.modelsAvailable, true);
-});
-
-test("non-9Router model absent from /models is missing", async (t) => {
-  mockModelsEndpoint(t, ["other-model"]);
-  const result = await withAiConfig({ ...CONNECTION_OVERRIDES, aiProviderName: "openrouter" }, () =>
-    checkAiProviderConnection());
-
-  assert.equal(result.reachable, true);
-  assert.deepEqual(result.verifiedModels, []);
-  assert.deepEqual(result.unverifiedModels, []);
-  assert.deepEqual(result.missingModels, ["model-a"]);
-  assert.equal(result.modelsAvailable, false);
 });
 
 async function captureShortConditionPayload(t, maxTokens) {
@@ -240,8 +271,8 @@ async function captureShortConditionPayload(t, maxTokens) {
   });
 
   const result = await withAiConfig({
-    qwenApiKey: "test-key",
-    qwenBaseUrl: "http://mock.local/v1",
+    omniApiKey: "test-key",
+    omniRouteBaseUrl: "http://mock.local/v1",
     qwenShortModel: "short-model",
     qwenShortMaxTokens: maxTokens,
   }, () => askQwenShortCondition({ marketQuestion: "", deterministic: { recommendation: "PLAY" } }));

@@ -2,6 +2,7 @@ import { askQwenShortCondition } from "./qwen.js";
 import { getRecentLiquidations, getOrderbookImbalance } from "./binance_ws.js";
 import { config } from "./config.js";
 import WebSocket from "ws";
+import { appendShortEvaluationSnapshot } from "./storage.js";
 
 const BINANCE_FAPI_URLS = [...new Set([config.binanceFuturesBaseUrl, "https://fapi.binance.com"])];
 
@@ -715,8 +716,114 @@ export function snapshotChanged(initial, final) {
   return Math.abs(initialEv - finalEv) >= 1;
 }
 
+export function shortEvaluationAiAvailability({ requestStarted = false, response = null, used = false, status = "not_requested" } = {}) {
+  const available = Boolean(response?.reason);
+  return {
+    requested: Boolean(requestStarted),
+    available,
+    used: Boolean(available && used),
+    status,
+  };
+}
+
+export function buildObserveOnlyCollectorAudit({
+  market,
+  tokenIds,
+  books,
+  evaluation = null,
+  collectedData = null,
+  capturedAt,
+  scheduledAt,
+  status,
+  errorCode = null,
+  sourceVerified = false,
+} = {}) {
+  // The collector is deliberately a different audit context from the Phase A
+  // manual evaluator.  Keep this projection allow-listed: in particular, do
+  // not persist the trading decision object returned by the evaluator.
+  const safeProjection = (value) => {
+    if (Array.isArray(value)) return value.map(safeProjection);
+    if (!value || typeof value !== "object") {
+      if (typeof value === "string" && /\b(?:ENTRY|PLAY|PUBLIC|CANDIDATE)\b/i.test(value)) return null;
+      return value;
+    }
+    return Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !/(recommendation|actionable|selected|candidate|entry|play|public)/i.test(key))
+      .map(([key, item]) => [key, safeProjection(item)]));
+  };
+  const bookProjection = (book) => ({
+    available: Boolean(book),
+    bids: Array.isArray(book?.bids) ? book.bids : [],
+    asks: Array.isArray(book?.asks) ? book.asks : [],
+  });
+  const deterministic = evaluation?.deterministicSnapshot
+    || evaluation?.deterministic_snapshot
+    || evaluation?.evaluation?.deterministicSnapshot
+    || evaluation?.evaluation?.deterministic_snapshot
+    || null;
+  const modelOutputs = deterministic ? safeProjection({
+    currentPrice: deterministic.currentPrice,
+    priceToBeat: deterministic.priceToBeat,
+    oraclePublishTime: deterministic.oraclePublishTime,
+    oracleSourceKind: deterministic.oracleSourceKind,
+    oracleWindowSeconds: deterministic.oracleWindowSeconds,
+    capturedAt: deterministic.capturedAt,
+    startDate: deterministic.startDate,
+    endDate: deterministic.endDate,
+    remainingSeconds: deterministic.remainingSeconds,
+    atr: deterministic.atr,
+    intervalVolatility: deterministic.intervalVolatility,
+    atrIntervalMs: deterministic.atrIntervalMs,
+    upProbability: deterministic.upProbability,
+    downProbability: deterministic.downProbability,
+    upAsk: deterministic.upAsk,
+    downAsk: deterministic.downAsk,
+    upMidpoint: deterministic.upMidpoint,
+    downMidpoint: deterministic.downMidpoint,
+    marketActive: deterministic.marketActive,
+    marketClosed: deterministic.marketClosed,
+    acceptingOrders: deterministic.acceptingOrders,
+  }) : null;
+  return {
+    collector: "observe_only",
+    status,
+    errorCode,
+    capturedAt,
+    scheduledAt,
+    market: {
+      id: market?.id == null ? null : String(market.id),
+      question: market?.question || null,
+      asset: "BTC",
+      durationType: "15m",
+      startDate: market?.startDate || null,
+      endDate: market?.endDate || null,
+    },
+    resolution: {
+      source: market?.resolutionSource || null,
+      verified: Boolean(sourceVerified),
+    },
+    tokens: {
+      UP: tokenIds?.UP == null ? null : String(tokenIds.UP),
+      DOWN: tokenIds?.DOWN == null ? null : String(tokenIds.DOWN),
+    },
+    provenance: {
+      context: "btc15m_observe_collector",
+      evaluator: "evaluateShortMarketCondition",
+      deterministic: true,
+      ai: { requested: false, used: false, status: "disabled" },
+    },
+    modelOutputs,
+    data: safeProjection(collectedData),
+    books: {
+      UP: bookProjection(books?.UP),
+      DOWN: bookProjection(books?.DOWN),
+    },
+  };
+}
+
 export async function evaluateShortMarketCondition({
   signal = null,
+  marketId = null,
   asset = "BTC",
   marketQuestion = "",
   upTokenAsk = null,
@@ -733,6 +840,8 @@ export async function evaluateShortMarketCondition({
   resolutionSource = "",
   includeAiExplanation = true,
   refreshFinalSnapshot = true,
+  collectorContext = null,
+  nowMs = null,
 }) {
   const normalizedAsset = String(asset || "BTC").toUpperCase();
   const symbol = normalizedAsset === "ETH" ? "ETHUSDT" : normalizedAsset === "DOGE" ? "DOGEUSDT" : "BTCUSDT";
@@ -817,7 +926,7 @@ export async function evaluateShortMarketCondition({
     acceptingOrders: marketPrices?.acceptingOrders ?? acceptingOrders,
   });
 
-  const initialDecision = evaluateSnapshot(initialOpeningPrice, initialLivePrice, initialMarketPrices, Date.now());
+  const initialDecision = evaluateSnapshot(initialOpeningPrice, initialLivePrice, initialMarketPrices, nowMs ?? Date.now());
   const initialSnapshot = {
     currentPrice: initialLivePrice?.price ?? null,
     priceToBeat: initialOpeningPrice,
@@ -829,12 +938,14 @@ export async function evaluateShortMarketCondition({
   let aiExplanationStatus = "not_requested";
   let aiExplanationError = null;
   let aiMetadata = {};
+  let aiRequestStarted = false;
   if (includeAiExplanation && initialDecision.primary_outcome_probability != null) {
     aiExplanationStatus = "pending";
     const aiSignal = signal
       ? AbortSignal.any([signal, AbortSignal.timeout(config.shortAiTimeoutMs)])
       : AbortSignal.timeout(config.shortAiTimeoutMs);
     try {
+      aiRequestStarted = true;
       const aiResult = await askQwenShortCondition({
         tickerData,
         longShort,
@@ -899,7 +1010,7 @@ export async function evaluateShortMarketCondition({
     }
   }
 
-  const finalCapturedAt = Date.now();
+  const finalCapturedAt = nowMs ?? Date.now();
   const finalDecision = evaluateSnapshot(finalOpeningPrice, finalLivePrice, finalMarketPrices, finalCapturedAt);
   const finalSnapshot = {
     source: "chainlink",
@@ -935,8 +1046,15 @@ export async function evaluateShortMarketCondition({
     downAsk: finalSnapshot.downAsk,
     decision: finalDecision,
   });
-  const aiExplanationUsed = Boolean(aiExplanation?.reason && !changed);
-  if (aiExplanation?.reason) aiExplanationStatus = changed ? "discarded_stale" : "used";
+  const aiExplanationAvailable = Boolean(aiExplanation?.reason);
+  const aiExplanationUsed = Boolean(aiExplanationAvailable && !changed);
+  if (aiExplanationAvailable) aiExplanationStatus = changed ? "discarded_stale" : "used";
+  const aiAvailability = shortEvaluationAiAvailability({
+    requestStarted: aiRequestStarted,
+    response: aiExplanation,
+    used: aiExplanationUsed,
+    status: aiExplanationStatus,
+  });
   const explanation = aiExplanationUsed
     ? {
         reason: aiExplanation.reason,
@@ -958,6 +1076,46 @@ export async function evaluateShortMarketCondition({
     ai_explanation_error: aiExplanationError,
     ...aiMetadata,
   };
+
+  // Audit only the final deterministic snapshot. This side effect is
+  // deliberately outside the response object so callers retain the Phase A
+  // response contract, while availability flags reflect actual observations.
+  if (!collectorContext) {
+    appendShortEvaluationSnapshot({
+      marketId,
+      marketQuestion,
+      durationType: normalizedDuration,
+      asset: normalizedAsset,
+      capturedAt: finalSnapshot.capturedAt,
+      auditPayload: {
+        market: { id: marketId == null ? null : String(marketId), question: marketQuestion, asset: normalizedAsset, durationType: normalizedDuration },
+        final: {
+          deterministic: {
+            rawAsk: { up: finalMarketPrices.upAsk, down: finalMarketPrices.downAsk },
+            rawMidpoint: { up: finalMarketPrices.upMidpoint, down: finalMarketPrices.downMidpoint },
+            decision: finalDecision,
+          },
+          snapshot: finalSnapshot,
+        },
+        providerDataAvailability: {
+          polymarketClob: {
+            available: [finalMarketPrices.upAsk, finalMarketPrices.downAsk, finalMarketPrices.upMidpoint, finalMarketPrices.downMidpoint].some((value) => value != null),
+            asksAvailable: finalMarketPrices.upAsk != null || finalMarketPrices.downAsk != null,
+            midpointsAvailable: finalMarketPrices.upMidpoint != null || finalMarketPrices.downMidpoint != null,
+            rawBookAvailable: false,
+          },
+          chainlink: {
+            available: oracleSourceVerified && finalLivePrice?.price != null,
+            sourceVerified: oracleSourceVerified,
+            livePriceAvailable: finalLivePrice?.price != null,
+          },
+          aiExplanation: {
+            ...aiAvailability,
+          },
+        },
+      },
+    });
+  }
 
   return {
     tickerData,

@@ -20,7 +20,7 @@ Whenever a user prompt mentions or touches a specific topic, the AI agent MUST a
 
 | Prompt Topic / Keywords | Trigger Skill Name | Skill Path | Purpose / Guidance |
 | :--- | :--- | :--- | :--- |
-| **Trading Security, Wallet, Order Placement, 9Router** | `llm-trading-agent-security` | `.agents/skills/llm-trading-agent-security/SKILL.md` | Enforce spend limits, pre-send simulation, circuit breakers, and prompt injection defense on trading tools. |
+| **Trading Security, Wallet, Order Placement, OmniRoute** | `llm-trading-agent-security` | `.agents/skills/llm-trading-agent-security/SKILL.md` | Enforce spend limits, pre-send simulation, circuit breakers, and prompt injection defense on trading tools. |
 | **Polymarket Research, Odds, EV, Orderbook Analysis** | `ito-trade-planner` | `.agents/skills/ito-trade-planner/SKILL.md` | Structure prediction-market trade planning, EV calculations, and orderbook probability inspection. |
 | **Polygon / USDC / Token Precision** | `evm-token-decimals` | `.agents/skills/evm-token-decimals/SKILL.md` | Ensure chain-aware token decimal precision across Polygon USDC and binary outcome tokens. |
 | **Node.js ESM, Express, SQLite, WebSockets** | `backend-patterns` | `.agents/skills/backend-patterns/SKILL.md` | Enforce Node.js ESM best practices, `better-sqlite3` query safety, and WebSocket hygiene. |

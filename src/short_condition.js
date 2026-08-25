@@ -3,6 +3,7 @@ import { getRecentLiquidations, getOrderbookImbalance } from "./binance_ws.js";
 import { config } from "./config.js";
 import WebSocket from "ws";
 import { appendShortEvaluationSnapshot } from "./storage.js";
+import { parseRtdsCurrentSnapshot } from "./short-market-sources.js";
 
 const BINANCE_FAPI_URLS = [...new Set([config.binanceFuturesBaseUrl, "https://fapi.binance.com"])];
 
@@ -158,8 +159,10 @@ export function evaluateDeterministicShortSnapshot({
   if (!marketActive || marketClosed || !acceptingOrders) {
     blockers.push("[MARKET GUARDRAIL] Market is inactive, closed, or not accepting orders.");
   }
-  if (start == null || end == null || now == null || start >= end || now < start || now >= end) {
-    blockers.push("[TIME GUARDRAIL] Market start/end cannot be verified, has not started, or has already ended.");
+  const expectedDurationMs = finiteNumber(atrIntervalMs);
+  const durationAligned = start != null && end != null && expectedDurationMs != null && end - start === expectedDurationMs;
+  if (start == null || end == null || now == null || start >= end || !durationAligned || now < start || now >= end) {
+    blockers.push("[TIME GUARDRAIL] Market start/end must be explicit, valid, and exactly match the fixed duration.");
   } else if (remainingMs < finiteNumber(minSecondsToClose) * 1000) {
     blockers.push(`[TIME GUARDRAIL] Less than ${minSecondsToClose} seconds remain before close.`);
   }
@@ -256,9 +259,13 @@ function normalizeDurationType(value, question = "") {
 }
 
 function parseTimestamp(value) {
-  if (!value) return null;
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : null;
+  if (typeof value !== "string") return null;
+  // Canonical Gamma stamps are UTC ISO with optional milliseconds
+  // ("…T17:30:00Z" or "…T17:30:00.000Z"); reject locale/offset forms.
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  const iso = new Date(timestamp).toISOString();
+  return value === iso || `${value.slice(0, -1)}.000Z` === iso ? timestamp : null;
 }
 
 export function chainlinkSourceSpec(value, asset) {
@@ -377,14 +384,9 @@ function fetchChainlinkLivePrice(asset, signal, sourceSpec = null) {
     ws.on("message", (raw) => {
       try {
         const message = JSON.parse(String(raw));
-        const directValue = Number(message?.payload?.value);
-        const points = Array.isArray(message?.payload?.data) ? message.payload.data : [];
-        const latestPoint = points.at(-1);
-        const value = Number.isFinite(directValue) ? directValue : Number(latestPoint?.value);
-        const timestamp = Number(message?.payload?.timestamp ?? latestPoint?.timestamp);
-        const ageMs = Date.now() - timestamp;
-        if (Number.isFinite(value) && value > 0 && Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= 15_000) {
-          finish(null, { price: value, publishTime: new Date(timestamp).toISOString() });
+        const parsed = parseRtdsCurrentSnapshot(message, { topic: sourceSpec?.topic || "crypto_prices_chainlink", symbol: `${asset.toLowerCase()}/usd`, nowMs: Date.now(), maxAgeMs: CHAINLINK_MAX_AGE_MS, maxFutureSkewMs: 2_000 });
+        if (parsed.status === "OK") {
+          finish(null, { price: parsed.usdPrice, publishTime: new Date(parsed.timestampMs).toISOString() });
         }
       } catch {
         // Ignore heartbeat and unrelated topic messages.
@@ -851,7 +853,7 @@ export async function evaluateShortMarketCondition({
   const durationMs = DURATION_MS[normalizedDuration] || null;
   const endTimeMs = parseTimestamp(endDate);
   const explicitStartMs = parseTimestamp(startDate);
-  const derivedStartMs = endTimeMs != null && durationMs ? endTimeMs - durationMs : explicitStartMs;
+  const startTimeMs = explicitStartMs;
   const oracleSource = chainlinkSourceSpec(resolutionSource, normalizedAsset);
   const oracleSourceVerified = Boolean(oracleSource);
 
@@ -860,7 +862,7 @@ export async function evaluateShortMarketCondition({
   const technicalDataPromise = fetchChainlinkTechData(normalizedAsset, normalizedDuration, signal);
   if (oracleSourceVerified) {
     [initialOpeningPrice, initialLivePrice] = await Promise.all([
-      fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal).catch((error) => {
+      fetchChainlinkOpeningPrice(normalizedAsset, startTimeMs, endTimeMs, normalizedDuration, signal).catch((error) => {
         if (signal?.aborted) throw error;
         return null;
       }),
@@ -916,7 +918,7 @@ export async function evaluateShortMarketCondition({
     priceToBeat: openingPrice,
     oraclePublishTime: livePrice?.publishTime ?? null,
     oracleSourceVerified,
-    startTimeMs: derivedStartMs,
+    startTimeMs,
     endTimeMs,
     nowMs,
     atr: tickerData?.atr14,
@@ -987,7 +989,7 @@ export async function evaluateShortMarketCondition({
       const [openingPrice, livePrice, refreshedPrices] = await Promise.all([
         initialOpeningPrice
           ? Promise.resolve(initialOpeningPrice)
-          : fetchChainlinkOpeningPrice(normalizedAsset, derivedStartMs, endTimeMs, normalizedDuration, signal).catch((error) => {
+          : fetchChainlinkOpeningPrice(normalizedAsset, startTimeMs, endTimeMs, normalizedDuration, signal).catch((error) => {
             if (signal?.aborted) throw error;
             throw Object.assign(new Error("Final Chainlink opening price is unavailable."), { code: "FINAL_CHAINLINK_REFRESH_FAILED" });
           }),
@@ -1047,7 +1049,7 @@ export async function evaluateShortMarketCondition({
     oracleSourceKind: oracleSource?.kind || null,
     oracleWindowSeconds: oracleSource?.windowSeconds || null,
     capturedAt: new Date(finalCapturedAt).toISOString(),
-    startDate: derivedStartMs == null ? null : new Date(derivedStartMs).toISOString(),
+    startDate: startTimeMs == null ? null : new Date(startTimeMs).toISOString(),
     endDate: endTimeMs == null ? null : new Date(endTimeMs).toISOString(),
     remainingSeconds: finalDecision.remaining_ms == null ? null : Number((finalDecision.remaining_ms / 1000).toFixed(3)),
     atr: finiteNumber(tickerData?.atr14),

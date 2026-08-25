@@ -104,7 +104,13 @@ function mockShortRefreshNetwork(t, { marketId, refreshOverrides, finalClobFailu
         queueMicrotask(() => this.emit("error", new Error("final Chainlink refresh failed")));
       } else {
         queueMicrotask(() => listener(JSON.stringify({
-          payload: { value: finalPriceChange && liveMessages > 1 ? 105 : 104, timestamp: Date.now() },
+          topic: "crypto_prices_chainlink",
+          type: "update",
+          payload: {
+            symbol: "btc/usd",
+            full_accuracy_value: String(BigInt(finalPriceChange && liveMessages > 1 ? 105 : 104) * 10n ** 18n),
+            timestamp: Date.now(),
+          },
         })));
       }
       return this;

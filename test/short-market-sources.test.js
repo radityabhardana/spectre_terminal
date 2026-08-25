@@ -12,6 +12,7 @@ import {
   parseChainlinkBoundaryReport,
   parseClobBook,
   parseRtdsBoundaryTwap,
+  parseRtdsCurrentSnapshot,
   selectBoundaryTwap,
 } from "../src/short-market-sources.js";
 
@@ -65,9 +66,43 @@ test("Gamma pagination dedupes identical identities but fails closed on cursor l
 test("RTDS accepts only the exact millisecond boundary and preserves full decimal text", async () => {
   const frame = await fixture("rtds-twap-frame.json");
   const exact = parseRtdsBoundaryTwap(frame, boundary);
-  assert.equal(exact.status, "OK"); assert.equal(exact.value, "112345.678901234567890123");
+  assert.equal(exact.status, "OK"); assert.equal(exact.value, "112345678901234567890123");
   assert.notEqual(exact.value, String(frame.payload.value));
   for (const delta of [-1, 1]) assert.equal(parseRtdsBoundaryTwap(frame, boundary + delta).status, "DATA_GAP");
+});
+
+test("RTDS current-snapshot mode validates canonical frame fields without exact-boundary matching", () => {
+  const nowMs = boundary + 5_000;
+  // Live RTDS frames carry full_accuracy_value as an E18 fixed-point integer string.
+  const e18Text = "112345678901234567890123";
+  const frame = {
+    topic: "crypto_prices_twap_sixty",
+    type: "update",
+    payload: {
+      symbol: "btc/usd",
+      timestamp: boundary,
+      value: 112345.67890123456,
+      full_accuracy_value: e18Text,
+    },
+  };
+  const current = parseRtdsCurrentSnapshot(frame, { nowMs, maxAgeMs: 15_000, maxFutureSkewMs: 2_000 });
+  assert.equal(current.status, "OK");
+  assert.equal(current.timestampMs, boundary);
+  assert.equal(current.value, e18Text);
+  assert.ok(Math.abs(current.usdPrice - 112345.678901234567890123) < 1e-9, `usdPrice must be rescaled from E18, got ${current.usdPrice}`);
+  assert.equal(parseRtdsCurrentSnapshot({ ...frame, topic: "wrong" }, { nowMs }).status, "DATA_GAP");
+  assert.equal(parseRtdsCurrentSnapshot({ ...frame, type: "bad" }, { nowMs }).status, "DATA_GAP");
+  for (const timestamp of [nowMs - 15_001, nowMs + 2_001]) {
+    assert.equal(parseRtdsCurrentSnapshot({ ...frame, payload: { ...frame.payload, timestamp } }, { nowMs }).status, "DATA_GAP");
+  }
+  assert.equal(parseRtdsCurrentSnapshot({ ...frame, payload: { ...frame.payload, full_accuracy_value: 112345 } }, { nowMs }).status, "DATA_GAP");
+  for (const badScale of ["112345.67", "1.12e5", "abc"]) {
+    assert.equal(
+      parseRtdsCurrentSnapshot({ ...frame, payload: { ...frame.payload, full_accuracy_value: badScale } }, { nowMs }).status,
+      "DATA_GAP",
+      `non-integer E18 text must be rejected: ${badScale}`,
+    );
+  }
 });
 
 test("Chainlink fallback uses only the exact observationsTimestamp boundary contract", async () => {

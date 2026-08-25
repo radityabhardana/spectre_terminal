@@ -5,6 +5,6 @@
     "symbol": "btc/usd",
     "timestamp": 1787659200000,
     "value": 112345.67890123456,
-    "full_accuracy_value": "112345.678901234567890123"
+    "full_accuracy_value": "112345678901234567890123"
   }
 }

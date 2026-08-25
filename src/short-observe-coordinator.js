@@ -388,7 +388,11 @@ function openingProjection(result, market) {
     reason: result.reason ?? null,
     source: result.source ?? null,
     status: result.status,
-    value: result.value ?? null,
+    // Persist exact USD-scale text for every source: RTDS frames carry E18
+    // fixed-point text in `.value`; `usdPriceText` is the rescaled USD value.
+    // Chainlink reports already persist plain USD decimals. Keeping one unit
+    // per field preserves cross-source comparability and calibration inputs.
+    value: result.usdPriceText ?? result.value ?? null,
   };
 }
 
@@ -1098,7 +1102,7 @@ export function createBtc15mObserveCoordinator(dependencies = {}) {
       },
       rawBooks: { UP: result.books.UP.rawBook, DOWN: result.books.DOWN.rawBook },
       parsedBooks: { UP: result.books.UP.parsed, DOWN: result.books.DOWN.parsed },
-      openingBoundary: result.opening.result,
+      openingBoundary: openingProjection(result.opening.result, market),
       evidenceReferences: {
         opening: evidenceReference(openingEvidence),
         books: {

@@ -8,6 +8,7 @@ import {
 } from "./short-observe-contract.js";
 
 const ExactDecimal = Decimal.clone({ precision: 50, rounding: Decimal.ROUND_HALF_UP });
+const ExactDecimal_E18 = new ExactDecimal("1e18");
 
 export const GAMMA_EVENTS_URL = "https://gamma-api.polymarket.com/events/keyset";
 export const GAMMA_KEYSET_PAGE_SIZE = 100;
@@ -126,6 +127,20 @@ function boundaryMs(value) {
   return typeof value === "number" && Number.isSafeInteger(value) ? value : null;
 }
 
+// Live RTDS frames carry full_accuracy_value as an E18 fixed-point integer
+// string (price * 1e18). Rescale exactly (decimal shift) for USD consumption
+// and cross-source comparison; non-integer legacy text stays unscaled.
+function rescaleRtdsValue(rawValue) {
+  const text = String(rawValue ?? "").trim();
+  if (!/^-?\d+$/.test(text)) return null;
+  try {
+    const usdPriceText = new ExactDecimal(text).div(ExactDecimal_E18).toFixed();
+    return Object.freeze({ usdPriceText, usdPrice: Number(usdPriceText) });
+  } catch {
+    return null;
+  }
+}
+
 export function parseRtdsBoundaryTwap(frame, boundaryTimestampMs) {
   const boundary = boundaryMs(boundaryTimestampMs);
   if (boundary === null) return dataGap("INVALID_BOUNDARY");
@@ -140,12 +155,58 @@ export function parseRtdsBoundaryTwap(frame, boundaryTimestampMs) {
   } catch (error) {
     return dataGap(error.code || "RTDS_VALUE_INVALID");
   }
+  const rescaled = rescaleRtdsValue(payload.full_accuracy_value);
+  if (!rescaled || !Number.isFinite(rescaled.usdPrice) || rescaled.usdPrice <= 0) {
+    return dataGap("RTDS_VALUE_SCALE_INVALID");
+  }
   return Object.freeze({
     status: "OK",
     source: "RTDS",
     timestampMs: boundary,
     value: payload.full_accuracy_value,
-    provenance: Object.freeze({ topic: frame.topic, type: frame.type, symbol: payload.symbol, field: "full_accuracy_value" }),
+    usdPriceText: rescaled.usdPriceText,
+    usdPrice: rescaled.usdPrice,
+    provenance: Object.freeze({ topic: frame.topic, type: frame.type, symbol: payload.symbol, field: "full_accuracy_value", scale: "E18" }),
+  });
+}
+
+export function parseRtdsCurrentSnapshot(frame, {
+  topic = RTDS_TWAP_TOPIC,
+  symbol = RTDS_BTC_SYMBOL,
+  nowMs = Date.now(),
+  maxAgeMs = 15_000,
+  maxFutureSkewMs = 2_000,
+} = {}) {
+  if (typeof topic !== "string" || !topic || typeof symbol !== "string" || !symbol) return dataGap("RTDS_EXPECTED_SOURCE_INVALID");
+  if (!Number.isSafeInteger(nowMs) || !Number.isFinite(maxAgeMs) || maxAgeMs < 0 || !Number.isFinite(maxFutureSkewMs) || maxFutureSkewMs < 0) {
+    return dataGap("RTDS_CURRENT_WINDOW_INVALID");
+  }
+  if (!frame || typeof frame !== "object" || frame.topic !== topic || frame.type !== "update") {
+    return dataGap("RTDS_FRAME_MISMATCH");
+  }
+  const payload = frame.payload;
+  if (!payload || typeof payload !== "object" || payload.symbol !== symbol) return dataGap("RTDS_FRAME_MISMATCH");
+  if (!Number.isSafeInteger(payload.timestamp)) return dataGap("RTDS_TIMESTAMP_INVALID");
+  const ageMs = nowMs - payload.timestamp;
+  if (ageMs > maxAgeMs) return dataGap("RTDS_TIMESTAMP_STALE");
+  if (ageMs < -maxFutureSkewMs) return dataGap("RTDS_TIMESTAMP_FUTURE");
+  try {
+    decimalText(payload.full_accuracy_value, "payload.full_accuracy_value");
+  } catch (error) {
+    return dataGap(error.code || "RTDS_VALUE_INVALID");
+  }
+  const rescaled = rescaleRtdsValue(payload.full_accuracy_value);
+  if (!rescaled || !Number.isFinite(rescaled.usdPrice) || rescaled.usdPrice <= 0) {
+    return dataGap("RTDS_VALUE_SCALE_INVALID");
+  }
+  return Object.freeze({
+    status: "OK",
+    source: "RTDS",
+    timestampMs: payload.timestamp,
+    value: payload.full_accuracy_value,
+    usdPriceText: rescaled.usdPriceText,
+    usdPrice: rescaled.usdPrice,
+    provenance: Object.freeze({ topic: frame.topic, type: frame.type, symbol: payload.symbol, field: "full_accuracy_value", scale: "E18" }),
   });
 }
 
@@ -205,10 +266,13 @@ export function selectBoundaryTwap({
   const chainlink = parseChainlinkBoundaryReport(chainlinkReport, boundary, expectedChainlinkFeedId);
   if (chainlink.status === "QUARANTINED") return chainlink;
   if (rtds.status === "OK" && chainlink.status === "OK") {
-    if (!new ExactDecimal(rtds.value).eq(chainlink.value)) {
+    // Compare exact USD-scale values: RTDS text is E18 fixed-point while the
+    // Chainlink report price is plain decimal.
+    const comparisonText = rtds.usdPriceText ?? rtds.value;
+    if (!new ExactDecimal(comparisonText).eq(chainlink.value)) {
       return quarantined("SOURCE_DISAGREEMENT", Object.freeze({ rtds: rtds.value, chainlink: chainlink.value }));
     }
-    return Object.freeze({ status: "OK", source: "RTDS", value: rtds.value, timestampMs: boundary, corroboratedBy: "CHAINLINK", provenance: Object.freeze({ rtds: rtds.provenance, chainlink: chainlink.provenance }) });
+    return Object.freeze({ status: "OK", source: "RTDS", value: rtds.value, usdPriceText: rtds.usdPriceText, usdPrice: rtds.usdPrice, timestampMs: boundary, corroboratedBy: "CHAINLINK", provenance: Object.freeze({ rtds: rtds.provenance, chainlink: chainlink.provenance }) });
   }
   if (rtds.status === "OK") return rtds;
   if (chainlink.status === "OK") return Object.freeze({ ...chainlink, source: "CHAINLINK_FALLBACK" });

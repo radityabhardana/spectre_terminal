@@ -13,7 +13,10 @@ import { parseClobBook } from "../src/short-market-sources.js";
 const START_MS = Date.parse("2026-08-25T12:00:00.000Z");
 const END_MS = START_MS + 900_000;
 const FEED_ID = `0x0002${"a".repeat(60)}`;
-const OPENING_VALUE = "112345.67890123456789012300";
+// Live RTDS frames carry full_accuracy_value as an E18 fixed-point integer
+// string (price * 1e18); Chainlink reports carry plain USD decimals.
+const OPENING_USD = "112345.678901234567890123";
+const OPENING_VALUE_E18 = "112345678901234567890123";
 const BASE_CONFIG = Object.freeze({
   enabled: true,
   expectedChainlinkFeedId: FEED_ID,
@@ -133,7 +136,7 @@ function strictBookSource({ calls = [], hook = null } = {}) {
   };
 }
 
-function rtdsFrame(timestamp = START_MS, value = OPENING_VALUE) {
+function rtdsFrame(timestamp = START_MS, value = OPENING_VALUE_E18) {
   return {
     topic: "crypto_prices_twap_sixty",
     type: "update",
@@ -141,7 +144,7 @@ function rtdsFrame(timestamp = START_MS, value = OPENING_VALUE) {
   };
 }
 
-function chainlinkReport(value = OPENING_VALUE) {
+function chainlinkReport(value = OPENING_USD) {
   return { feedID: FEED_ID, observationsTimestamp: START_MS / 1000, price: value };
 }
 
@@ -569,10 +572,10 @@ test("strict direct books validate UP and DOWN asset IDs and never checkpoint ma
 
 test("opening selector persists exact RTDS, exact Chainlink fallback, data gap, and disagreement quarantine without erasing books", async () => {
   const cases = [
-    { source: boundarySource({ frame: rtdsFrame(), report: null }), status: "OK", expectedSource: "RTDS", value: OPENING_VALUE },
-    { source: boundarySource({ frame: null, report: chainlinkReport() }), status: "OK", expectedSource: "CHAINLINK_FALLBACK", value: OPENING_VALUE },
+    { source: boundarySource({ frame: rtdsFrame(), report: null }), status: "OK", expectedSource: "RTDS", value: OPENING_USD },
+    { source: boundarySource({ frame: null, report: chainlinkReport() }), status: "OK", expectedSource: "CHAINLINK_FALLBACK", value: OPENING_USD },
     { source: boundarySource({ frame: null, report: null }), status: "DATA_GAP", expectedSource: null, value: null },
-    { source: boundarySource({ frame: rtdsFrame(), report: chainlinkReport("112345.67890123456789012301") }), status: "QUARANTINED", expectedSource: null, value: null },
+    { source: boundarySource({ frame: rtdsFrame(), report: chainlinkReport("112345.678901234567890124") }), status: "QUARANTINED", expectedSource: null, value: null },
   ];
   for (const item of cases) {
     const storage = fakeStorage();
@@ -824,7 +827,7 @@ test("resolution retries use deterministic attempt-scoped idempotency for unchan
     return evidence.length;
   };
 
-  const closeFrame = rtdsFrame(END_MS, "112345.67890123456789012300");
+  const closeFrame = rtdsFrame(END_MS, "11234567890123456789012300");
   const source = boundarySource({ frame: null, report: null });
   source.getBoundary = (timestamp) => timestamp === END_MS ? closeFrame : null;
   const resolutionSource = {

@@ -23,7 +23,7 @@ Semua market — termasuk market crypto Up/Down — diproses lewat pipeline yang
 | `src/index.js` | Entry point, router command Telegram, orchestrator utama |
 | `src/qwen.js` | Engine AI multi-role: `askQwen()` + `askQwenEvent()` |
 | `src/scoring.js` | Mechanical scoring dari CLOB orderbook |
-| `src/research.js` | Fetch data eksternal: crypto klines, long/short ratio, DeFiLlama, Fear&Greed, dan GDELT News |
+| `src/research.js` | Fetch data eksternal: crypto klines, long/short ratio, DeFiLlama, dan Fear&Greed |
 | `src/polymarket.js` | API client Polymarket (Gamma + CLOB) |
 | `src/format.js` | Formatter output Telegram/web |
 | `src/config.js` | Config dari .env |
@@ -78,7 +78,7 @@ User kirim /analyze <url/id/keyword>
      ├─── [4b] buildResearchContext() — Riset eksternal
      │         Deteksi tipe market dari question teks:
      │         → Crypto? → fetch klines, RSI, long/short ratio, Fear&Greed, DeFiLlama
-     │         → Lainnya (politik, makro, olahraga)? → GDELT news saja
+     │         → Lainnya (politik, makro, olahraga)? → search snippets saja
      │         (semua pakai cache: crypto 10s, fundamental 900s, news 900s)
      │
      └─── [4c] askQwen() — 3-Stage AI Pipeline
@@ -200,7 +200,6 @@ Config: temperature=0.1, max_tokens=60% dari QWEN_MAX_TOKENS
 | Long/Short Ratio 5m | Binance Futures `/fapi/v1/globalLongShortAccountRatio` | **5m × 1 (terkini)** | 10 detik |
 | Fear & Greed Index (7 hari) | alternative.me | Harian | 900 detik |
 | DeFiLlama TVL chains + protocols | api.llama.fi | Snapshot | 900 detik |
-| GDELT News (5 artikel teratas) | api.gdeltproject.org | HybridRel sort | 900 detik |
 | **Premium News (NYTimes/Bloomberg/CoinDesk/CoinTelegraph)** | **DuckDuckGo HTML scraper** | 3 snippets | 900 detik |
 
 **Khusus market crypto bertipe Up/Down**, `qwen.js` secara otomatis mendeteksi interval (`5m`, `15m`, `30m`, `1h`) dari judul market dan fetch harga pembuka candle dari **Pyth Oracle** sebagai "Price to Beat".
@@ -208,7 +207,6 @@ Config: temperature=0.1, max_tokens=60% dari QWEN_MAX_TOKENS
 ### C. Data Market Non-Crypto (politik, makro, olahraga, dll.)
 | Data | Sumber | Cache |
 |---|---|---|
-| Berita relevan | GDELT Doc API 2.1 | 900 detik |
 | **Premium News (NYTimes/WSJ/Bloomberg/CoinDesk)** | **DuckDuckGo HTML scraper** | 900 detik |
 
 ---
@@ -324,7 +322,6 @@ QWEN_MAX_TOKENS=10000
 | Market data Gamma/CLOB | 60 detik | `CACHE_TTL_SECONDS` |
 | Crypto prices/klines | 10 detik | `CRYPTO_CACHE_TTL_SECONDS` |
 | DeFiLlama/fundamental | 900 detik (15 menit) | `FUNDAMENTAL_CACHE_TTL_SECONDS` |
-| GDELT news | 900 detik (15 menit) | `NEWS_CACHE_TTL_SECONDS` |
 
 ---
 
@@ -413,4 +410,3 @@ Yang ada hanya:
 - Rekam jejak prediksi di tabel `analyzed_events` (tanpa eksekusi bet nyata)
 
 ---
-

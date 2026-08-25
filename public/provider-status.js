@@ -2,7 +2,7 @@
 (function initEngineStatus() {
   const endpoint = "/api/engine-status";
   const pollMs = 8000;
-  const engineKeys = ["gamma", "clob", "ai-provider", "local", "binance", "gdelt"];
+  const engineKeys = ["gamma", "clob", "ai-provider", "local", "binance"];
   const validStates = new Set(["checking", "connected", "rate_limited", "degraded", "disconnected", "unconfigured"]);
   let pollPending = false;
   let hasSnapshot = false;
@@ -39,7 +39,6 @@
       "ai-provider": "AI PROVIDER",
       local: "LOCAL",
       binance: "BINANCE",
-      gdelt: "GDELT",
     };
     item.replaceChildren();
     const dot = document.createElement("span");

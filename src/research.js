@@ -638,60 +638,6 @@ function newsQueryFor(uniqueAssets, text) {
   return [...new Set(terms)].slice(0, 8).join(" ");
 }
 
-async function fetchGdeltNews({ uniqueAssets, text, signal = null }) {
-  throwIfAborted(signal);
-  const query = newsQueryFor(uniqueAssets, text);
-  if (!query) {
-    return {
-      provider: "GDELT 2.1 DOC",
-      status: "skipped",
-      query: "",
-      articles: [],
-    };
-  }
-
-  const url = new URL(config.gdeltDocUrl);
-  url.searchParams.set("query", query);
-  url.searchParams.set("mode", "ArtList");
-  url.searchParams.set("format", "json");
-  url.searchParams.set("maxrecords", "5");
-  url.searchParams.set("sort", "HybridRel");
-
-  let json = null;
-  let errorMsg = null;
-  try {
-    json = await fetchJson(url.toString(), config.newsCacheTtlSeconds, signal);
-  } catch (error) {
-    if (signal?.aborted) throw error;
-    errorMsg = error.message;
-  }
-
-  const rows = Array.isArray(json?.articles) ? json.articles : [];
-
-  return {
-    provider: "GDELT 2.1 DOC",
-    status: errorMsg ? "error" : rows.length ? "ok" : "empty",
-    error: errorMsg,
-    query,
-    articles: rows.slice(0, 5).map((row) => ({
-      title: row.title || null,
-      domain: row.domain || null,
-      source_country: row.sourceCountry || null,
-      language: row.language || null,
-      seen_date: row.seendate || null,
-      url: row.url || null,
-    })),
-  };
-}
-
-function newsSummary(news) {
-  if (!news || news.status !== "ok") return "n/a";
-  return (news.articles || [])
-    .slice(0, 3)
-    .map((article) => `${article.title || "Untitled"} (${article.domain || "unknown"})`)
-    .join("; ");
-}
-
 async function fetchBinancePair(asset, signal = null) {
   throwIfAborted(signal);
   if (!asset.pair) {
@@ -880,16 +826,14 @@ export async function buildResearchContext({ market, event, markets, signal = nu
 
   // If no crypto assets, we do a "general" news-only research context
   if (!detectedAssets.length) {
-    const newsResult = await fetchGdeltNews({ uniqueAssets: [], text, signal });
     const premiumSnippets = await fetchPremiumNews(newsQueryFor([], text), signal);
     const premiumNewsText = premiumSnippets.length ? premiumSnippets.join("; ") : "";
-    const finalNewsSummary = [newsSummary(newsResult), premiumNewsText ? `PREMIUM NEWS: ${premiumNewsText}` : ""].filter(Boolean).join(" | ");
+    const finalNewsSummary = premiumNewsText ? `PREMIUM NEWS: ${premiumNewsText}` : "n/a";
     
     return {
       type: "general",
-      status: newsResult.status === "ok" ? "ok" : "partial",
-      provider: "GDELT 2.1 DOC + DDG Premium News",
-      gdeltSourceUrl: config.gdeltDocUrl,
+      status: premiumSnippets.length ? "ok" : "partial",
+      provider: "DDG Premium News",
       fetchedAt: new Date().toISOString(),
       detectedAssets: [],
       summary: "Non-crypto event. No market data available.",
@@ -899,12 +843,10 @@ export async function buildResearchContext({ market, event, markets, signal = nu
       pairs: [],
       sentiment: null,
       defi: null,
-      news: newsResult,
       forexFactory: forexFactoryNews,
-      errors: newsResult.status === "error" ? [errorMessage(newsResult.error)] : [],
+      errors: [],
       limitations: [
         "Event ini tidak terdeteksi sebagai event Crypto. Analisis menggunakan keyword general.",
-        "Data hanya berisi berita dari GDELT berdasarkan judul event/market.",
         "Berita headline adalah sinyal kasar dan butuh verifikasi manual.",
       ],
     };
@@ -937,10 +879,9 @@ export async function buildResearchContext({ market, event, markets, signal = nu
   );
   throwIfAborted(signal);
   const okCount = pairs.filter((pair) => pair.status === "ok").length;
-  const [sentimentResult, defiResult, newsResult, premiumSnippetsResult] = await Promise.allSettled([
+  const [sentimentResult, defiResult, premiumSnippetsResult] = await Promise.allSettled([
     fetchFearGreed(signal),
     buildDefiLlamaContext(uniqueAssets, signal),
-    fetchGdeltNews({ uniqueAssets, text, signal }),
     fetchPremiumNews(newsQueryFor(uniqueAssets, text), signal),
   ]);
   throwIfAborted(signal);
@@ -950,13 +891,12 @@ export async function buildResearchContext({ market, event, markets, signal = nu
     providerError("Alternative.me Fear & Greed", sentimentResult.reason)
   );
   const defi = unwrapResult(defiResult, providerError("DefiLlama", defiResult.reason));
-  const news = unwrapResult(newsResult, providerError("GDELT 2.1 DOC", newsResult.reason));
   
   const pSnippets = premiumSnippetsResult.status === "fulfilled" ? premiumSnippetsResult.value : [];
   const premiumNewsText = pSnippets.length ? pSnippets.join("; ") : "";
-  const finalNewsSummary = [newsSummary(news), premiumNewsText ? `PREMIUM NEWS: ${premiumNewsText}` : ""].filter(Boolean).join(" | ");
+  const finalNewsSummary = premiumNewsText ? `PREMIUM NEWS: ${premiumNewsText}` : "n/a";
 
-  const extraOk = [sentiment, defi, news].some(
+  const extraOk = [sentiment, defi].some(
     (item) => item?.status === "ok" || item?.status === "partial"
   );
   const status =
@@ -969,12 +909,11 @@ export async function buildResearchContext({ market, event, markets, signal = nu
   return {
     type: "crypto",
     status,
-    provider: "Binance + DefiLlama + Alternative.me + GDELT",
+    provider: "Binance + DefiLlama + Alternative.me",
     sourceBaseUrl: config.binanceBaseUrl,
     futuresSourceBaseUrl: config.binanceFuturesBaseUrl,
     defiLlamaSourceBaseUrl: config.defillamaBaseUrl,
     fearGreedSourceUrl: config.fearGreedUrl,
-    gdeltSourceUrl: config.gdeltDocUrl,
     fetchedAt: new Date().toISOString(),
     detectedAssets,
     summary: researchSummary(pairs),
@@ -984,13 +923,12 @@ export async function buildResearchContext({ market, event, markets, signal = nu
     pairs,
     sentiment,
     defi,
-    news,
     forexFactory: forexFactoryNews,
     errors: pairs
       .filter((pair) => pair.status === "error")
       .map((pair) => `${pair.symbol}: ${pair.error || "unknown error"}`)
       .concat(
-        [sentiment, defi, news]
+        [sentiment, defi]
           .filter((item) => item?.status === "error")
           .map((item) => `${item.provider}: ${item.error || "unknown error"}`)
       ),
@@ -1000,7 +938,6 @@ export async function buildResearchContext({ market, event, markets, signal = nu
       "Futures data mencakup funding rate dan open interest jika pair tersedia di Binance USD-M Futures.",
       "DefiLlama menambah konteks TVL, protocol, dan stablecoin jika asset relevan.",
       "Alternative.me Fear & Greed adalah sentiment market-wide, bukan sentiment khusus satu coin.",
-      "GDELT headline adalah sinyal catalyst/news kasar dan perlu verifikasi manual sebelum dipakai entry.",
       "Data ini belum mencakup liquidation, ETF flow detail, wallet/whale flow, atau social sentiment premium.",
     ],
   };

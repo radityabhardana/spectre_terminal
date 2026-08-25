@@ -13,7 +13,6 @@ const ENGINES = Object.freeze([
   { id: "qwen", name: "qwen", label: "Qwen" },
   { id: "local", name: "local", label: "Local" },
   { id: "binance", name: "binance", label: "Binance" },
-  { id: "gdelt", name: "gdelt", label: "GDELT" },
 ]);
 
 function configuredBaseUrl(value) {

@@ -27,7 +27,6 @@ function installResearchFetchStub() {
     const url = String(input);
 
     if (url.includes("ff_calendar_thisweek")) return jsonResponse([]);
-    if (url.includes("api.gdeltproject.org")) return jsonResponse({ articles: [] });
     if (url.includes("html.duckduckgo.com")) return new Response("");
     if (url.includes("api.alternative.me")) return jsonResponse({ data: [] });
     if (url.includes("/api/v3/ticker/24hr")) {

@@ -212,9 +212,9 @@ Untuk market umum, baseline mechanical fair probability berasal dari market midp
 
 ### Research context
 
-Crypto context dapat mencakup Binance spot/futures, candles, funding, open interest, long/short ratio, Fear & Greed, DeFiLlama, GDELT, dan search snippets.
+Crypto context dapat mencakup Binance spot/futures, candles, funding, open interest, long/short ratio, Fear & Greed, DeFiLlama, dan search snippets.
 
-General context menggunakan Forex Factory, GDELT, dan DuckDuckGo snippets. Sistem tidak membaca artikel berbayar atau bypass paywall.
+General context menggunakan Forex Factory dan DuckDuckGo snippets. Sistem tidak membaca artikel berbayar atau bypass paywall.
 
 ### AI multi-role
 

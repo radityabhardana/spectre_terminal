@@ -18,6 +18,18 @@ const DURATION_MS = {
 const CHAINLINK_MAX_AGE_MS = 15_000;
 const MIN_DIRECTIONAL_PROBABILITY = 55;
 const MIN_NET_EV_CENTS = 5;
+// Volatility inputs must come from recent, contiguous closed candles. A newest
+// closed candle older than one interval means the feed stopped updating; past
+// three intervals the sample cannot represent current regime at all.
+const CANDLE_SOFT_STALE_INTERVALS = 1;
+const CANDLE_HARD_STALE_INTERVALS = 3;
+// Conservative inflation applied to sigma when inputs are degraded: Binance
+// futures candles are not the settlement oracle's spot/TWAP dynamics, and
+// stale/gapped series understate short-horizon uncertainty.
+const BINANCE_FALLBACK_VOLATILITY_INFLATION = 1.25;
+const STALE_CANDLES_VOLATILITY_INFLATION = 1.25;
+const GAPPED_CANDLES_VOLATILITY_INFLATION = 1.2;
+const MAX_VOLATILITY_INFLATION = 2;
 const openingPriceCache = new Map();
 const technicalDataCache = new Map();
 // Brownian high-low range is about 1.596 standard deviations on average.
@@ -27,6 +39,49 @@ function finiteNumber(value) {
   if (value == null || (typeof value === "string" && !value.trim())) return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Pure cadence/freshness assessment for a closed-candle series.
+ * `candleTimesMs` are open times in ms; a candle closes at time + intervalMs.
+ */
+export function assessVolatilityCadence({ candleTimesMs, intervalMs, nowMs }) {
+  const interval = finiteNumber(intervalMs);
+  const now = finiteNumber(nowMs);
+  const times = (Array.isArray(candleTimesMs) ? candleTimesMs : [])
+    .map((value) => finiteNumber(value))
+    .filter((value) => value != null && value > 0)
+    .sort((a, b) => a - b);
+  if (interval == null || interval <= 0 || now == null) {
+    return { usable: false, inflationFactor: null, newestCloseAgeMs: null, gapCount: null, duplicateCount: null };
+  }
+  let duplicateCount = 0;
+  const unique = [];
+  for (const time of times) {
+    if (unique.at(-1) === time) duplicateCount += 1;
+    else unique.push(time);
+  }
+  let gapCount = 0;
+  for (let index = 1; index < unique.length; index++) {
+    const gapMs = unique[index] - unique[index - 1];
+    if (gapMs !== interval) gapCount += Math.max(1, Math.round(gapMs / interval) - 1);
+  }
+  const newestCloseAgeMs = unique.length
+    ? Math.max(0, now - (unique.at(-1) + interval))
+    : null;
+  const enoughUniqueCandles = unique.length >= 35;
+  const usable = enoughUniqueCandles
+    && newestCloseAgeMs != null
+    && newestCloseAgeMs <= interval * CANDLE_HARD_STALE_INTERVALS;
+  let inflationFactor = 1;
+  if (!usable) {
+    inflationFactor = null;
+  } else {
+    if (newestCloseAgeMs > interval * CANDLE_SOFT_STALE_INTERVALS) inflationFactor *= STALE_CANDLES_VOLATILITY_INFLATION;
+    if (gapCount > 0 || duplicateCount > 0) inflationFactor *= GAPPED_CANDLES_VOLATILITY_INFLATION;
+    inflationFactor = Number(Math.min(inflationFactor, MAX_VOLATILITY_INFLATION).toFixed(4));
+  }
+  return Object.freeze({ usable, inflationFactor, newestCloseAgeMs, gapCount, duplicateCount });
 }
 
 function standardNormalCdf(z) {
@@ -43,6 +98,7 @@ export function estimateTerminalUpProbability({
   atr,
   intervalVolatility,
   atrIntervalMs,
+  volatilityInflationFactor,
 }) {
   const current = finiteNumber(currentPrice);
   const opening = finiteNumber(priceToBeat);
@@ -58,8 +114,16 @@ export function estimateTerminalUpProbability({
   if (current == null || current <= 0 || opening == null || opening <= 0 || remaining == null || remaining <= 0 || volatility == null || volatility <= 0 || interval == null || interval <= 0) {
     return null;
   }
+  // Degraded inputs (Binance futures fallback, stale/gapped candles) widen the
+  // assumed sigma so probabilities shrink toward 50 instead of manufacturing
+  // false directional confidence.
+  const inflationRaw = finiteNumber(volatilityInflationFactor);
+  const inflation = inflationRaw != null && inflationRaw >= 1
+    ? Math.min(inflationRaw, MAX_VOLATILITY_INFLATION)
+    : 1;
+  const adjustedVolatility = volatility * inflation;
 
-  const terminalVolatility = volatility * Math.sqrt(remaining / interval);
+  const terminalVolatility = adjustedVolatility * Math.sqrt(remaining / interval);
   const probability = standardNormalCdf((current - opening) / terminalVolatility) * 100;
   return Math.max(0, Math.min(100, probability));
 }
@@ -124,6 +188,7 @@ export function evaluateDeterministicShortSnapshot({
   atr,
   intervalVolatility,
   atrIntervalMs,
+  volatilityInflationFactor,
   upAsk,
   downAsk,
   marketActive = true,
@@ -145,6 +210,7 @@ export function evaluateDeterministicShortSnapshot({
     atr,
     intervalVolatility,
     atrIntervalMs,
+    volatilityInflationFactor,
   });
   const selection = selectShortMarketSide({
     upProbability: probability,
@@ -176,11 +242,22 @@ export function evaluateDeterministicShortSnapshot({
   }
   const measuredVolatility = finiteNumber(intervalVolatility);
   const fallbackAtr = finiteNumber(atr);
-  if (((measuredVolatility == null || measuredVolatility <= 0)
-    && (fallbackAtr == null || fallbackAtr <= 0))
+  const hasVolatilityInput = (measuredVolatility != null && measuredVolatility > 0)
+    || (fallbackAtr != null && fallbackAtr > 0);
+  if (!hasVolatilityInput
     || finiteNumber(atrIntervalMs) == null
     || Number(atrIntervalMs) <= 0) {
     blockers.push("[DATA GUARDRAIL] Interval volatility is unavailable or invalid.");
+  }
+  const normalizedInflationFactor = finiteNumber(volatilityInflationFactor);
+  if (normalizedInflationFactor == null
+    || normalizedInflationFactor < 1
+    || normalizedInflationFactor > MAX_VOLATILITY_INFLATION) {
+    blockers.push("[DATA GUARDRAIL] Volatility cadence inflation factor is missing or invalid.");
+  }
+  if (volatilityInflationFactor === null) {
+    // Explicit rejection from cadence assessment (stale/gapped series);
+    blockers.push("[DATA GUARDRAIL] Closed-candle series is stale or gapped beyond volatility reliability limits.");
   }
 
   const upFair = probability;
@@ -266,6 +343,17 @@ function parseTimestamp(value) {
   if (!Number.isFinite(timestamp)) return null;
   const iso = new Date(timestamp).toISOString();
   return value === iso || `${value.slice(0, -1)}.000Z` === iso ? timestamp : null;
+}
+
+function deduplicateChronologicalCandles(candles, timeSelector) {
+  const unique = new Map();
+  for (const candle of Array.isArray(candles) ? candles : []) {
+    const time = finiteNumber(timeSelector(candle));
+    if (time != null && time > 0) unique.set(time, candle);
+  }
+  return [...unique.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, candle]) => candle);
 }
 
 export function chainlinkSourceSpec(value, asset) {
@@ -543,17 +631,34 @@ export async function fetchChainlinkTechData(asset, durationType, signal = null)
     throw error;
   }
   const cacheKey = `${asset}:${durationType}`;
+  const nowMs = Date.now();
   const cached = technicalDataCache.get(cacheKey);
-  if (cached && Date.now() - cached.savedAt < 30_000) return cached.value;
+  if (cached && nowMs - cached.savedAt < 30_000) {
+    const cadence = assessVolatilityCadence({
+      candleTimesMs: cached.candleTimesMs,
+      intervalMs: cached.intervalMs,
+      nowMs,
+    });
+    return {
+      ...cached.value,
+      volatilityInflationFactor: cadence.inflationFactor ?? null,
+      cadence,
+    };
+  }
   try {
     const interval = DURATION_MS[durationType] ? durationType : "5m";
     const latest = await fetchChainlinkCandlePage(asset, interval, null, signal);
     if (!latest.length) throw new Error("No Chainlink candles");
     const earliestMs = Number(latest[0].time) * 1000;
     const previous = await fetchChainlinkCandlePage(asset, interval, earliestMs - 1, signal);
-    const unique = new Map([...previous, ...latest].map((candle) => [Number(candle.time), candle]));
     const intervalMs = DURATION_MS[interval] || DURATION_MS["5m"];
-    const closed = [...unique.values()].filter((candle) => Number(candle.time) * 1000 + intervalMs <= Date.now());
+    const unique = deduplicateChronologicalCandles([...previous, ...latest], (candle) => Number(candle.time));
+    const closed = unique.filter((candle) => Number(candle.time) * 1000 + intervalMs <= nowMs);
+    const cadence = assessVolatilityCadence({
+      candleTimesMs: closed.map((candle) => Number(candle.time) * 1000),
+      intervalMs,
+      nowMs,
+    });
     const indicators = calculateTechnicalIndicators(closed.map((candle) => ({
       ...candle,
       time: Number(candle.time) * 1000,
@@ -568,9 +673,16 @@ export async function fetchChainlinkTechData(asset, durationType, signal = null)
       high24h: null,
       low24h: null,
       volume24h: null,
+      volatilityInflationFactor: cadence.inflationFactor ?? null,
+      cadence,
       ...indicators,
     };
-    technicalDataCache.set(cacheKey, { savedAt: Date.now(), value: result });
+    technicalDataCache.set(cacheKey, {
+      savedAt: nowMs,
+      value: result,
+      candleTimesMs: closed.map((candle) => Number(candle.time) * 1000),
+      intervalMs,
+    });
     return result;
   } catch (error) {
     if (signal?.aborted) throw error;
@@ -593,10 +705,22 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5, sig
     if (!klineRes.ok || !tickerRes.ok) throw new Error("Binance kline/ticker error");
     const rawKlines = await klineRes.json();
     const ticker = await tickerRes.json();
-    const klines = Array.isArray(rawKlines)
+    const closedKlines = Array.isArray(rawKlines)
       ? rawKlines.filter((kline) => Number(kline?.[6]) <= Date.now())
       : [];
-    if (klines.length < 35) throw new Error("Not enough closed Binance candles");
+    const klines = deduplicateChronologicalCandles(closedKlines, (kline) => Number(kline?.[0]));
+    if (klines.length < 35) throw new Error("Not enough unique closed Binance candles");
+    const cadence = assessVolatilityCadence({
+      candleTimesMs: klines.map((kline) => Number(kline[0])),
+      intervalMs: DURATION_MS[interval],
+      nowMs: Date.now(),
+    });
+    const volatilityInflationFactor = cadence.inflationFactor == null
+      ? null
+      : Number(Math.min(
+        cadence.inflationFactor * BINANCE_FALLBACK_VOLATILITY_INFLATION,
+        MAX_VOLATILITY_INFLATION,
+      ).toFixed(4));
 
     const indicators = calculateTechnicalIndicators(klines.map((kline) => ({
       time: Number(kline[0]),
@@ -614,6 +738,8 @@ async function fetchBinanceTechData(symbol = "BTCUSDT", intervalMinutes = 5, sig
       high24h:        parseFloat(ticker.highPrice).toFixed(2),
       low24h:         parseFloat(ticker.lowPrice).toFixed(2),
       volume24h:      parseFloat(ticker.volume).toFixed(2),
+      volatilityInflationFactor,
+      cadence,
       ...indicators,
     };
   } catch (err) {
@@ -924,6 +1050,7 @@ export async function evaluateShortMarketCondition({
     atr: tickerData?.atr14,
     intervalVolatility: tickerData?.intervalVolatility,
     atrIntervalMs: durationMs,
+    volatilityInflationFactor: tickerData?.volatilityInflationFactor,
     upAsk: marketPrices?.upAsk,
     downAsk: marketPrices?.downAsk,
     marketActive: marketPrices?.marketActive ?? marketActive,
@@ -1055,6 +1182,8 @@ export async function evaluateShortMarketCondition({
     atr: finiteNumber(tickerData?.atr14),
     intervalVolatility: finiteNumber(tickerData?.intervalVolatility),
     atrIntervalMs: durationMs,
+    volatilityInflationFactor: tickerData?.volatilityInflationFactor ?? null,
+    volatilityCadence: tickerData?.cadence || null,
     upProbability: finalDecision.primary_outcome_probability,
     downProbability: finalDecision.primary_outcome_probability == null ? null : Number((100 - finalDecision.primary_outcome_probability).toFixed(2)),
     upAsk: finalMarketPrices.upAsk,

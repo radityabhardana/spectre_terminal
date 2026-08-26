@@ -7,11 +7,14 @@ import { entryPricingForPrediction, entrySnapshotFromShortResult, qwenResultFrom
 import { formatAnalysis } from "../src/format.js";
 import { normalizeShortAnalysis, parseOpenAiResponse, requestAiText } from "../src/qwen.js";
 import {
+  assessVolatilityCadence,
   calculateTechnicalIndicators,
   chainlinkSourceSpec,
   chainlinkVariant,
   estimateTerminalUpProbability,
   evaluateDeterministicShortSnapshot,
+  evaluateShortMarketCondition,
+  fetchChainlinkTechData,
   selectShortMarketSide,
   snapshotChanged,
 } from "../src/short_condition.js";
@@ -42,6 +45,98 @@ test("terminal UP probability is symmetric and monotonic around Price to Beat", 
   }
   const ordered = [49_500, 49_900, 50_000, 50_100, 50_500].map(probability);
   assert.deepEqual(ordered, [...ordered].sort((a, b) => a - b));
+});
+
+test("candle cadence detects stale and gapped volatility inputs", () => {
+  const intervalMs = 5 * 60 * 1000;
+  const nowMs = Date.UTC(2026, 6, 28, 12, 0, 0);
+  const contiguous = Array.from({ length: 40 }, (_, index) => nowMs - (40 - index) * intervalMs);
+
+  const fresh = assessVolatilityCadence({ candleTimesMs: contiguous, intervalMs, nowMs });
+  assert.equal(fresh.usable, true);
+  assert.equal(fresh.gapCount, 0);
+  assert.equal(fresh.inflationFactor, 1);
+
+  const softStale = assessVolatilityCadence({
+    candleTimesMs: contiguous.map((time) => time - (2 * intervalMs)),
+    intervalMs,
+    nowMs,
+  });
+  assert.equal(softStale.usable, true);
+  assert.equal(softStale.inflationFactor, 1.25);
+
+  const gapped = assessVolatilityCadence({
+    candleTimesMs: contiguous.filter((_, index) => index !== 20),
+    intervalMs,
+    nowMs,
+  });
+  assert.equal(gapped.usable, true);
+  assert.equal(gapped.gapCount, 1);
+  assert.equal(gapped.inflationFactor, 1.2);
+
+  const hardStale = assessVolatilityCadence({
+    candleTimesMs: contiguous.map((time) => time - (4 * intervalMs)),
+    intervalMs,
+    nowMs,
+  });
+  assert.equal(hardStale.usable, false);
+  assert.equal(hardStale.inflationFactor, null);
+});
+
+test("candle cadence requires 35 unique timestamps, not merely 35 rows", () => {
+  const intervalMs = 5 * 60 * 1000;
+  const nowMs = Date.UTC(2026, 6, 28, 12, 0, 0);
+  const contiguous = Array.from({ length: 34 }, (_, index) => nowMs - (34 - index) * intervalMs);
+  const duplicateHeavy = contiguous.flatMap((time) => [time, time]);
+
+  const result = assessVolatilityCadence({ candleTimesMs: duplicateHeavy, intervalMs, nowMs });
+  assert.equal(result.usable, false);
+  assert.equal(result.inflationFactor, null);
+  assert.equal(result.duplicateCount, 34);
+});
+
+test("cached Chainlink cadence is reassessed when it crosses the hard-stale boundary", async (t) => {
+  const intervalMs = 5 * 60 * 1000;
+  const initialNowMs = Date.UTC(2026, 6, 28, 12, 0, 0);
+  const newestOpenMs = initialNowMs - (4 * intervalMs) + 1_000;
+  const candles = Array.from({ length: 40 }, (_, index) => ({
+    time: String((newestOpenMs - (39 - index) * intervalMs) / 1000),
+    open: 100 + index,
+    high: 102 + index,
+    low: 99 + index,
+    close: 101 + index,
+  }));
+  let nowMs = initialNowMs;
+  let fetchCount = 0;
+  t.mock.method(Date, "now", () => nowMs);
+  t.mock.method(globalThis, "fetch", async (input) => {
+    fetchCount += 1;
+    const payload = String(input).includes("endTime") ? { candles: [] } : { candles };
+    return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const fresh = await fetchChainlinkTechData("ETH", "5m");
+  assert.equal(fresh.cadence.usable, true);
+  assert.equal(fresh.volatilityInflationFactor, 1.25);
+
+  nowMs += 2_000;
+  const stale = await fetchChainlinkTechData("ETH", "5m");
+  assert.equal(stale.cadence.usable, false);
+  assert.equal(stale.volatilityInflationFactor, null);
+  assert.equal(fetchCount, 2);
+});
+
+test("volatility inflation shrinks terminal probability toward neutral", () => {
+  const input = {
+    currentPrice: 50_100,
+    priceToBeat: 50_000,
+    remainingMs: 300_000,
+    atr: 500,
+    atrIntervalMs: 300_000,
+  };
+  const baseline = estimateTerminalUpProbability(input);
+  const conservative = estimateTerminalUpProbability({ ...input, volatilityInflationFactor: 1.25 });
+  assert.ok(Math.abs(conservative - 50) < Math.abs(baseline - 50));
 });
 
 test("short side selection uses each executable ask and chooses the best qualifying EV", () => {
@@ -420,6 +515,7 @@ test("stale, missing-book, and overprice blockers neutralize short trades but re
     atrIntervalMs: 300_000,
     upAsk: 0.6,
     downAsk: 0.3,
+    volatilityInflationFactor: 1,
     maxPrice: 0.7,
     feeBufferCents: 4,
     minSecondsToClose: 30,
@@ -427,6 +523,13 @@ test("stale, missing-book, and overprice blockers neutralize short trades but re
   const valid = evaluateDeterministicShortSnapshot(input);
   assert.equal(valid.recommendation, "PLAY");
   assert.equal(valid.direction, "UP");
+
+  const staleCandles = evaluateDeterministicShortSnapshot({
+    ...input,
+    volatilityInflationFactor: null,
+  });
+  assert.equal(staleCandles.recommendation, "AVOID");
+  assert.ok(staleCandles.guardrail_blockers.some((blocker) => blocker.includes("Closed-candle series")));
 
   const stale = evaluateDeterministicShortSnapshot({
     ...input,
@@ -455,6 +558,51 @@ test("stale, missing-book, and overprice blockers neutralize short trades but re
   const closed = evaluateDeterministicShortSnapshot({ ...input, marketClosed: true });
   assert.equal(closed.direction, "NEUTRAL");
   assert.ok(closed.guardrail_blockers.some((blocker) => blocker.includes("MARKET GUARDRAIL")));
+});
+
+test("missing and invalid cadence inflation factors fail the deterministic evaluator closed", () => {
+  const nowMs = Date.UTC(2026, 6, 28, 12, 0, 0);
+  const input = {
+    currentPrice: 101,
+    priceToBeat: 100,
+    oraclePublishTime: new Date(nowMs - 1_000).toISOString(),
+    oracleSourceVerified: true,
+    startTimeMs: nowMs - 200_000,
+    endTimeMs: nowMs + 100_000,
+    nowMs,
+    atr: 1,
+    atrIntervalMs: 300_000,
+    upAsk: 0.6,
+    downAsk: 0.3,
+    maxPrice: 0.7,
+    feeBufferCents: 4,
+    minSecondsToClose: 30,
+  };
+
+  for (const factor of [undefined, null, Number.NaN, 0, 0.99, 2.01]) {
+    const result = evaluateDeterministicShortSnapshot({ ...input, volatilityInflationFactor: factor });
+    assert.equal(result.recommendation, "AVOID", `factor ${String(factor)} must fail closed`);
+    assert.ok(result.guardrail_blockers.some((blocker) => blocker.includes("inflation factor")));
+  }
+});
+
+test("active short evaluation fails closed when technical data has no cadence factor", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => new Response(null, { status: 503 }));
+
+  const result = await evaluateShortMarketCondition({
+    marketId: "missing-cadence-factor",
+    asset: "BTC",
+    durationType: "5m",
+    upTokenAsk: 0.6,
+    downTokenAsk: 0.3,
+    includeAiExplanation: false,
+    refreshFinalSnapshot: false,
+    collectorContext: {},
+    nowMs: Date.UTC(2026, 6, 28, 12, 0, 0),
+  });
+
+  assert.equal(result.evaluation.recommendation, "AVOID");
+  assert.ok(result.evaluation.guardrail_blockers.some((blocker) => blocker.includes("inflation factor")));
 });
 
 test("PLAY statistics include all strategies but exclude non-actionable, neutral, and unresolved records", () => {

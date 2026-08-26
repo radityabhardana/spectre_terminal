@@ -73,7 +73,7 @@ function mockShortRefreshNetwork(t, { marketId, refreshOverrides, finalClobFailu
   const endDate = new Date(Date.now() + 2 * 60 * 1000).toISOString();
   const startDate = new Date(Date.now() - 3 * 60 * 1000).toISOString();
   const candles = Array.from({ length: 40 }, (_, index) => ({
-    time: Math.floor((Date.now() - (80 - index) * 5 * 60 * 1000) / 1000),
+    time: Math.floor((Date.now() - (40 - index) * 5 * 60 * 1000) / 1000),
     open: 100 + index * 0.1,
     high: 101 + index * 0.1,
     low: 99 + index * 0.1,

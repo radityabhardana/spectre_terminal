@@ -82,6 +82,7 @@ const V3_TABLES = Object.freeze([
   "short_observation_runs",
 ]);
 const V4_TABLES = Object.freeze(["short_market_registry", "short_market_tokens", "short_market_evidence"]);
+const V5_TABLES = Object.freeze([...V4_TABLES, "short_calibration_forecasts"]);
 const V4_COLUMN_CONTRACTS = Object.freeze({
   short_market_registry: [
     ["market_id", "TEXT", 1, null, 1], ["event_id", "TEXT", 1, null, 0], ["condition_id", "TEXT", 1, null, 0],
@@ -571,9 +572,9 @@ test("populated v3 migrates additively with byte-identical v3 data and sqlite_ma
     });
 
     assert.equal(result.fromVersion, 3);
-    assert.equal(result.toVersion, 4);
+    assert.equal(result.toVersion, SCHEMA_VERSION);
     assert.ok(result.backupPath);
-    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: 4 });
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: SCHEMA_VERSION });
     assert.deepEqual(v3MasterSnapshot(fixture.db), masterBefore);
     assert.deepEqual(v3DataSnapshot(fixture.db), dataBefore);
     const snapshotAfter = fixture.db.prepare("SELECT id, payload, audit_payload_hash FROM short_evaluation_snapshots WHERE id = 73").get();
@@ -585,7 +586,7 @@ test("populated v3 migrates additively with byte-identical v3 data and sqlite_ma
       dataBefore.short_observation_runs.map(({ run_id, status, next_sequence, next_scheduled_at, lease_token, lease_owner, lease_expires_at }) => ({ run_id, status, next_sequence, next_scheduled_at, lease_token, lease_owner, lease_expires_at }))[0],
     );
     const tablesAfter = new Set(fixture.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all().map((row) => row.name));
-    assert.deepEqual([...tablesAfter].filter((table) => !tablesBefore.has(table)).sort(), [...V4_TABLES].sort());
+    assert.deepEqual([...tablesAfter].filter((table) => !tablesBefore.has(table)).sort(), [...V5_TABLES].sort());
     assert.equal(fixture.db.pragma("integrity_check", { simple: true }), "ok");
     assert.deepEqual(fixture.db.prepare("PRAGMA foreign_key_check").all(), []);
   } finally {
@@ -664,7 +665,7 @@ test("v4 tables enforce identity, token, evidence, FK, and immutability contract
     }
     assert.equal(fixture.db.pragma("integrity_check", { simple: true }), "ok");
     assert.deepEqual(fixture.db.prepare("PRAGMA foreign_key_check").all(), []);
-    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: 4 });
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: SCHEMA_VERSION });
   } finally {
     fixture.db.close();
     rmSync(fixture.directory, { recursive: true, force: true });
@@ -728,7 +729,7 @@ test("BEFORE INSERT guards block INSERT OR REPLACE with recursive triggers disab
     assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM short_market_tokens WHERE token_id = 'rowid-replacement-token'").get().count, 0);
     assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM short_market_tokens WHERE market_id = 'second-market' AND token_id = 'normal-fresh-token'").get().count, 1);
     assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM short_market_evidence WHERE id = 999501").get().count, 0);
-    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: 4 });
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: SCHEMA_VERSION });
   } finally {
     fixture.db.close();
     rmSync(fixture.directory, { recursive: true, force: true });
@@ -764,7 +765,7 @@ test("schema rejects malformed terminal resolution evidence and nonterminal RESO
     assert.throws(() => insert.run(...checkOnlyValues), /CHECK constraint failed/);
     fixture.db.exec(`${resolutionTriggerSql};`);
     assert.equal(insert.run(...base).changes, 1);
-    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: 4 });
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: SCHEMA_VERSION });
   } finally {
     fixture.db.close();
     rmSync(fixture.directory, { recursive: true, force: true });
@@ -796,7 +797,7 @@ test("v4 verification rejects new table, CHECK, unique/partial index, immutable 
       try {
         await migrateDatabase(fixture.db, { databasePath: fixture.databasePath });
         mutate(fixture.db);
-        assert.deepEqual(verifyDatabase(fixture.db), { ok: false, version: 4 });
+        assert.deepEqual(verifyDatabase(fixture.db), { ok: false, version: SCHEMA_VERSION });
         await assert.rejects(migrateDatabase(fixture.db, { databasePath: fixture.databasePath }), /schema verification failed/);
       } finally {
         fixture.db.close();
@@ -818,17 +819,17 @@ test("accepted pre-guard v4 receives backup-first insert guards without changing
       DROP TRIGGER trg_short_market_evidence_no_reinsert;
       DROP TRIGGER trg_short_market_evidence_resolution_contract;
     `);
-    assert.deepEqual(verifyDatabase(fixture.db), { ok: false, version: 4 });
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: false, version: SCHEMA_VERSION });
 
     const result = await migrateDatabase(fixture.db, {
       databasePath: fixture.databasePath,
       backupDirectory: path.join(fixture.directory, "guard-remediation-backups"),
       now: () => new Date("2026-08-25T15:00:00.000Z"),
     });
-    assert.deepEqual({ fromVersion: result.fromVersion, toVersion: result.toVersion, migrated: result.migrated }, { fromVersion: 4, toVersion: 4, migrated: true });
+    assert.deepEqual({ fromVersion: result.fromVersion, toVersion: result.toVersion, migrated: result.migrated }, { fromVersion: SCHEMA_VERSION, toVersion: SCHEMA_VERSION, migrated: true });
     assert.ok(result.backupPath);
-    assert.equal(fixture.db.pragma("user_version", { simple: true }), 4);
-    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: 4 });
+    assert.equal(fixture.db.pragma("user_version", { simple: true }), SCHEMA_VERSION);
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: SCHEMA_VERSION });
     for (const table of V4_TABLES) assert.deepEqual(fixture.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(), rowsBefore[table]);
   } finally {
     fixture.db.close();
@@ -848,16 +849,16 @@ test("accepted pre-rowid v4 guards receive backup-first exact rowid predicates w
       assert.notEqual(preRowidSql, currentSql);
       fixture.db.exec(`DROP TRIGGER ${triggerName}; ${preRowidSql};`);
     }
-    assert.deepEqual(verifyDatabase(fixture.db), { ok: false, version: 4 });
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: false, version: SCHEMA_VERSION });
 
     const result = await migrateDatabase(fixture.db, {
       databasePath: fixture.databasePath,
       backupDirectory: path.join(fixture.directory, "rowid-remediation-backups"),
       now: () => new Date("2026-08-25T15:15:00.000Z"),
     });
-    assert.deepEqual({ fromVersion: result.fromVersion, toVersion: result.toVersion, migrated: result.migrated }, { fromVersion: 4, toVersion: 4, migrated: true });
+    assert.deepEqual({ fromVersion: result.fromVersion, toVersion: result.toVersion, migrated: result.migrated }, { fromVersion: SCHEMA_VERSION, toVersion: SCHEMA_VERSION, migrated: true });
     assert.ok(result.backupPath);
-    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: 4 });
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: SCHEMA_VERSION });
     for (const table of V4_TABLES) assert.deepEqual(fixture.db.prepare(`SELECT rowid AS hidden_rowid, * FROM ${table} ORDER BY rowid`).all(), rowsBefore[table]);
     for (const triggerName of ["trg_short_market_registry_no_reinsert", "trg_short_market_tokens_no_reinsert"]) {
       assert.match(fixture.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(triggerName).sql, /rowid = NEW\.rowid/);
@@ -884,7 +885,7 @@ test("pre-CHECK v4 evidence rebuild preserves IDs and hashes while installing ex
     fixture.db.exec(`${resolutionTriggerSql};`);
     const rowsBefore = fixture.db.prepare("SELECT * FROM short_market_evidence ORDER BY id").all();
     const sequenceBefore = fixture.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'short_market_evidence'").get().seq;
-    assert.deepEqual(verifyDatabase(fixture.db), { ok: false, version: 4 });
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: false, version: SCHEMA_VERSION });
 
     const result = await migrateDatabase(fixture.db, {
       databasePath: fixture.databasePath,
@@ -893,7 +894,7 @@ test("pre-CHECK v4 evidence rebuild preserves IDs and hashes while installing ex
     });
     assert.equal(result.migrated, true);
     assert.ok(result.backupPath);
-    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: 4 });
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: SCHEMA_VERSION });
     assert.deepEqual(fixture.db.prepare("SELECT * FROM short_market_evidence ORDER BY id").all(), rowsBefore);
     assert.equal(fixture.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'short_market_evidence'").get().seq, sequenceBefore);
     assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'short_market_evidence_pre_gate_2'").get().count, 0);
@@ -932,7 +933,7 @@ test("verified backup can replace a migrated database and restore populated v3",
     assert.equal(db.pragma("integrity_check", { simple: true }), "ok");
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
     await migrateDatabase(db, { databasePath: fixture.databasePath });
-    assert.deepEqual(verifyDatabase(db), { ok: true, version: 4 });
+    assert.deepEqual(verifyDatabase(db), { ok: true, version: SCHEMA_VERSION });
   } finally {
     if (db.open) db.close();
     rmSync(fixture.directory, { recursive: true, force: true });
@@ -947,7 +948,7 @@ test("metadata-only v4 to v3 to v4 round trip preserves every v4 row and ID", as
     const rowsBefore = Object.fromEntries(V4_TABLES.map((table) => [table, fixture.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
     const v3MasterBefore = v3MasterSnapshot(fixture.db);
 
-    assert.deepEqual(rollbackSchemaV4MetadataOnly(fixture.db), { fromVersion: 4, toVersion: 3, rolledBack: true, metadataOnly: true });
+    assert.deepEqual(rollbackSchemaV4MetadataOnly(fixture.db), { fromVersion: SCHEMA_VERSION, toVersion: 3, rolledBack: true, metadataOnly: true });
     assert.deepEqual(verifyV3CompatibleDatabase(fixture.db), { ok: true, version: 3 });
     assert.deepEqual(verifyDatabase(fixture.db), { ok: false, version: 3 });
     assert.deepEqual(v3MasterSnapshot(fixture.db), v3MasterBefore);
@@ -958,8 +959,8 @@ test("metadata-only v4 to v3 to v4 round trip preserves every v4 row and ID", as
       backupDirectory: path.join(fixture.directory, "round-trip-backups"),
     });
     assert.equal(upgrade.fromVersion, 3);
-    assert.equal(upgrade.toVersion, 4);
-    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: 4 });
+    assert.equal(upgrade.toVersion, SCHEMA_VERSION);
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: SCHEMA_VERSION });
     for (const table of V4_TABLES) assert.deepEqual(fixture.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(), rowsBefore[table]);
     assert.equal(fixture.db.prepare("SELECT id FROM short_market_evidence").get().id, 501);
     assert.equal(fixture.db.pragma("integrity_check", { simple: true }), "ok");
@@ -976,7 +977,7 @@ test("metadata-only rollback fails closed on v4 drift without changing user_vers
     await migrateDatabase(fixture.db, { databasePath: fixture.databasePath });
     fixture.db.exec("DROP TRIGGER trg_short_market_registry_no_update");
     assert.throws(() => rollbackSchemaV4MetadataOnly(fixture.db), /rollback verification failed/);
-    assert.equal(fixture.db.pragma("user_version", { simple: true }), 4);
+    assert.equal(fixture.db.pragma("user_version", { simple: true }), SCHEMA_VERSION);
   } finally {
     fixture.db.close();
     rmSync(fixture.directory, { recursive: true, force: true });
@@ -995,6 +996,46 @@ test("re-upgrade fails closed instead of repairing drifted metadata-downgraded v
     );
     assert.equal(fixture.db.pragma("user_version", { simple: true }), 3);
     assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'index' AND name = 'idx_short_market_evidence_candidate_kind'").get().count, 0);
+  } finally {
+    fixture.db.close();
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("v4 to v5 migration preserves rows, is idempotent, and rejects v5 structure drift", async () => {
+  const fixture = tempDatabase();
+  try {
+    await migrateDatabase(fixture.db, { databasePath: fixture.databasePath });
+    fixture.db.exec(`
+      DROP TRIGGER trg_short_calibration_forecasts_no_update;
+      DROP TRIGGER trg_short_calibration_forecasts_no_delete;
+      DROP INDEX idx_short_calibration_forecasts_market_captured;
+      DROP INDEX idx_short_calibration_forecasts_model_version;
+      DROP TABLE short_calibration_forecasts;
+      PRAGMA user_version = 4;
+    `);
+    insertV4Rows(fixture.db);
+    const before = Object.fromEntries(V4_TABLES.map((table) => [table, fixture.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+
+    const migrated = await migrateDatabase(fixture.db, {
+      databasePath: fixture.databasePath,
+      backupDirectory: path.join(fixture.directory, "v5-backups"),
+      now: () => new Date("2028-01-01T00:00:00.000Z"),
+    });
+    assert.deepEqual({ fromVersion: migrated.fromVersion, toVersion: migrated.toVersion, migrated: migrated.migrated }, {
+      fromVersion: 4, toVersion: 5, migrated: true,
+    });
+    assert.ok(migrated.backupPath);
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: true, version: 5 });
+    for (const table of V4_TABLES) assert.deepEqual(fixture.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(), before[table]);
+
+    const rerun = await migrateDatabase(fixture.db, { databasePath: fixture.databasePath });
+    assert.deepEqual({ fromVersion: rerun.fromVersion, toVersion: rerun.toVersion, migrated: rerun.migrated, backupPath: rerun.backupPath }, {
+      fromVersion: 5, toVersion: 5, migrated: false, backupPath: null,
+    });
+    fixture.db.exec("DROP INDEX idx_short_calibration_forecasts_model_version");
+    assert.deepEqual(verifyDatabase(fixture.db), { ok: false, version: 5 });
+    await assert.rejects(migrateDatabase(fixture.db, { databasePath: fixture.databasePath }), /schema verification failed/);
   } finally {
     fixture.db.close();
     rmSync(fixture.directory, { recursive: true, force: true });

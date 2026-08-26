@@ -609,16 +609,16 @@ export function calculateTechnicalIndicators(candles) {
   };
 }
 
-async function fetchChainlinkCandlePage(asset, interval, endTime, signal) {
+export async function fetchChainlinkCandlePage(asset, interval, endTime, signal, { fetchImpl = globalThis.fetch, limit = 30 } = {}) {
   const url = new URL("https://polymarket.com/api/chainlink-candles");
   url.searchParams.set("symbol", asset);
   url.searchParams.set("interval", interval);
-  url.searchParams.set("limit", "30");
+  url.searchParams.set("limit", String(Number.isSafeInteger(limit) && limit > 0 ? limit : 30));
   if (endTime != null) url.searchParams.set("endTime", String(endTime));
   const requestSignal = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
     : AbortSignal.timeout(8000);
-  const response = await fetch(url, { signal: requestSignal });
+  const response = await fetchImpl(url, { signal: requestSignal });
   if (!response.ok) throw new Error(`Chainlink candles HTTP ${response.status}`);
   const payload = await response.json();
   return Array.isArray(payload?.candles) ? payload.candles : [];

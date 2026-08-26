@@ -10,6 +10,7 @@ import {
   SHORT_OBSERVE_DURATION_MS,
   SHORT_OBSERVE_SERIES_ID,
 } from "./short-observe-contract.js";
+import { STRICT_OBSERVE_CONTRACT_VERSION, STRICT_OBSERVE_MODEL_VERSION } from "./short-observe-audit.js";
 
 const db = new Database(databasePath);
 export { databasePath };
@@ -36,6 +37,21 @@ function readPayload(payload) {
   return { serialized, hash: auditPayloadHash(serialized) };
 }
 
+function readStrictCanonicalJson(value, field) {
+  const text = strictText(value, field);
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`${field} must be valid canonical JSON`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
+      || canonicalAuditPayload(parsed) !== text) {
+    throw new Error(`${field} must be canonical JSON`);
+  }
+  return { text, value: parsed };
+}
+
 const SHORT_MARKET_EVIDENCE_KINDS = new Set(["DISCOVERY", "BOUNDARY_TWAP", "ORDER_BOOK", "FEE_POLICY", "RESOLUTION"]);
 const SHORT_MARKET_EVIDENCE_SOURCES = new Set(["GAMMA", "RTDS", "CHAINLINK", "CHAINLINK_FALLBACK", "POLYMARKET_CLOB", "CLOB_MARKET_RESOLVED", "OBSERVER"]);
 const SHORT_MARKET_EVIDENCE_STATUSES = new Set(["OK", "DATA_GAP", "QUARANTINED", "UNRESOLVED", "RESOLVED"]);
@@ -46,6 +62,11 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const PLAIN_DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
 const MIN_MILLISECOND_TIMESTAMP = 1_000_000_000_000;
 const MAX_SHORT_MARKET_READ_LIMIT = 500;
+const SHORT_FORECAST_CONTENT_COLUMNS = Object.freeze([
+  "market_id", "evaluation_snapshot_id", "opening_evidence_id", "captured_timestamp_ms", "oracle_timestamp_ms",
+  "remaining_ms", "probability_up_ppm", "model_version", "feature_contract_version", "features_json", "features_hash",
+  "decision_json", "decision_hash", "idempotency_key", "created_at",
+]);
 
 function strictText(value, field) {
   if (typeof value !== "string" || value.length === 0 || value.trim() !== value) {
@@ -803,6 +824,372 @@ export function getShortEvaluationSnapshots({ marketId = null, marketQuestion = 
   } catch (error) { console.error("[Storage] getShortEvaluationSnapshots error:", error.message); return []; }
 }
 
+function prepareShortCalibrationForecast(input = {}, { allowMissingEvaluationSnapshot = false } = {}) {
+  const marketId = strictText(valueOf(input, "marketId", "market_id"), "marketId");
+  const evaluationSnapshotId = valueOf(input, "evaluationSnapshotId", "evaluation_snapshot_id")
+    ?? valueOf(input, "snapshotId", "snapshot_id");
+  if (allowMissingEvaluationSnapshot && evaluationSnapshotId == null) {
+    // The collector supplies the snapshot and forecast in one transaction.
+  } else if (!Number.isSafeInteger(evaluationSnapshotId) || evaluationSnapshotId <= 0) {
+    throw new Error("evaluationSnapshotId must be a positive integer");
+  }
+  const snapshotHashValue = valueOf(input, "snapshotHash", "snapshot_hash");
+  const snapshotHash = strictHash(snapshotHashValue, "snapshotHash", true);
+  const openingEvidenceHashValue = valueOf(input, "openingEvidenceHash", "opening_evidence_hash");
+  const openingEvidenceKindValue = valueOf(input, "openingEvidenceKind", "opening_evidence_kind");
+  if (openingEvidenceHashValue == null || openingEvidenceKindValue == null) {
+    throw new Error("openingEvidenceHash and openingEvidenceKind are required");
+  }
+  const openingEvidenceHash = strictHash(openingEvidenceHashValue, "openingEvidenceHash");
+  const openingEvidenceKind = strictText(openingEvidenceKindValue, "openingEvidenceKind");
+  const capturedTimestampMs = strictTimestampMs(
+    valueOf(input, "capturedTimestampMs", "captured_timestamp_ms"), "capturedTimestampMs",
+  );
+  const oracleTimestampMs = strictTimestampMs(
+    valueOf(input, "oracleTimestampMs", "oracle_timestamp_ms"), "oracleTimestampMs",
+  );
+  const remainingMs = valueOf(input, "remainingMs", "remaining_ms");
+  if (!Number.isSafeInteger(remainingMs) || remainingMs <= 0) throw new Error("remainingMs must be a positive integer");
+  const probabilityUpPpm = valueOf(input, "probabilityUpPpm", "probability_up_ppm");
+  if (!Number.isSafeInteger(probabilityUpPpm) || probabilityUpPpm < 0 || probabilityUpPpm > 1_000_000) {
+    throw new Error("probabilityUpPpm must be an integer between 0 and 1000000");
+  }
+  const modelVersion = strictText(valueOf(input, "modelVersion", "model_version"), "modelVersion");
+  const featureContractVersion = strictText(
+    valueOf(input, "featureContractVersion", "feature_contract_version"), "featureContractVersion",
+  );
+  const features = readStrictCanonicalJson(valueOf(input, "featuresJson", "features_json"), "featuresJson");
+  const featuresHash = strictHash(valueOf(input, "featuresHash", "features_hash"), "featuresHash");
+  if (auditPayloadHash(features.text) !== featuresHash) throw new Error("featuresHash does not match featuresJson");
+  const decision = readStrictCanonicalJson(valueOf(input, "decisionJson", "decision_json"), "decisionJson");
+  const decisionHash = strictHash(valueOf(input, "decisionHash", "decision_hash"), "decisionHash");
+  if (auditPayloadHash(decision.text) !== decisionHash) throw new Error("decisionHash does not match decisionJson");
+  const decisionKeys = Object.keys(decision.value).sort();
+  if (decisionKeys.join("\u0000") !== ["downProbabilityPpm", "featureHash", "modelVersion", "upProbabilityPpm"].join("\u0000")
+      || decision.value.featureHash !== featuresHash
+      || decision.value.modelVersion !== modelVersion
+      || decision.value.upProbabilityPpm !== probabilityUpPpm
+      || !Number.isSafeInteger(decision.value.upProbabilityPpm)
+      || decision.value.upProbabilityPpm < 0 || decision.value.upProbabilityPpm > 1_000_000
+      || decision.value.downProbabilityPpm !== 1_000_000 - decision.value.upProbabilityPpm) {
+    throw new Error("decision JSON does not match forecast fields");
+  }
+  const idempotencyKey = strictText(valueOf(input, "idempotencyKey", "idempotency_key"), "idempotencyKey");
+  const createdAt = strictIso(valueOf(input, "createdAt", "created_at") ?? new Date().toISOString(), "createdAt").text;
+
+  return Object.freeze({
+    market_id: marketId,
+    evaluation_snapshot_id: evaluationSnapshotId ?? null,
+    opening_evidence_id: null,
+    captured_timestamp_ms: capturedTimestampMs,
+    oracle_timestamp_ms: oracleTimestampMs,
+    remaining_ms: remainingMs,
+    probability_up_ppm: probabilityUpPpm,
+    model_version: modelVersion,
+    feature_contract_version: featureContractVersion,
+    features_json: features.text,
+    features_hash: featuresHash,
+    decision_json: decision.text,
+    decision_hash: decisionHash,
+    idempotency_key: idempotencyKey,
+    created_at: createdAt,
+    snapshot_hash: snapshotHash,
+    opening_evidence_hash: openingEvidenceHash,
+    opening_evidence_kind: openingEvidenceKind,
+    allow_opening_evidence_hydration: allowMissingEvaluationSnapshot,
+    features_value: features.value,
+    decision_value: decision.value,
+  });
+}
+
+function sameShortCalibrationForecastContent(row, prepared) {
+  return SHORT_FORECAST_CONTENT_COLUMNS.every((column) => row?.[column] === prepared[column]);
+}
+
+function shortCalibrationForecastRecord(row) {
+  return row ? { ...row } : null;
+}
+
+function bindOpeningEvidenceToForecast(prepared, evidenceId) {
+  const opening = prepared.features_value.opening;
+  if (!opening || typeof opening !== "object" || Array.isArray(opening)) {
+    throw new Error("features JSON must contain an opening evidence binding");
+  }
+  if (opening.evidenceId != null && opening.evidenceId !== evidenceId) {
+    throw new Error("opening evidence id does not match persisted evidence");
+  }
+  if (opening.evidenceHash != null && typeof opening.evidenceHash !== "string") {
+    throw new Error("opening evidence hash must be exact text");
+  }
+  const featuresValue = {
+    ...prepared.features_value,
+    opening: { ...opening, evidenceId },
+  };
+  const featuresJson = canonicalAuditPayload(featuresValue);
+  const featuresHash = auditPayloadHash(featuresJson);
+  const decisionValue = { ...prepared.decision_value, featureHash: featuresHash };
+  const decisionJson = canonicalAuditPayload(decisionValue);
+  return {
+    ...prepared,
+    features_value: featuresValue,
+    features_json: featuresJson,
+    features_hash: featuresHash,
+    decision_value: decisionValue,
+    decision_json: decisionJson,
+    decision_hash: auditPayloadHash(decisionJson),
+  };
+}
+
+function validateShortCalibrationForecastReferences(prepared, market, snapshot, evidence) {
+  if (prepared.opening_evidence_id == null || !evidence) throw new Error("opening evidence is required");
+  if (evidence.market_id !== prepared.market_id
+      || evidence.kind !== "BOUNDARY_TWAP"
+      || evidence.status !== "OK"
+      || evidence.effective_timestamp_ms !== market.start_time_ms
+      || evidence.candidate_key !== `strict-observe:${prepared.market_id}:${snapshot.run_id}:${snapshot.sequence}`
+      || !["RTDS", "CHAINLINK_FALLBACK"].includes(evidence.source)) {
+    throw new Error("opening evidence is not an authoritative opening projection");
+  }
+  const opening = prepared.features_value.opening;
+  const openingValue = strictText(opening?.usdPriceText, "features.opening.usdPriceText");
+  if (!PLAIN_DECIMAL.test(openingValue) || Number(openingValue) <= 0
+      || evidence.decimal_value_text !== openingValue
+      || opening.evidenceId !== evidence.id
+      || opening.evidenceHash !== evidence.canonical_hash) {
+    throw new Error("opening evidence is not cryptographically bound to features");
+  }
+  if (prepared.features_value.modelVersion !== prepared.model_version
+      || prepared.features_value.featureContractVersion !== prepared.feature_contract_version
+      || prepared.features_value.registry?.discoveryPayloadHash !== market.discovery_payload_hash
+      || prepared.features_value.registry?.fingerprintHash !== market.fingerprint_hash) {
+    throw new Error("forecast features are not bound to the registered market");
+  }
+  const cadence = prepared.features_value.cadence;
+  const candles = prepared.features_value.candles;
+  const volatility = prepared.features_value.volatility;
+  if (!cadence || cadence.usable !== true
+      || !candles || !Number.isSafeInteger(candles.rawCount) || !Number.isSafeInteger(candles.uniqueCount)
+      || candles.rawCount < candles.uniqueCount || candles.uniqueCount < 35
+      || cadence.inflationFactor !== volatility?.inflationFactor
+      || cadence.inflationFactor < 1 || cadence.inflationFactor > 2) {
+    throw new Error("forecast cadence and volatility are not retained");
+  }
+  if (!snapshot
+      || snapshot.run_id == null
+      || snapshot.sequence == null
+      || snapshot.attempt_status !== "completed"
+      || snapshot.collection_mode !== "observe_only"
+      || snapshot.contract_version !== STRICT_OBSERVE_CONTRACT_VERSION
+      || snapshot.model_version !== STRICT_OBSERVE_MODEL_VERSION
+      || snapshot.market_id !== prepared.market_id
+      || snapshot.duration_type !== "15m"
+      || String(snapshot.asset).toUpperCase() !== "BTC"
+      || String(snapshot.run_id) !== String(prepared.features_value.run_id)
+      || Number(snapshot.sequence) !== prepared.features_value.sequence) {
+    throw new Error("evaluation snapshot is not a completed strict collector attempt");
+  }
+  const audit = readStrictCanonicalJson(snapshot.payload, "snapshot.payload").value;
+  const forecastAudit = audit.forecast;
+  if (!forecastAudit || typeof forecastAudit !== "object" || Array.isArray(forecastAudit)
+      || forecastAudit.featuresHash !== prepared.features_hash
+      || forecastAudit.decisionHash !== prepared.decision_hash
+      || forecastAudit.opening?.evidenceId !== evidence.id
+      || forecastAudit.opening?.evidenceHash !== evidence.canonical_hash
+      || forecastAudit.current?.rawFrameHash !== prepared.features_value.current?.rawFrameHash
+      || forecastAudit.candles?.payloadSha256 !== prepared.features_value.candles?.payloadSha256
+      || !Array.isArray(forecastAudit.rawClosedCandles)
+      || auditPayloadHash(canonicalAuditPayload(forecastAudit.rawClosedCandles)) !== prepared.features_value.candles?.payloadSha256
+      || forecastAudit.rawClosedCandles.length !== prepared.features_value.candles?.uniqueCount
+      || auditPayloadHash(canonicalAuditPayload(forecastAudit.current?.rawFrame)) !== prepared.features_value.current?.rawFrameHash
+      || forecastAudit.volatility?.intervalVolatilityText !== prepared.features_value.volatility?.intervalVolatilityText) {
+    throw new Error("snapshot audit payload is not bound to the strict forecast");
+  }
+  const captured = strictIso(snapshot.captured_at, "snapshot.captured_at").milliseconds;
+  const finished = strictIso(snapshot.finished_at, "snapshot.finished_at").milliseconds;
+  const started = strictIso(snapshot.started_at, "snapshot.started_at").milliseconds;
+  const scheduled = strictIso(snapshot.scheduled_at, "snapshot.scheduled_at").milliseconds;
+  if (captured !== prepared.captured_timestamp_ms
+      || finished !== captured
+      || started > captured
+      || scheduled > captured
+      || prepared.remaining_ms !== market.end_time_ms - captured
+      || prepared.remaining_ms <= 0
+      || prepared.features_value.modelAsOfMs !== captured
+      || prepared.features_value.remainingMs !== prepared.remaining_ms
+      || prepared.features_value.current?.timestampMs !== prepared.oracle_timestamp_ms
+      || !Number.isSafeInteger(prepared.oracle_timestamp_ms)
+      || prepared.oracle_timestamp_ms < captured - 15_000
+      || prepared.oracle_timestamp_ms > captured + 2_000) {
+    throw new Error("forecast timing is not bound to the evaluation snapshot");
+  }
+}
+
+function recordPreparedShortCalibrationForecastTransaction(prepared) {
+      const market = db.prepare(`SELECT * FROM short_market_registry
+        WHERE market_id = ? AND asset = 'btc' AND duration_type = '15m'`).get(prepared.market_id);
+      if (!market) throw new Error("short calibration forecast references an unknown BTC 15m market");
+
+      let snapshot = db.prepare(`SELECT *
+        FROM short_evaluation_snapshots WHERE id = ?`).get(prepared.evaluation_snapshot_id);
+      if (!snapshot) throw new Error("short calibration forecast references an invalid evaluation snapshot");
+      if (prepared.snapshot_hash != null && snapshot.audit_payload_hash !== prepared.snapshot_hash) {
+        throw new Error("evaluation snapshot hash mismatch");
+      }
+
+      let evidence = null;
+      if (prepared.opening_evidence_hash != null) {
+        evidence = db.prepare(`SELECT * FROM short_market_evidence
+          WHERE market_id = ? AND kind = ? AND canonical_hash = ? ORDER BY id LIMIT 1`).get(
+          prepared.market_id, prepared.opening_evidence_kind, prepared.opening_evidence_hash,
+        );
+        if (!evidence) throw new Error("opening evidence hash does not match a stored row");
+        prepared = { ...prepared, opening_evidence_id: evidence.id };
+        if (prepared.allow_opening_evidence_hydration && prepared.features_value.opening?.evidenceId == null) {
+          prepared = bindOpeningEvidenceToForecast(prepared, evidence.id);
+        }
+      }
+      validateShortCalibrationForecastReferences(prepared, market, snapshot, evidence);
+
+      const existingByKey = db.prepare("SELECT * FROM short_calibration_forecasts WHERE idempotency_key = ?")
+        .get(prepared.idempotency_key);
+      const existingBySnapshot = db.prepare(`SELECT * FROM short_calibration_forecasts
+        WHERE evaluation_snapshot_id = ? AND model_version = ?`).get(
+        prepared.evaluation_snapshot_id, prepared.model_version,
+      );
+      for (const existing of [existingByKey, existingBySnapshot]) {
+        if (existing) {
+          if (!sameShortCalibrationForecastContent(existing, prepared)) {
+            throw new Error("short calibration forecast idempotency conflict");
+          }
+          return Number(existing.id);
+        }
+      }
+
+      const info = db.prepare(`INSERT INTO short_calibration_forecasts
+        (market_id, evaluation_snapshot_id, opening_evidence_id, captured_timestamp_ms, oracle_timestamp_ms,
+         remaining_ms, probability_up_ppm, model_version, feature_contract_version, features_json, features_hash,
+         decision_json, decision_hash, idempotency_key, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        ...SHORT_FORECAST_CONTENT_COLUMNS.slice(0, -1).map((column) => prepared[column]),
+        prepared.created_at,
+      );
+      return Number(info.lastInsertRowid);
+}
+
+export function recordShortCalibrationForecast(input = {}) {
+  try {
+    const prepared = prepareShortCalibrationForecast(input);
+    return db.transaction(() => recordPreparedShortCalibrationForecastTransaction(prepared))();
+  } catch (error) {
+    console.error("[Storage] recordShortCalibrationForecast error:", error.message);
+    return null;
+  }
+}
+
+export function getShortCalibrationForecasts({ marketId = null, modelVersion = null, limit = 100 } = {}) {
+  try {
+    const conditions = [];
+    const params = [];
+    if (marketId != null) { conditions.push("market_id = ?"); params.push(strictText(marketId, "marketId")); }
+    if (modelVersion != null) { conditions.push("model_version = ?"); params.push(strictText(modelVersion, "modelVersion")); }
+    params.push(strictLimit(limit));
+    const rows = db.prepare(`SELECT id, market_id, evaluation_snapshot_id, opening_evidence_id,
+      captured_timestamp_ms, oracle_timestamp_ms, remaining_ms, probability_up_ppm, model_version,
+      feature_contract_version, features_json, features_hash, decision_json, decision_hash,
+      idempotency_key, created_at FROM short_calibration_forecasts
+      ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
+      ORDER BY id DESC LIMIT ?`).all(...params);
+    return rows.map(shortCalibrationForecastRecord);
+  } catch (error) {
+    console.error("[Storage] getShortCalibrationForecasts error:", error.message);
+    return [];
+  }
+}
+
+export function getShortForecastCalibrationSummary({ modelVersion = null } = {}) {
+  try {
+    const params = [];
+    let modelClause = "";
+    if (modelVersion != null) {
+      modelClause = " AND f.model_version = ?";
+      params.push(strictText(modelVersion, "modelVersion"));
+    }
+    const rows = db.prepare(`SELECT f.id, f.market_id, f.probability_up_ppm,
+        e.id AS resolution_id, e.candidate_key, e.kind, e.source, e.status,
+        e.source_timestamp_ms, e.effective_timestamp_ms, e.received_timestamp_ms,
+        e.decimal_value_text, e.outcome, e.reason_code, e.parser_version,
+        e.evaluator_version, e.canonical_payload, e.raw_payload_hash,
+        e.canonical_hash, e.idempotency_key, e.created_at
+      FROM short_calibration_forecasts f
+      JOIN short_market_registry r ON r.market_id = f.market_id
+      LEFT JOIN short_market_evidence e
+        ON e.market_id = f.market_id AND e.kind = 'RESOLUTION' AND e.status = 'RESOLVED'
+      WHERE 1 = 1${modelClause}
+      ORDER BY f.id, e.id`).all(...params);
+    const forecasts = new Map();
+    const resolutionOutcomes = new Map();
+    const conflictedMarkets = new Set();
+    for (const row of rows) {
+      forecasts.set(row.id, row);
+      if (row.resolution_id == null) continue;
+      try {
+        const stored = strictStoredShortMarketEvidence({
+          id: row.resolution_id,
+          market_id: row.market_id,
+          candidate_key: row.candidate_key,
+          kind: row.kind,
+          source: row.source,
+          status: row.status,
+          source_timestamp_ms: row.source_timestamp_ms,
+          effective_timestamp_ms: row.effective_timestamp_ms,
+          received_timestamp_ms: row.received_timestamp_ms,
+          decimal_value_text: row.decimal_value_text,
+          outcome: row.outcome,
+          reason_code: row.reason_code,
+          parser_version: row.parser_version,
+          evaluator_version: row.evaluator_version,
+          canonical_payload: row.canonical_payload,
+          raw_payload_hash: row.raw_payload_hash,
+          canonical_hash: row.canonical_hash,
+          idempotency_key: row.idempotency_key,
+          created_at: row.created_at,
+        }, row.market_id);
+        if (stored.prepared.status !== "RESOLVED" || stored.prepared.kind !== "RESOLUTION") continue;
+        const previous = resolutionOutcomes.get(row.market_id);
+        if (previous != null && previous !== stored.prepared.outcome) conflictedMarkets.add(row.market_id);
+        else resolutionOutcomes.set(row.market_id, stored.prepared.outcome);
+      } catch {
+        // Legacy or malformed terminal rows are not calibration authority.
+      }
+    }
+    for (const marketId of conflictedMarkets) resolutionOutcomes.delete(marketId);
+
+    let forecastCount = 0;
+    let distinctMarketCount = forecasts.size === 0 ? 0 : new Set([...forecasts.values()].map((row) => row.market_id)).size;
+    let resolvedCount = 0;
+    let probabilitySum = 0;
+    let upCount = 0;
+    for (const row of forecasts.values()) {
+      forecastCount += 1;
+      probabilitySum += Number(row.probability_up_ppm);
+      const outcome = resolutionOutcomes.get(row.market_id);
+      if (outcome == null) continue;
+      resolvedCount += 1;
+      if (outcome === "UP") upCount += 1;
+    }
+    return {
+      forecastCount,
+      distinctMarketCount,
+      resolvedCount,
+      meanProbabilityUpPpm: forecastCount === 0 ? null : Math.trunc(probabilitySum / forecastCount),
+      empiricalUpRatePpm: resolvedCount === 0 ? null : Math.trunc(upCount * 1_000_000 / resolvedCount),
+    };
+  } catch (error) {
+    console.error("[Storage] getShortForecastCalibrationSummary error:", error.message);
+    return null;
+  }
+}
+
 function runRow(runId) { return db.prepare("SELECT * FROM short_observation_runs WHERE run_id = ?").get(String(runId)) || null; }
 function canonicalConfig(value) {
   const parsed = typeof value === "string" ? JSON.parse(value) : value;
@@ -905,6 +1292,7 @@ function appendObservationAttemptTransaction(attempt, preparedEvidence = null) {
     );
     if (!run || attempt.sequence !== Number(run.next_sequence)) throw new Error("collector lease or sequence is not active");
 
+    let transactionAttempt = attempt;
     if (preparedEvidence !== null) {
       const strictMarket = strictObservationMarketProjection(attempt.marketId);
       if (!strictMarket
@@ -913,7 +1301,19 @@ function appendObservationAttemptTransaction(attempt, preparedEvidence = null) {
           || preparedEvidence.some((evidence) => evidence.market_id !== attempt.marketId)) {
         throw new Error("strict collector attempt market identity is invalid");
       }
-      for (const evidence of preparedEvidence) appendPreparedShortMarketEvidence(evidence);
+      const persistedEvidence = preparedEvidence.map((evidence) => appendPreparedShortMarketEvidence(evidence));
+      if (attempt.forecast) {
+        const openingEvidence = persistedEvidence.find((evidence) => evidence.kind === "BOUNDARY_TWAP"
+          && evidence.effective_timestamp_ms === strictMarket.start_time_ms);
+        if (!openingEvidence) throw new Error("strict collector attempt has no opening evidence");
+        const boundForecast = bindOpeningEvidenceToForecast(attempt.forecast, openingEvidence.id);
+        const audit = JSON.parse(attempt.payload.serialized);
+        if (!audit.forecast || typeof audit.forecast !== "object") throw new Error("forecast audit block is required");
+        audit.forecast.opening = { ...audit.forecast.opening, evidenceId: openingEvidence.id };
+        audit.forecast.featuresHash = boundForecast.features_hash;
+        audit.forecast.decisionHash = boundForecast.decision_hash;
+        transactionAttempt = { ...attempt, payload: readPayload(audit), forecast: boundForecast };
+      }
     }
 
     const info = db.prepare(`INSERT INTO short_evaluation_snapshots
@@ -921,18 +1321,27 @@ function appendObservationAttemptTransaction(attempt, preparedEvidence = null) {
        payload, audit_payload_hash, run_id, sequence, collection_mode, scheduled_at, started_at, finished_at,
        attempt_status, error_code)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      attempt.marketId, attempt.marketQuestion, attempt.durationType, attempt.asset, attempt.capturedAt,
-      attempt.createdAt, attempt.contractVersion, attempt.modelVersion, attempt.payload.serialized,
-      attempt.payload.hash, attempt.runId, attempt.sequence, attempt.collectionMode, attempt.scheduledAt,
-      attempt.startedAt, attempt.finishedAt, attempt.attemptStatus, attempt.errorCode,
+      transactionAttempt.marketId, transactionAttempt.marketQuestion, transactionAttempt.durationType, transactionAttempt.asset, transactionAttempt.capturedAt,
+      transactionAttempt.createdAt, transactionAttempt.contractVersion, transactionAttempt.modelVersion, transactionAttempt.payload.serialized,
+      transactionAttempt.payload.hash, transactionAttempt.runId, transactionAttempt.sequence, transactionAttempt.collectionMode, transactionAttempt.scheduledAt,
+      transactionAttempt.startedAt, transactionAttempt.finishedAt, transactionAttempt.attemptStatus, transactionAttempt.errorCode,
     );
+    if (transactionAttempt.forecast) {
+      const forecastId = recordPreparedShortCalibrationForecastTransaction({
+        ...transactionAttempt.forecast,
+        evaluation_snapshot_id: Number(info.lastInsertRowid),
+        snapshot_hash: transactionAttempt.payload.hash,
+      });
+      if (!Number.isSafeInteger(forecastId) || forecastId <= 0) throw new Error("strict forecast insert was not confirmed");
+    }
+
     const checkpoint = db.prepare(`UPDATE short_observation_runs
       SET next_sequence = ?, next_scheduled_at = COALESCE(?, next_scheduled_at), updated_at = ?
       WHERE run_id = ? AND market_id = ? AND duration_type = ? AND asset = ?
         AND lease_owner = ? AND lease_token = ? AND lease_expires_at > ?
         AND status IN ('scheduled', 'observing') AND next_sequence = ?`).run(
-      attempt.sequence + 1, attempt.nextScheduledAt, attempt.now, attempt.runId, attempt.marketId,
-      attempt.durationType, attempt.asset, attempt.owner, attempt.token, attempt.now, attempt.sequence,
+      transactionAttempt.sequence + 1, transactionAttempt.nextScheduledAt, transactionAttempt.now, transactionAttempt.runId, transactionAttempt.marketId,
+      transactionAttempt.durationType, transactionAttempt.asset, transactionAttempt.owner, transactionAttempt.token, transactionAttempt.now, transactionAttempt.sequence,
     );
     if (checkpoint.changes !== 1) throw new Error("collector checkpoint was fenced");
     return Number(info.lastInsertRowid);
@@ -950,7 +1359,11 @@ export function appendStrictShortObservationAttempt(input = {}) {
     if (!Array.isArray(input.evidence) || input.evidence.length === 0) throw new Error("strict collector attempt evidence is required");
     const attempt = prepareShortEvaluationSnapshotAttempt(input);
     const evidence = input.evidence.map((item) => prepareShortMarketEvidence(item));
-    return appendObservationAttemptTransaction(attempt, evidence);
+    const forecastInput = input.forecast ?? input.preparedForecast;
+    const forecast = forecastInput == null
+      ? null
+      : prepareShortCalibrationForecast(forecastInput, { allowMissingEvaluationSnapshot: true });
+    return appendObservationAttemptTransaction({ ...attempt, forecast }, evidence);
   } catch (error) { console.error("[Storage] appendStrictShortObservationAttempt error:", error.message); return null; }
 }
 export const appendCollectorAttempt = appendShortEvaluationSnapshotAttempt;

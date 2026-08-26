@@ -6,7 +6,7 @@ import {
   STRICT_OBSERVE_CONTRACT_VERSION,
   STRICT_OBSERVE_PARSER_VERSION,
 } from "../src/short-observe-audit.js";
-import { createBtc15mObserveCoordinator } from "../src/short-observe-coordinator.js";
+import { createBtc15mObserveCoordinator, isStrictForecastOpeningSource } from "../src/short-observe-coordinator.js";
 import { SHORT_OBSERVE_CRYPTO_FINGERPRINT } from "../src/short-observe-contract.js";
 import { parseClobBook } from "../src/short-market-sources.js";
 
@@ -165,6 +165,14 @@ function boundarySource({ frame = rtdsFrame(), report = null, wait = null, fetch
       return report;
     },
   };
+}
+
+function forecastCandles() {
+  return Array.from({ length: 40 }, (_, index) => {
+    const time = START_MS - (40 - index) * 900_000;
+    const close = 112000 + index * 2 + (index % 2 ? 1 : 0);
+    return { time, open: close - 1, high: close + 2, low: close - 2, close, volume: "1" };
+  });
 }
 
 function fakeTimers() {
@@ -616,6 +624,139 @@ test("one atomic strict storage call carries three evidence records; rollback le
   assert.equal(run.next_sequence, 1);
   assert.ok(order.indexOf("append-strict") < order.lastIndexOf("release"));
   await stopFixture(fixture);
+});
+
+test("completed strict attempts carry one deterministic calibration forecast when all inputs are authoritative", async () => {
+  const storage = fakeStorage();
+  const record = storage.seedRegistry(candidate("forecast"));
+  storage.seedRun(record);
+  const fakeClock = clock(START_MS);
+  const source = boundarySource({ frame: rtdsFrame() });
+  source.getLatestFrame = () => rtdsFrame(START_MS + 1_000, "112400000000000000000000");
+  const originalFetchBook = strictBookSource({ hook: () => { fakeClock.value = START_MS + 1_000; } });
+  const coordinator = createBtc15mObserveCoordinator({
+    clock: fakeClock,
+    timers: fakeTimers(),
+    storage,
+    boundarySource: source,
+    discover: async () => ({ markets: [] }),
+    fetchBook: originalFetchBook,
+    fetchCandles: async () => forecastCandles(),
+    assertShortObserverConfig: () => ({ ...BASE_CONFIG }),
+  });
+  await coordinator.start();
+  assert.equal(storage.attempts.length, 1);
+  const attempt = storage.attempts[0];
+  assert.equal(attempt.forecast.modelVersion, "short-forecast-v1");
+  assert.equal(attempt.forecast.featureContractVersion, "strict-forecast-v1");
+  assert.equal(attempt.forecast.remainingMs, END_MS - (START_MS + 1_000));
+  assert.equal(attempt.forecast.probabilityUpPpm + 0 + (1_000_000 - attempt.forecast.probabilityUpPpm), 1_000_000);
+  assert.equal(attempt.auditPayload.forecastStatus, "ok");
+  assert.match(attempt.forecast.featuresJson, /"candles"/);
+  await stopFixture({ coordinator, source });
+});
+
+test("snapshot audit retains rawClosedCandles and raw current frame", async () => {
+  const storage = fakeStorage();
+  const record = storage.seedRegistry(candidate("forecast-audit-preimage"));
+  storage.seedRun(record);
+  const fakeClock = clock(START_MS);
+  const source = boundarySource({ frame: rtdsFrame() });
+  const rawFrame = rtdsFrame(START_MS + 1_000, "112400000000000000000000");
+  source.getLatestFrame = () => rawFrame;
+  const coordinator = createBtc15mObserveCoordinator({
+    clock: fakeClock,
+    timers: fakeTimers(),
+    storage,
+    boundarySource: source,
+    discover: async () => ({ markets: [] }),
+    fetchBook: strictBookSource({ hook: () => { fakeClock.value = START_MS + 1_000; } }),
+    fetchCandles: async () => forecastCandles(),
+    assertShortObserverConfig: () => ({ ...BASE_CONFIG }),
+  });
+  await coordinator.start();
+  const audit = storage.attempts[0].auditPayload.forecast;
+  assert.ok(Array.isArray(audit.rawClosedCandles));
+  assert.deepEqual(audit.current.rawFrame, rawFrame);
+  assert.equal(audit.rawClosedCandles.length, 40);
+  await stopFixture({ coordinator, source });
+});
+
+test("duplicate-candle series records volatility inflation 1.2", async () => {
+  const storage = fakeStorage();
+  const record = storage.seedRegistry(candidate("forecast-duplicate-candles"));
+  storage.seedRun(record);
+  const fakeClock = clock(START_MS);
+  const source = boundarySource({ frame: rtdsFrame() });
+  source.getLatestFrame = () => rtdsFrame(START_MS + 1_000, "112400000000000000000000");
+  const candles = forecastCandles();
+  candles.push({ ...candles[10] });
+  const coordinator = createBtc15mObserveCoordinator({
+    clock: fakeClock,
+    timers: fakeTimers(),
+    storage,
+    boundarySource: source,
+    discover: async () => ({ markets: [] }),
+    fetchBook: strictBookSource({ hook: () => { fakeClock.value = START_MS + 1_000; } }),
+    fetchCandles: async () => candles,
+    assertShortObserverConfig: () => ({ ...BASE_CONFIG }),
+  });
+  await coordinator.start();
+  const features = JSON.parse(storage.attempts[0].forecast.featuresJson);
+  assert.equal(features.cadence.duplicateCount, 1);
+  assert.equal(features.volatility.inflationFactor, 1.2);
+  await stopFixture({ coordinator, source });
+});
+
+test("CHAINLINK_FALLBACK opening is accepted end-to-end", async () => {
+  const storage = fakeStorage();
+  const record = storage.seedRegistry(candidate("forecast-chainlink-fallback"));
+  storage.seedRun(record);
+  const fakeClock = clock(START_MS);
+  const source = boundarySource({ frame: null, report: chainlinkReport() });
+  source.getLatestFrame = () => rtdsFrame(START_MS + 1_000, "112400000000000000000000");
+  const coordinator = createBtc15mObserveCoordinator({
+    clock: fakeClock,
+    timers: fakeTimers(),
+    storage,
+    boundarySource: source,
+    discover: async () => ({ markets: [] }),
+    fetchBook: strictBookSource({ hook: () => { fakeClock.value = START_MS + 1_000; } }),
+    fetchCandles: async () => forecastCandles(),
+    assertShortObserverConfig: () => ({ ...BASE_CONFIG }),
+  });
+  await coordinator.start();
+  assert.equal(storage.attempts.length, 1);
+  assert.equal(storage.attempts[0].auditPayload.openingEvidence.source, "CHAINLINK_FALLBACK");
+  assert.equal(storage.attempts[0].forecast.openingEvidenceKind, "BOUNDARY_TWAP");
+  await stopFixture({ coordinator, source });
+});
+
+test("plain CHAINLINK opening is rejected or skipped", async () => {
+  assert.equal(isStrictForecastOpeningSource("CHAINLINK"), false);
+  assert.equal(isStrictForecastOpeningSource("CHAINLINK_FALLBACK"), true);
+  const storage = fakeStorage();
+  const record = storage.seedRegistry(candidate("forecast-plain-chainlink"));
+  storage.seedRun(record);
+  const fakeClock = clock(START_MS);
+  const source = boundarySource({ frame: rtdsFrame() });
+  source.getLatestFrame = () => rtdsFrame(START_MS + 1_000, "112400000000000000000000");
+  const coordinator = createBtc15mObserveCoordinator({
+    clock: fakeClock,
+    timers: fakeTimers(),
+    storage,
+    boundarySource: source,
+    selectBoundaryTwap: () => ({ status: "OK", source: "CHAINLINK", usdPriceText: OPENING_USD, value: OPENING_USD }),
+    discover: async () => ({ markets: [] }),
+    fetchBook: strictBookSource({ hook: () => { fakeClock.value = START_MS + 1_000; } }),
+    fetchCandles: async () => forecastCandles(),
+    assertShortObserverConfig: () => ({ ...BASE_CONFIG }),
+  });
+  await coordinator.start();
+  assert.equal(storage.attempts.length, 1);
+  assert.equal(storage.attempts[0].forecast, null);
+  assert.equal(storage.attempts[0].auditPayload.forecastStatus, "skipped:opening_boundary_unavailable");
+  await stopFixture({ coordinator, source });
 });
 
 test("collector has no legacy evaluator, manual audit, or legacy market/book runtime dependency and emits no action content", async () => {

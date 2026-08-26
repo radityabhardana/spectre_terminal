@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 export const RETIRED_TABLES = [
   "trade_requests",
   "trade_executions",
@@ -134,6 +134,25 @@ const SHORT_MARKET_EVIDENCE_REQUIREMENTS = [
   ["created_at", "TEXT", true, 0],
 ];
 
+const SHORT_CALIBRATION_FORECAST_REQUIREMENTS = [
+  ["id", "INTEGER", false, 1],
+  ["market_id", "TEXT", true, 0],
+  ["evaluation_snapshot_id", "INTEGER", true, 0],
+  ["opening_evidence_id", "INTEGER", true, 0],
+  ["captured_timestamp_ms", "INTEGER", true, 0],
+  ["oracle_timestamp_ms", "INTEGER", true, 0],
+  ["remaining_ms", "INTEGER", true, 0],
+  ["probability_up_ppm", "INTEGER", true, 0],
+  ["model_version", "TEXT", true, 0],
+  ["feature_contract_version", "TEXT", true, 0],
+  ["features_json", "TEXT", true, 0],
+  ["features_hash", "TEXT", true, 0],
+  ["decision_json", "TEXT", true, 0],
+  ["decision_hash", "TEXT", true, 0],
+  ["idempotency_key", "TEXT", true, 0],
+  ["created_at", "TEXT", true, 0],
+];
+
 const SHORT_MARKET_REGISTRY_SQL = `
   CREATE TABLE IF NOT EXISTS short_market_registry (
     market_id TEXT NOT NULL PRIMARY KEY,
@@ -212,6 +231,33 @@ const SHORT_MARKET_EVIDENCE_SQL = `
     CHECK (kind <> 'RESOLUTION' OR status IN ('DATA_GAP', 'QUARANTINED', 'UNRESOLVED', 'RESOLVED'))
   )`;
 
+const SHORT_CALIBRATION_FORECASTS_SQL = `
+  CREATE TABLE IF NOT EXISTS short_calibration_forecasts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_id TEXT NOT NULL REFERENCES short_market_registry (market_id),
+    evaluation_snapshot_id INTEGER NOT NULL REFERENCES short_evaluation_snapshots (id),
+    opening_evidence_id INTEGER NOT NULL REFERENCES short_market_evidence (id),
+    captured_timestamp_ms INTEGER NOT NULL,
+    oracle_timestamp_ms INTEGER NOT NULL,
+    remaining_ms INTEGER NOT NULL CHECK (remaining_ms > 0),
+    probability_up_ppm INTEGER NOT NULL CHECK (probability_up_ppm BETWEEN 0 AND 1000000),
+    model_version TEXT NOT NULL,
+    feature_contract_version TEXT NOT NULL,
+    features_json TEXT NOT NULL,
+    features_hash TEXT NOT NULL,
+    decision_json TEXT NOT NULL,
+    decision_hash TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    UNIQUE (evaluation_snapshot_id, model_version)
+  )`;
+
+const PRE_GUARD_SHORT_CALIBRATION_FORECAST_REQUIREMENTS = SHORT_CALIBRATION_FORECAST_REQUIREMENTS.map((column) =>
+  column[0] === "opening_evidence_id" ? [column[0], column[1], false, column[3]] : column);
+const SHORT_CALIBRATION_FORECAST_COLUMNS = Object.freeze(SHORT_CALIBRATION_FORECAST_REQUIREMENTS.map(([name]) => name));
+const PRE_GUARD_SHORT_CALIBRATION_FORECASTS_SQL = SHORT_CALIBRATION_FORECASTS_SQL
+  .replace("opening_evidence_id INTEGER NOT NULL", "opening_evidence_id INTEGER NULL");
+
 const V4_INDEXES = Object.freeze([
   Object.freeze({ table: "short_market_registry", name: "ux_short_market_registry_condition_id", unique: true, columns: ["condition_id"], sql: "CREATE UNIQUE INDEX IF NOT EXISTS ux_short_market_registry_condition_id ON short_market_registry (condition_id)" }),
   Object.freeze({ table: "short_market_tokens", name: "ux_short_market_tokens_token_id", unique: true, columns: ["token_id"], sql: "CREATE UNIQUE INDEX IF NOT EXISTS ux_short_market_tokens_token_id ON short_market_tokens (token_id)" }),
@@ -243,6 +289,16 @@ const PRE_ROWID_V4_INSERT_GUARD_TRIGGERS = Object.freeze([
 ]);
 const PRE_ROWID_V4_TRIGGERS = Object.freeze([...V4_BASE_TRIGGERS, ...PRE_ROWID_V4_INSERT_GUARD_TRIGGERS]);
 const V4_TABLE_NAMES = Object.freeze(["short_market_registry", "short_market_tokens", "short_market_evidence"]);
+const V5_INDEXES = Object.freeze([
+  Object.freeze({ table: "short_calibration_forecasts", name: "idx_short_calibration_forecasts_market_captured", unique: false, columns: ["market_id", "captured_timestamp_ms"], sql: "CREATE INDEX IF NOT EXISTS idx_short_calibration_forecasts_market_captured ON short_calibration_forecasts (market_id, captured_timestamp_ms)" }),
+  Object.freeze({ table: "short_calibration_forecasts", name: "idx_short_calibration_forecasts_model_version", unique: false, columns: ["model_version"], sql: "CREATE INDEX IF NOT EXISTS idx_short_calibration_forecasts_model_version ON short_calibration_forecasts (model_version)" }),
+]);
+const V5_BASE_TRIGGERS = Object.freeze([
+  Object.freeze({ table: "short_calibration_forecasts", name: "trg_short_calibration_forecasts_no_update", sql: "CREATE TRIGGER IF NOT EXISTS trg_short_calibration_forecasts_no_update BEFORE UPDATE ON short_calibration_forecasts BEGIN SELECT RAISE(ABORT, 'short calibration forecasts are append-only'); END" }),
+  Object.freeze({ table: "short_calibration_forecasts", name: "trg_short_calibration_forecasts_no_delete", sql: "CREATE TRIGGER IF NOT EXISTS trg_short_calibration_forecasts_no_delete BEFORE DELETE ON short_calibration_forecasts BEGIN SELECT RAISE(ABORT, 'short calibration forecasts are append-only'); END" }),
+  Object.freeze({ table: "short_calibration_forecasts", name: "trg_short_calibration_forecasts_no_reinsert", sql: "CREATE TRIGGER IF NOT EXISTS trg_short_calibration_forecasts_no_reinsert BEFORE INSERT ON short_calibration_forecasts WHEN EXISTS (SELECT 1 FROM short_calibration_forecasts AS existing WHERE (existing.id = NEW.id OR existing.idempotency_key = NEW.idempotency_key OR (existing.evaluation_snapshot_id = NEW.evaluation_snapshot_id AND existing.model_version = NEW.model_version)) AND NOT (existing.id IS NEW.id AND existing.market_id IS NEW.market_id AND existing.evaluation_snapshot_id IS NEW.evaluation_snapshot_id AND existing.opening_evidence_id IS NEW.opening_evidence_id AND existing.captured_timestamp_ms IS NEW.captured_timestamp_ms AND existing.oracle_timestamp_ms IS NEW.oracle_timestamp_ms AND existing.remaining_ms IS NEW.remaining_ms AND existing.probability_up_ppm IS NEW.probability_up_ppm AND existing.model_version IS NEW.model_version AND existing.feature_contract_version IS NEW.feature_contract_version AND existing.features_json IS NEW.features_json AND existing.features_hash IS NEW.features_hash AND existing.decision_json IS NEW.decision_json AND existing.decision_hash IS NEW.decision_hash AND existing.idempotency_key IS NEW.idempotency_key AND existing.created_at IS NEW.created_at)) BEGIN SELECT RAISE(ABORT, 'short calibration forecast reinsert is forbidden'); END" }),
+]);
+const PRE_REINSERT_V5_FORECAST_TRIGGERS = Object.freeze(V5_BASE_TRIGGERS.slice(0, 2));
 
 function tableNames(db) {
   return new Set(
@@ -503,12 +559,48 @@ function createV4Schema(db) {
   for (const trigger of V4_TRIGGERS) db.exec(`${trigger.sql};`);
 }
 
+function createV5Schema(db) {
+  db.exec(`${SHORT_CALIBRATION_FORECASTS_SQL};`);
+  for (const index of V5_INDEXES) db.exec(`${index.sql};`);
+  for (const trigger of V5_BASE_TRIGGERS) db.exec(`${trigger.sql};`);
+}
+
+function rebuildV5ForecastTable(db) {
+  if (db.prepare("SELECT 1 FROM short_calibration_forecasts WHERE opening_evidence_id IS NULL LIMIT 1").get()) {
+    throw new Error("Cannot enforce opening evidence on existing null forecast rows");
+  }
+  for (const trigger of V5_BASE_TRIGGERS) db.exec(`DROP TRIGGER IF EXISTS ${trigger.name}`);
+  for (const index of V5_INDEXES) db.exec(`DROP INDEX IF EXISTS ${index.name}`);
+  db.exec("ALTER TABLE short_calibration_forecasts RENAME TO short_calibration_forecasts_legacy");
+  db.exec(`${SHORT_CALIBRATION_FORECASTS_SQL};`);
+  db.exec(`INSERT INTO short_calibration_forecasts (${SHORT_CALIBRATION_FORECAST_COLUMNS.join(", ")})
+    SELECT ${SHORT_CALIBRATION_FORECAST_COLUMNS.join(", ")} FROM short_calibration_forecasts_legacy`);
+  db.exec("DROP TABLE short_calibration_forecasts_legacy");
+  for (const index of V5_INDEXES) db.exec(`${index.sql};`);
+  for (const trigger of V5_BASE_TRIGGERS) db.exec(`${trigger.sql};`);
+}
+
+function ensureV5ForecastTriggers(db) {
+  for (const trigger of V5_BASE_TRIGGERS) {
+    db.exec(`DROP TRIGGER IF EXISTS ${trigger.name}`);
+    db.exec(`${trigger.sql};`);
+  }
+}
+
 function replaceV4InsertGuards(db) {
   for (const trigger of V4_INSERT_GUARD_TRIGGERS) db.exec(`DROP TRIGGER IF EXISTS ${trigger.name}`);
   for (const trigger of V4_INSERT_GUARD_TRIGGERS) db.exec(`${trigger.sql};`);
 }
 
 function rebuildPreGate2EvidenceTable(db) {
+  const forecastRows = tableNames(db).has("short_calibration_forecasts")
+    ? db.prepare("SELECT * FROM short_calibration_forecasts ORDER BY id").all()
+    : null;
+  if (forecastRows) {
+    for (const trigger of V5_BASE_TRIGGERS) db.exec(`DROP TRIGGER IF EXISTS ${trigger.name}`);
+    for (const index of V5_INDEXES) db.exec(`DROP INDEX IF EXISTS ${index.name}`);
+    db.exec("DROP TABLE short_calibration_forecasts");
+  }
   const previousSequence = db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'short_market_evidence'").get()?.seq ?? null;
   for (const trigger of V4_TRIGGERS.filter((item) => item.table === "short_market_evidence")) {
     db.exec(`DROP TRIGGER IF EXISTS ${trigger.name}`);
@@ -533,6 +625,13 @@ function rebuildPreGate2EvidenceTable(db) {
     else db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('short_market_evidence', ?)").run(previousSequence);
   }
   createV4Schema(db);
+  if (forecastRows) {
+    createV5Schema(db);
+    const columns = SHORT_CALIBRATION_FORECAST_REQUIREMENTS.map(([name]) => name);
+    const placeholders = columns.map(() => "?").join(", ");
+    const insert = db.prepare(`INSERT INTO short_calibration_forecasts (${columns.join(", ")}) VALUES (${placeholders})`);
+    for (const row of forecastRows) insert.run(...columns.map((column) => row[column]));
+  }
 }
 
 function backupFilename(now) {
@@ -594,6 +693,92 @@ function v4StructurePresent(db) {
   return v4StructureVariantPresent(db, SHORT_MARKET_EVIDENCE_SQL, V4_TRIGGERS);
 }
 
+function exactV5IndexesPresent(db) {
+  if (!exactV4IndexesPresent(db)) return false;
+  const actual = db.prepare("PRAGMA index_list(short_calibration_forecasts)").all();
+  const expected = [
+    { name: "sqlite_autoindex_short_calibration_forecasts_1", unique: true, partial: false, origin: "u", columns: ["idempotency_key"] },
+    { name: "sqlite_autoindex_short_calibration_forecasts_2", unique: true, partial: false, origin: "u", columns: ["evaluation_snapshot_id", "model_version"] },
+    ...V5_INDEXES.map((item) => ({ ...item, partial: false, origin: "c" })),
+  ];
+  if (actual.length !== expected.length) return false;
+  return expected.every((requirement) => {
+    const index = actual.find((item) => item.name === requirement.name);
+    if (!index
+        || index.unique !== Number(requirement.unique)
+        || index.partial !== Number(requirement.partial)
+        || index.origin !== requirement.origin) return false;
+    const columns = db.prepare(`PRAGMA index_info(${requirement.name})`).all().map((item) => item.name);
+    return columns.length === requirement.columns.length
+      && columns.every((item, indexPosition) => item === requirement.columns[indexPosition])
+      && (!requirement.sql || schemaSqlMatches(db, "index", requirement.name, requirement.sql));
+  });
+}
+
+function exactV5ForeignKeysPresent(db) {
+  if (!exactV4ForeignKeysPresent(db)) return false;
+  const actual = db.prepare("PRAGMA foreign_key_list(short_calibration_forecasts)").all();
+  const expected = [
+    { table: "short_market_registry", from: "market_id", to: "market_id" },
+    { table: "short_evaluation_snapshots", from: "evaluation_snapshot_id", to: "id" },
+    { table: "short_market_evidence", from: "opening_evidence_id", to: "id" },
+  ];
+  return actual.length === expected.length && expected.every((requirement) => actual.some((foreignKey) => (
+    foreignKey.table === requirement.table
+      && foreignKey.from === requirement.from
+      && foreignKey.to === requirement.to
+      && foreignKey.on_update === "NO ACTION"
+      && foreignKey.on_delete === "NO ACTION"
+      && foreignKey.match === "NONE"
+  )));
+}
+
+function exactV5ForecastTriggersPresent(db, expectedTriggers = V5_BASE_TRIGGERS) {
+  const actual = db.prepare("SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger'").all()
+    .filter((item) => item.tbl_name === "short_calibration_forecasts");
+  if (actual.length !== expectedTriggers.length) return false;
+  return expectedTriggers.every((requirement) => {
+    const trigger = actual.find((item) => item.name === requirement.name);
+    return trigger?.tbl_name === requirement.table
+      && canonicalSchemaSql(trigger.sql) === canonicalSchemaSql(requirement.sql);
+  });
+}
+
+function v5StructureVariantPresent(
+  db, expectedEvidenceSql, expectedTriggers, forecastTriggers = V5_BASE_TRIGGERS,
+  forecastRequirements = SHORT_CALIBRATION_FORECAST_REQUIREMENTS, forecastSql = SHORT_CALIBRATION_FORECASTS_SQL,
+) {
+  return v4StructureVariantPresent(db, expectedEvidenceSql, expectedTriggers)
+    && exactTableMatches(db, "short_calibration_forecasts", forecastRequirements, forecastSql)
+    && exactV5IndexesPresent(db)
+    && exactV5ForeignKeysPresent(db)
+    && exactV5ForecastTriggersPresent(db, forecastTriggers)
+    && db.prepare("PRAGMA foreign_key_check").all().length === 0;
+}
+
+function v5StructurePresent(db) {
+  return v5StructureVariantPresent(db, SHORT_MARKET_EVIDENCE_SQL, V4_TRIGGERS);
+}
+
+function preInsertGuardV5StructurePresent(db) {
+  const evidenceVariants = [
+    [PRE_GATE_2_SHORT_MARKET_EVIDENCE_SQL, V4_BASE_TRIGGERS],
+    [PRE_GATE_2_SHORT_MARKET_EVIDENCE_SQL, V4_TRIGGERS],
+    [PRE_GATE_2_SHORT_MARKET_EVIDENCE_SQL, PRE_ROWID_V4_TRIGGERS],
+    [SHORT_MARKET_EVIDENCE_SQL, V4_BASE_TRIGGERS],
+    [SHORT_MARKET_EVIDENCE_SQL, V4_TRIGGERS],
+    [SHORT_MARKET_EVIDENCE_SQL, PRE_ROWID_V4_TRIGGERS],
+  ];
+  const forecastVariants = [
+    [V5_BASE_TRIGGERS, SHORT_CALIBRATION_FORECAST_REQUIREMENTS, SHORT_CALIBRATION_FORECASTS_SQL],
+    [PRE_REINSERT_V5_FORECAST_TRIGGERS, PRE_GUARD_SHORT_CALIBRATION_FORECAST_REQUIREMENTS, PRE_GUARD_SHORT_CALIBRATION_FORECASTS_SQL],
+  ];
+  return forecastVariants.some(([forecastTriggers, forecastRequirements, forecastSql]) =>
+    evidenceVariants.some(([evidenceSql, v4Triggers]) => v5StructureVariantPresent(
+      db, evidenceSql, v4Triggers, forecastTriggers, forecastRequirements, forecastSql,
+    )));
+}
+
 function preInsertGuardV4StructurePresent(db) {
   return v4StructureVariantPresent(db, PRE_GATE_2_SHORT_MARKET_EVIDENCE_SQL, V4_BASE_TRIGGERS)
     || v4StructureVariantPresent(db, PRE_GATE_2_SHORT_MARKET_EVIDENCE_SQL, V4_TRIGGERS)
@@ -632,7 +817,7 @@ export function verifyV3CompatibleDatabase(db) {
 }
 
 export function verifyDatabase(db) {
-  return verificationResult(db, SCHEMA_VERSION, v4StructurePresent);
+  return verificationResult(db, SCHEMA_VERSION, v5StructurePresent);
 }
 
 export async function migrateDatabase(db, {
@@ -654,20 +839,29 @@ export async function migrateDatabase(db, {
   if (fromVersion === SCHEMA_VERSION) {
     const verification = verifyDatabase(db);
     if (verification.ok) return { fromVersion, toVersion: SCHEMA_VERSION, migrated: false, backupPath: null };
-    if (!preInsertGuardV4StructurePresent(db)) throw new Error("Database schema verification failed");
-    const rebuildEvidence = preGate2EvidenceTablePresent(db);
+    if (!preInsertGuardV5StructurePresent(db)) throw new Error("Database schema verification failed");
+    const rebuildEvidence = !exactTableMatches(
+      db, "short_market_evidence", SHORT_MARKET_EVIDENCE_REQUIREMENTS, SHORT_MARKET_EVIDENCE_SQL,
+    );
+    const rebuildForecast = !exactTableMatches(
+      db, "short_calibration_forecasts", SHORT_CALIBRATION_FORECAST_REQUIREMENTS, SHORT_CALIBRATION_FORECASTS_SQL,
+    );
     const backupPath = await createMigrationBackup(db, backupDirectory, now, backupDatabase);
     db.transaction(() => {
       if (rebuildEvidence) rebuildPreGate2EvidenceTable(db);
       replaceV4InsertGuards(db);
+      if (rebuildForecast) rebuildV5ForecastTable(db);
+      ensureV5ForecastTriggers(db);
       if (!verifyDatabase(db).ok || !verify(db)?.ok) throw new Error("Database migration verification failed");
     })();
     return { fromVersion, toVersion: SCHEMA_VERSION, migrated: true, backupPath };
   }
 
-  const sourceCompatible = fromVersion === 3
-    ? v3StructurePresent(db) && retiredTablesAbsent(db)
-    : legacyCanonicalTablesCompatible(db, existingTables);
+  const sourceCompatible = fromVersion === 4
+    ? v4StructurePresent(db) || preInsertGuardV4StructurePresent(db)
+    : fromVersion === 3
+      ? v3StructurePresent(db) && retiredTablesAbsent(db)
+      : legacyCanonicalTablesCompatible(db, existingTables);
   if (!sourceCompatible) {
     throw new Error("Legacy canonical schema is incompatible with a safe migration");
   }
@@ -690,7 +884,8 @@ export async function migrateDatabase(db, {
     if (rebuildEvidence) rebuildPreGate2EvidenceTable(db);
     createV4Schema(db);
     if (replaceInsertGuards) replaceV4InsertGuards(db);
-    if (db.pragma("quick_check", { simple: true }) !== "ok" || !v4StructurePresent(db) || !verify(db)?.ok) {
+    createV5Schema(db);
+    if (db.pragma("quick_check", { simple: true }) !== "ok" || !v5StructurePresent(db) || !verify(db)?.ok) {
       throw new Error("Database migration verification failed");
     }
     db.pragma(`user_version = ${SCHEMA_VERSION}`);

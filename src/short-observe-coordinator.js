@@ -16,8 +16,15 @@ import {
 import {
   canonicalizeChainlinkFeedId,
   parseClobBook,
+  parseRtdsCurrentSnapshot,
   selectBoundaryTwap,
 } from "./short-market-sources.js";
+import {
+  assessVolatilityCadence,
+  calculateTechnicalIndicators,
+  estimateTerminalUpProbability,
+  fetchChainlinkCandlePage,
+} from "./short_condition.js";
 import {
   createClobMarketResolutionSource,
   createRtdsBoundarySource,
@@ -47,6 +54,10 @@ const BOUNDARY_EVALUATOR_VERSION = "strict-boundary-selector-v1";
 const BOOK_EVALUATOR_VERSION = "strict-clob-book-v1";
 const RESOLUTION_EVALUATOR_VERSION = "strict-resolution-evaluator-v1";
 const RESOLUTION_PARSER_VERSION = "strict-resolution-parser-v1";
+export const STRICT_FORECAST_CONTRACT_VERSION = "strict-forecast-v1";
+export const STRICT_FORECAST_MODEL_VERSION = "short-forecast-v1";
+const FORECAST_INTERVAL_MS = SHORT_OBSERVE_DURATION_MS;
+const FORECAST_CANDLE_LIMIT = 40;
 const MAX_DISCOVERY_MARKETS = 500;
 const MAX_RESOLUTION_MARKETS = 100;
 const REQUIRED_POSITIVE_CONFIG = Object.freeze([
@@ -263,6 +274,41 @@ function runPolicy(run) {
   };
 }
 
+function forecastCandleTimeMs(candle) {
+  const raw = candle?.time ?? candle?.timestamp ?? candle?.openTime;
+  const value = typeof raw === "string" && /^\d+$/.test(raw) ? Number(raw) : raw;
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const milliseconds = value < 1_000_000_000_000 ? value * 1000 : value;
+  return Number.isSafeInteger(milliseconds) ? milliseconds : null;
+}
+
+export function isStrictForecastOpeningSource(source) {
+  return source === "RTDS" || source === "CHAINLINK_FALLBACK";
+}
+
+function deduplicateForecastCandles(candles, modelAsOfMs) {
+  const unique = new Map();
+  for (const candle of Array.isArray(candles) ? candles : []) {
+    const timeMs = forecastCandleTimeMs(candle);
+    if (timeMs === null || timeMs + FORECAST_INTERVAL_MS > modelAsOfMs) continue;
+    unique.set(timeMs, candle);
+  }
+  return [...unique.entries()]
+    .sort(([left], [right]) => left - right)
+    .map(([, candle]) => candle);
+}
+
+function forecastCandleForIndicators(candle) {
+  return {
+    time: forecastCandleTimeMs(candle),
+    open: Number(candle.open),
+    high: Number(candle.high),
+    low: Number(candle.low),
+    close: Number(candle.close),
+    volume: candle.volume == null ? null : Number(candle.volume),
+  };
+}
+
 function runIdentity(market) {
   return {
     runId: `btc-15m-strict:${market.marketId}`,
@@ -446,6 +492,15 @@ export function createBtc15mObserveCoordinator(dependencies = {}) {
     ?? dependencies.fetchGammaResolution
     ?? dependencies.fetchOfficialGammaTerminalMarket
     ?? ((market, options) => fetchOfficialGammaTerminalMarket(market, { ...options, fetchImpl }));
+  const candleSource = dependencies.candleSource ?? dependencies.candles ?? null;
+  const fetchForecastCandles = dependencies.fetchForecastCandles
+    ?? dependencies.fetchStrictCandles
+    ?? dependencies.fetchCandles
+    ?? dependencies.fetchChainlinkCandles
+    ?? (typeof candleSource === "function" ? candleSource : null)
+    ?? (typeof candleSource?.fetchCandles === "function" ? candleSource.fetchCandles.bind(candleSource) : null)
+    ?? ((options) => fetchChainlinkCandlePage("BTC", "15m", null, options.signal, { limit: FORECAST_CANDLE_LIMIT }));
+  const selectBoundary = dependencies.selectBoundaryTwap ?? selectBoundaryTwap;
   const validateConfig = dependencies.assertShortObserverConfig || assertShortObserverConfig;
   const owner = exactText(String(dependencies.owner || DEFAULT_OWNER));
   const state = {
@@ -782,7 +837,7 @@ export function createBtc15mObserveCoordinator(dependencies = {}) {
       signal.removeEventListener("abort", onParentAbort);
     }
     return {
-      result: selectBoundaryTwap({
+      result: selectBoundary({
         boundaryTimestampMs: market.startMs,
         rtdsFrame,
         chainlinkReport,
@@ -812,7 +867,7 @@ export function createBtc15mObserveCoordinator(dependencies = {}) {
       if (signal?.aborted) throw error;
     }
     return {
-      result: selectBoundaryTwap({
+      result: selectBoundary({
         boundaryTimestampMs: market.endMs,
         rtdsFrame,
         chainlinkReport,
@@ -1080,6 +1135,138 @@ export function createBtc15mObserveCoordinator(dependencies = {}) {
     return { status: "failed", errorCode: String(lastError?.code || "strict_collection_failed") };
   }
 
+  async function prepareStrictForecast({ market, run, sequence, capturedMs, openingEvidence, source, signal }) {
+    const policy = runPolicy(run);
+    const freezeAt = market.endMs - policy.freezeMs;
+    if (!(market.startMs < capturedMs && capturedMs < freezeAt)) {
+      return { status: "skipped:frozen_or_outside_window", forecast: null };
+    }
+    const remainingMs = market.endMs - capturedMs;
+    if (!Number.isSafeInteger(remainingMs) || remainingMs <= 0) {
+      return { status: "skipped:remaining_time_invalid", forecast: null };
+    }
+    let currentFrame;
+    try {
+      const getLatestFrame = source.getLatestFrame ?? source.getLatestBufferedFrame;
+      currentFrame = typeof getLatestFrame === "function" ? getLatestFrame.call(source) : null;
+    } catch {
+      return { status: "skipped:current_frame_unavailable", forecast: null };
+    }
+    if (!currentFrame) return { status: "skipped:current_frame_unavailable", forecast: null };
+    const current = parseRtdsCurrentSnapshot(currentFrame, {
+      nowMs: capturedMs,
+      topic: "crypto_prices_twap_sixty",
+      symbol: "btc/usd",
+      maxAgeMs: 15_000,
+      maxFutureSkewMs: 2_000,
+    });
+    if (current.status !== "OK") return { status: `skipped:${current.reason || "current_frame_invalid"}`, forecast: null };
+    if (openingEvidence.status !== "OK" || !isStrictForecastOpeningSource(openingEvidence.source)) {
+      return { status: "skipped:opening_boundary_unavailable", forecast: null };
+    }
+    const openingUsdPriceText = openingEvidence.decimalValueText ?? openingEvidence.value ?? null;
+    const openingUsdPrice = Number(openingUsdPriceText);
+    if (!exactText(openingUsdPriceText) || !Number.isFinite(openingUsdPrice) || openingUsdPrice <= 0) {
+      return { status: "skipped:opening_price_invalid", forecast: null };
+    }
+
+    let fetchedCandles;
+    try {
+      fetchedCandles = await Promise.resolve(fetchForecastCandles({
+        asset: "BTC", symbol: "BTC", interval: "15m", intervalMs: FORECAST_INTERVAL_MS,
+        limit: FORECAST_CANDLE_LIMIT, modelAsOfMs: capturedMs, signal,
+      }));
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return { status: "skipped:candles_unavailable", forecast: null };
+    }
+    const candles = Array.isArray(fetchedCandles) ? fetchedCandles : fetchedCandles?.candles;
+    const rawClosedCandles = (Array.isArray(candles) ? candles : [])
+      .filter((candle) => {
+        const timeMs = forecastCandleTimeMs(candle);
+        return timeMs !== null && timeMs + FORECAST_INTERVAL_MS <= capturedMs;
+      });
+    const closedCandles = deduplicateForecastCandles(rawClosedCandles, capturedMs);
+    if (closedCandles.length < 35) return { status: "skipped:insufficient_unique_closed_candles", forecast: null };
+    const cadence = assessVolatilityCadence({
+      candleTimesMs: rawClosedCandles.map(forecastCandleTimeMs), intervalMs: FORECAST_INTERVAL_MS, nowMs: capturedMs,
+    });
+    if (cadence.usable !== true) return { status: "skipped:candle_cadence_unusable", forecast: null };
+    const inflationFactor = Number(cadence.inflationFactor);
+    if (!Number.isFinite(inflationFactor) || inflationFactor < 1 || inflationFactor > 2) {
+      return { status: "skipped:volatility_inflation_invalid", forecast: null };
+    }
+    let indicators;
+    try {
+      indicators = calculateTechnicalIndicators(closedCandles.map(forecastCandleForIndicators));
+    } catch {
+      return { status: "skipped:technical_indicators_unavailable", forecast: null };
+    }
+    const intervalVolatility = Number(indicators?.intervalVolatility);
+    if (!Number.isFinite(intervalVolatility) || intervalVolatility <= 0) {
+      return { status: "skipped:interval_volatility_unavailable", forecast: null };
+    }
+    const probability = estimateTerminalUpProbability({
+      currentPrice: current.usdPrice, priceToBeat: openingUsdPrice, remainingMs,
+      intervalVolatility, atrIntervalMs: FORECAST_INTERVAL_MS, volatilityInflationFactor: inflationFactor,
+    });
+    if (!Number.isFinite(probability)) return { status: "skipped:probability_unavailable", forecast: null };
+    const upProbabilityPpm = Math.floor(Math.max(0, Math.min(100, probability)) * 10_000 + 0.5);
+    const downProbabilityPpm = 1_000_000 - upProbabilityPpm;
+    const features = {
+      registry: { discoveryPayloadHash: market.discoveryPayloadHash, fingerprintHash: market.fingerprintHash },
+      run_id: run.run_id,
+      sequence,
+      modelAsOfMs: capturedMs,
+      remainingMs,
+      opening: { evidenceId: null, evidenceHash: openingEvidence.canonicalHash, usdPriceText: openingUsdPriceText },
+      current: { rawFrameHash: hashPayload(currentFrame), timestampMs: current.timestampMs, usdPriceText: current.usdPriceText },
+      candles: {
+        payloadSha256: hashPayload(closedCandles),
+        rawCount: rawClosedCandles.length,
+        uniqueCount: closedCandles.length,
+        intervalMs: FORECAST_INTERVAL_MS,
+      },
+      cadence,
+      volatility: { intervalVolatilityText: String(intervalVolatility), inflationFactor },
+      modelVersion: STRICT_FORECAST_MODEL_VERSION,
+      featureContractVersion: STRICT_FORECAST_CONTRACT_VERSION,
+    };
+    const featuresJson = canonicalJson(features);
+    const featuresHash = hashText(featuresJson);
+    const decisionJson = canonicalJson({ modelVersion: STRICT_FORECAST_MODEL_VERSION, featureHash: featuresHash, upProbabilityPpm, downProbabilityPpm });
+    return {
+      status: "ok",
+      audit: {
+        opening: { evidenceId: null, evidenceHash: openingEvidence.canonicalHash, usdPriceText: openingUsdPriceText },
+        current: { rawFrame: currentFrame, rawFrameHash: features.current.rawFrameHash, timestampMs: current.timestampMs, usdPriceText: current.usdPriceText },
+        candles: features.candles,
+        rawClosedCandles: closedCandles,
+        cadence: features.cadence,
+        volatility: features.volatility,
+        featuresHash,
+        decisionHash: hashText(decisionJson),
+      },
+      forecast: {
+        marketId: market.marketId,
+        oracleTimestampMs: current.timestampMs,
+        capturedTimestampMs: capturedMs,
+        remainingMs,
+        probabilityUpPpm: upProbabilityPpm,
+        modelVersion: STRICT_FORECAST_MODEL_VERSION,
+        featureContractVersion: STRICT_FORECAST_CONTRACT_VERSION,
+        featuresJson,
+        featuresHash,
+        decisionJson,
+        decisionHash: hashText(decisionJson),
+        idempotencyKey: `${run.run_id}:${sequence}:${STRICT_FORECAST_MODEL_VERSION}`,
+        createdAt: iso(capturedMs),
+        openingEvidenceHash: openingEvidence.canonicalHash,
+        openingEvidenceKind: openingEvidence.kind,
+      },
+    };
+  }
+
   async function appendAuthoritativeAttempt(market, run, lease, startedAt, result) {
     const sequence = Number(run.next_sequence);
     const capturedMs = clockNow(clock);
@@ -1088,6 +1275,15 @@ export function createBtc15mObserveCoordinator(dependencies = {}) {
     const upEvidence = prepareBookEvidence({ market, run, sequence, side: "UP", capture: result.books.UP, capturedAt, capturedMs });
     const downEvidence = prepareBookEvidence({ market, run, sequence, side: "DOWN", capture: result.books.DOWN, capturedAt, capturedMs });
     const evidence = [openingEvidence, upEvidence, downEvidence];
+    const forecast = await prepareStrictForecast({
+      market,
+      run,
+      sequence,
+      capturedMs,
+      openingEvidence,
+      source: boundarySource(),
+      signal: state.attemptController?.signal,
+    });
     const auditPayload = buildStrictObserveOnlyAudit({
       registry: market,
       run: {
@@ -1111,6 +1307,7 @@ export function createBtc15mObserveCoordinator(dependencies = {}) {
         },
       },
     });
+    const auditWithForecast = { ...auditPayload, forecast: forecast.audit ?? null, forecastStatus: forecast.status };
     const policy = runPolicy(run);
     return Promise.resolve(storage.appendStrict({
       runId: run.run_id,
@@ -1123,7 +1320,7 @@ export function createBtc15mObserveCoordinator(dependencies = {}) {
       createdAt: capturedAt,
       contractVersion: STRICT_OBSERVE_CONTRACT_VERSION,
       modelVersion: STRICT_OBSERVE_MODEL_VERSION,
-      auditPayload,
+      auditPayload: auditWithForecast,
       collectionMode: "observe_only",
       scheduledAt: run.next_scheduled_at,
       startedAt: iso(startedAt),
@@ -1132,6 +1329,7 @@ export function createBtc15mObserveCoordinator(dependencies = {}) {
       errorCode: null,
       nextScheduledAt: iso(Date.parse(run.next_scheduled_at) + policy.intervalMs),
       evidence,
+      forecast: forecast.forecast,
       leaseOwner: owner,
       leaseToken: lease.lease_token,
       now: capturedAt,

@@ -575,6 +575,18 @@ export function createRtdsBoundarySource({
     return frames.get(boundaryTimestampMs) ?? null;
   }
 
+  function getLatestFrame() {
+    let latestTimestamp = null;
+    let latestFrame = null;
+    for (const [timestamp, frame] of frames) {
+      if (latestTimestamp === null || timestamp > latestTimestamp) {
+        latestTimestamp = timestamp;
+        latestFrame = frame;
+      }
+    }
+    return latestFrame;
+  }
+
   async function fetchChainlinkReport(boundaryTimestampMs, signal = null) {
     const timestamp = exactBoundaryTimestamp(boundaryTimestampMs);
     throwIfAborted(signal, "Chainlink report request aborted");
@@ -624,7 +636,7 @@ export function createRtdsBoundarySource({
     });
   }
 
-  return Object.freeze({ start, stop, getBoundary, waitForBoundary, fetchChainlinkReport, getState });
+  return Object.freeze({ start, stop, getBoundary, getLatestFrame, getLatestBufferedFrame: getLatestFrame, waitForBoundary, fetchChainlinkReport, getState });
 }
 
 function clobResolutionEvidence(message) {

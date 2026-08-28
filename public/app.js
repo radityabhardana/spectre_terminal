@@ -2790,6 +2790,9 @@ function renderQueue() {
     let evMetrics = "";
     let dynamicDetails = "";
     if (isDynamicEntryItem(m)) {
+      const ai = m.aiAnalysisResult;
+      if (m.aiAnalysisInFlight) sniperStatus += `<span style="color:var(--neon-cyan);font-size:9px;margin-left:6px">AI ANALYZING</span>`;
+      else if (ai || m.aiAnalysisError) sniperStatus += `<span style="color:${m.aiAnalysisError ? 'var(--neon-red)' : 'var(--neon-cyan)'};font-size:9px;margin-left:6px">AI ${m.aiAnalysisError ? 'FAILED' : 'READY'}</span>`;
       const state = m.entryScanner || { status: "waiting", confirmationCount: 0, requiredConfirmations: currentEntryScannerConfig().confirmations };
       const result = normalizeEntryScannerResult(state);
       const statusStyles = {
@@ -3000,6 +3003,61 @@ function isDynamicEntryItem(item) {
   return (item?.duration_type || item?.durationType) === "5m";
 }
 
+const AI_TRIGGER_SECONDS = { "5m": 150, "15m": 450, "1h": 1800, "4h": 7200 };
+
+function shortAiTriggerSeconds(item) {
+  return AI_TRIGGER_SECONDS[item?.duration_type || item?.durationType] ?? null;
+}
+
+function isSupportedShortAiItem(item) {
+  return shortAiTriggerSeconds(item) != null
+    && /\b(?:bitcoin|btc|ethereum|eth|dogecoin|doge)\b/i.test(String(item?.question || item?.title || ""))
+    && /\bup or down\b/i.test(String(item?.question || item?.title || ""));
+}
+
+function shouldTriggerShortAiAnalysis(item, remainingSeconds) {
+  const trigger = shortAiTriggerSeconds(item);
+  return isSupportedShortAiItem(item) && remainingSeconds > 0 && remainingSeconds <= trigger
+    && !item.aiAnalysisTriggered && !item.aiAnalysisInFlight;
+}
+
+function renderShortAiAnalysis(item) {
+  const content = document.getElementById("staticResultContent");
+  if (!content || !item) return;
+  const ai = item.aiAnalysisResult;
+  const error = item.aiAnalysisError;
+  const confidence = ai?.confidence == null || !Number.isFinite(Number(ai.confidence)) ? "Unavailable" : `${Number(ai.confidence)}%`;
+  const direction = ai?.direction || "Unavailable";
+  const probability = ai?.probability == null || !Number.isFinite(Number(ai.probability)) ? "Unavailable" : `${Number(ai.probability)}%`;
+  content.innerHTML = `<div style="padding:16px"><strong>AI SHORT ANALYSIS (ADVISORY)</strong><div style="margin-top:8px">Market: ${escapeHtml(item.question || item.id)}</div><div>Status: ${escapeHtml(error ? "Failed" : ai ? (ai.aiExplanationStatus || "Completed") : "Analyzing")}</div><div>Confidence: ${escapeHtml(confidence)}</div><div>Direction: ${escapeHtml(direction)}</div><div>Probability: ${escapeHtml(probability)}</div>${error ? `<div style="color:var(--neon-red)">${escapeHtml(error)}</div>` : ai?.result ? `<div style="margin-top:8px;white-space:pre-wrap">${escapeHtml(ai.result)}</div>` : ""}<small>Deterministic EV and guardrails remain authoritative.</small></div>`;
+}
+
+async function requestShortAiAnalysis(item) {
+  if (item.aiAnalysisTriggered || item.aiAnalysisInFlight) return;
+  item.aiAnalysisTriggered = true;
+  item.aiAnalysisInFlight = true;
+  item.aiAnalysisTriggeredAtRemainingSeconds = item._aiRemainingSeconds;
+  renderQueue();
+  try {
+    const response = await fetch("/api/short-ai-analysis", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ marketId: String(item.id) }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "AI analysis failed.");
+    item.aiAnalysisResult = data;
+    renderShortAiAnalysis(item);
+  } catch (error) {
+    item.aiAnalysisError = error?.message || "AI analysis failed.";
+    renderShortAiAnalysis(item);
+  } finally {
+    item.aiAnalysisInFlight = false;
+    renderQueue();
+  }
+}
+
 function finishDynamicScan(item, remainingSeconds) {
   const previousStatus = item.entryScanner?.status;
   item.entryScanner = terminalizeEntryScannerState(
@@ -3158,8 +3216,11 @@ function runSniperTick() {
     if (!m.endDate) return;
     const timeToClose = new Date(m.endDate).getTime() - Date.now();
 
+    const remainingSeconds = timeToClose / 1000;
+    m._aiRemainingSeconds = remainingSeconds;
+    if (shouldTriggerShortAiAnalysis(m, remainingSeconds)) requestShortAiAnalysis(m);
+
     if (isDynamicEntryItem(m)) {
-      const remainingSeconds = timeToClose / 1000;
       const config = currentEntryScannerConfig();
       if (!m.entryScanner) m.entryScanner = { status: "waiting", confirmationCount: 0, requiredConfirmations: config.confirmations };
       if (remainingSeconds <= 0) {

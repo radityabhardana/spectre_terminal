@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config.js";
 import { startBtc15mObserveCollector, stopBtc15mObserveCollector } from "./short-observe-coordinator.js";
-import { getFastShortEntrySnapshot, handleCommand } from "./index.js";
+import { analyzeShortMarketForWeb, getFastShortEntrySnapshot, handleCommand } from "./index.js";
 import { enterCommandGuard, getCooldownState, releaseCommandGuard } from "./rate-limit.js";
 import { SEARCH_ENGINE_VERSION, getShortTermMarkets } from "./polymarket.js";
 import { ANALYSIS_STRATEGY_VERSION, getAnalyzedEvents, getAnalyzedEventById, getAnalysisLogs } from "./storage.js";
@@ -537,7 +537,60 @@ export function startWebServer(options = {}) {
         return;
       }
 
-      if (req.method === "POST" && req.url === "/api/short-entry-snapshot") {
+      if (req.method === "POST" && req.url === "/api/short-ai-analysis") {
+        const controller = new AbortController();
+        const timeoutController = new AbortController();
+        let clientCancelled = false;
+        const timeout = setTimeout(() => timeoutController.abort(), 30_000);
+        req.on("aborted", () => {
+          clientCancelled = true;
+          controller.abort();
+        });
+        res.on("close", () => {
+          if (!res.writableEnded) {
+            clientCancelled = true;
+            controller.abort();
+          }
+        });
+        const signal = AbortSignal.any([controller.signal, timeoutController.signal]);
+        try {
+          const body = await readBody(req);
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            sendJson(res, 400, { ok: false, error: "Body JSON harus berupa object." });
+            return;
+          }
+          const marketId = String(body.marketId || "").trim();
+          if (!/^\d{1,30}$/.test(marketId)) {
+            sendJson(res, 400, { ok: false, error: "marketId tidak valid." });
+            return;
+          }
+          const details = await analyzeShortMarketForWeb(marketId, signal);
+          if (signal.aborted || res.destroyed || res.writableEnded) return;
+          sendJson(res, 200, {
+            ok: true,
+            result: details.result,
+            confidence: details.confidence,
+            direction: details.direction,
+            probability: details.probability,
+            marketId,
+            analysis: details.analysis,
+            aiExplanationStatus: details.aiExplanationStatus,
+          });
+        } catch (error) {
+          if (res.destroyed || res.writableEnded) return;
+          const timedOut = timeoutController.signal.aborted;
+          const status = timedOut ? 504 : clientCancelled || controller.signal.aborted ? 499 : error.status || 500;
+          const message = timedOut ? "AI analysis timed out." : clientCancelled || controller.signal.aborted ? "AI analysis cancelled." : "AI analysis failed.";
+          sendJson(res, status, { ok: false, error: message });
+        } finally {
+          clearTimeout(timeout);
+        }
+        return;
+      }
+
+
+       if (req.method === "POST" && req.url === "/api/short-entry-snapshot") {
+
         let slotAcquired = false;
         try {
           validateShortSnapshotRequest(req);

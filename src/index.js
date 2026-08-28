@@ -791,7 +791,7 @@ async function resolveEventInput(arg, signal = null) {
   return resolveAnalyzeAllEventInput(arg, signal);
 }
 
-async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null }) {
+async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null, returnDetails = false }) {
   throwIfAborted(signal);
   setStep("Fetching CLOB orderbook");
   const scored = await scoreOneMarket(market, signal);
@@ -901,7 +901,30 @@ async function deepAnalyzeMarket({ market, query, setStep, ctx, signal = null })
     if (analyzedEventId == null) throw new Error("Hasil analisis gagal disimpan ke history.");
   }
 
+  if (returnDetails) {
+    return {
+      result: fullAnalysisMarkdown,
+      confidence: qwenResult?.analysis?.confidence ?? null,
+      direction: qwenResult?.analysis?.forecastDirection || qwenResult?.analysis?.scoutDirection || finalPrediction,
+      probability: qwenResult?.analysis?.primaryOutcomeProbability ?? qwenResult?.analysis?.estimatedFairProbability ?? null,
+      analysis: qwenResult?.analysis || null,
+      aiExplanationStatus: qwenResult?.aiExplanationStatus || null,
+    };
+  }
   return fullAnalysisMarkdown;
+}
+
+export async function analyzeShortMarketForWeb(marketId, signal = null) {
+  const target = { kind: "market", market: await getMarketById(String(marketId || "").trim(), true, signal) };
+  const market = requireShortAnalysisMarket(target);
+  return deepAnalyzeMarket({
+    market,
+    query: String(marketId),
+    setStep: () => {},
+    ctx: { commandStartTime: Date.now() },
+    signal,
+    returnDetails: true,
+  });
 }
 
 async function quickScanEvent({ result, query, setStep, ctx, limit = 8, signal = null }) {

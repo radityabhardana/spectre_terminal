@@ -14,6 +14,7 @@ import {
   sanitizeHttpUrl,
 } from "./render-safety.js";
 import { buildMarketSummaryHtml } from "./market-summary.js";
+import { isSupportedShortAiItem, markShortAiAnalysisTriggered, shouldTriggerShortAiAnalysis, shortAiTriggerSeconds } from "./short-ai-trigger.js";
 
 /* ============================================================
    MVPM Terminal — Smart Input App Logic
@@ -3003,24 +3004,6 @@ function isDynamicEntryItem(item) {
   return (item?.duration_type || item?.durationType) === "5m";
 }
 
-const AI_TRIGGER_SECONDS = { "5m": 150, "15m": 450, "1h": 1800, "4h": 7200 };
-
-function shortAiTriggerSeconds(item) {
-  return AI_TRIGGER_SECONDS[item?.duration_type || item?.durationType] ?? null;
-}
-
-function isSupportedShortAiItem(item) {
-  return shortAiTriggerSeconds(item) != null
-    && /\b(?:bitcoin|btc|ethereum|eth|dogecoin|doge)\b/i.test(String(item?.question || item?.title || ""))
-    && /\bup or down\b/i.test(String(item?.question || item?.title || ""));
-}
-
-function shouldTriggerShortAiAnalysis(item, remainingSeconds) {
-  const trigger = shortAiTriggerSeconds(item);
-  return isSupportedShortAiItem(item) && remainingSeconds > 0 && remainingSeconds <= trigger
-    && !item.aiAnalysisTriggered && !item.aiAnalysisInFlight;
-}
-
 function renderShortAiAnalysis(item) {
   const content = document.getElementById("staticResultContent");
   if (!content || !item) return;
@@ -3034,9 +3017,7 @@ function renderShortAiAnalysis(item) {
 
 async function requestShortAiAnalysis(item) {
   if (item.aiAnalysisTriggered || item.aiAnalysisInFlight) return;
-  item.aiAnalysisTriggered = true;
-  item.aiAnalysisInFlight = true;
-  item.aiAnalysisTriggeredAtRemainingSeconds = item._aiRemainingSeconds;
+  markShortAiAnalysisTriggered(item, item._aiRemainingSeconds);
   renderQueue();
   try {
     const response = await fetch("/api/short-ai-analysis", {
